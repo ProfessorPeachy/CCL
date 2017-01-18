@@ -1,0 +1,47 @@
+select distinct
+    oj.name
+    ,ojs.step_name
+    ,time = format(ost.schedule_dt_tm,"HH:MM;;")
+    ,ost.name
+    ,osp_batch = osp.batch_selection
+    ,osp.output_dist
+    ,ojs_batch = ojs.batch_selection,ojs.beg_effective_dt_tm, ojs.end_effective_dt_tm, ojs.batch_selection_ind, ojs.message
+    ,osp.batch_selection,osp.batch_selection,osp.output_dist
+    ,ocg.host, ocg.name, ocg.server_number
+    ,ot.job_number, ot.active_ind, ot.beg_effective_dt_tm,ot.end_effective_dt_tm
+    , OCG.name, *
+    ;,ost.status_cd
+ 
+from
+    ops_job oj
+    , ops_job_step ojs
+    , ops_schedule_param osp
+    , ops_schedule_task ost
+    , OPS_CONTROL_GROUP OCG
+    , OPS_TASK OT
+ 
+plan oj
+join ojs
+    where oj.ops_job_id = ojs.ops_job_id
+    ;and (ojs.step_name = "*cass*" or ojs.step_name = "*CASS*")
+ 
+join osp
+    where ojs.ops_job_step_id = osp.ops_job_step_id
+    and CNVTUPPER(osp.batch_selection) = "*CYFCAFELP1*"
+    ;and (osp.batch_selection = "*_RPT_HEIGHT_WEIGHT*" and osp.batch_selection = "*_rpt_height_weight*"); or osp.batch_selection = "*ICR|*")
+    and osp.active_ind = 1
+ 
+join ost
+    where ost.ops_task_id = osp.ops_task_id
+     ;and ost.name in ("*CCA*", "*cca*")
+    ;and (ost.name = "*HT*"); or ost.name = "*CASS*" or ost.name = "*Cass*")
+JOIN OT
+    WHERE OT.ops_task_id = OST.ops_task_id
+    AND OT.active_ind = 1
+JOIN OCG
+    WHERE OCG.ops_control_grp_id = OT.ops_control_grp_id
+    AND OCG.active_ind = 1
+ 
+order by time, ost.name
+WITH TIME = 30
+ 
