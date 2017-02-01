@@ -1,0 +1,306 @@
+drop program apmd_ed_clinical_event go
+create program apmd_ed_clinical_event
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Begin Date" = "CURDATE"
+	, "End Date" = "CURDATE"
+	, "Tracking Grop" = 0
+ 
+with OUTDEV, BEGINDATE, ENDDATE, TRACKING_GROUP_CD
+ 
+/**********************************************************************************************************************************
+              Purpose:	Basic Patient Demographics and Tracking Events for APMD
+          Application:	FirstNet
+  Exectuion Locations:	Operations
+            Request #:  NA
+      Translated From:	Not Translated
+        Special Notes:
+/**********************************************************************************************************************************
+ 
+                                           MODIFICATION CONTROL LOG
+ 
+***********************************************************************************************************************************
+   Mod #    Date           Engineer             Description
+   -----    -------------  ------------------   -----------------------------------------------------------------------------------
+   1        10/05/2013     Paul Kruger          Initial Release
+ 
+**********************************************************************************************************************************/
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                         DECLARATIONS
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+declare Section_Start_Dt_Tm = dq8 with protect, noconstant(cnvtdatetime(curdate, curtime3))
+call echo(concat("DECLARATIONS...", format(cnvtdatetime(curdate, curtime3), "@SHORTDATETIME")))
+/*=================================================================================================================================
+ 
+                                                           CONSTANTS
+ 
+=================================================================================================================================*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       Programming Constants     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+DECLARE FILE_DIRECTORY = VC WITH PROTECT, CONSTANT(build2(trim(logical("CCLUSERDIR")), "/"))  ;Must be full path with / at end
+DECLARE APMD_ED_CLINICAL_EVENT_FILE = VC WITH PROTECT, CONSTANT(CONCAT(FILE_DIRECTORY,  'apmd_ed_clinical_event.dat'))
+ 
+ 
+ 
+;Medical Record Number and Chart Number Constants
+DECLARE FIN_NBR_319_CV = F8 WITH  CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 319, "FINNBR")), PROTECT
+ 
+;Number of Encounters to Search for Orders at a Time
+DECLARE ENCNTR_BLOCK = I4 WITH  CONSTANT(200), PROTECT
+ 
+;Delimiters
+DECLARE SEPARATOR = VC WITH PROTECT, CONSTANT('"|"')
+DECLARE ROW_START = VC WITH PROTECT, CONSTANT('"')
+DECLARE ROW_TERMINATE = VC WITH PROTECT, CONSTANT('"')
+ 
+/*=================================================================================================================================
+ 
+                                                            VARIABLES
+ 
+=================================================================================================================================*/
+DECLARE Begin_Date = DQ8 WITH PROTECT   ;The start date for the report
+DECLARE End_Date = DQ8 WITH PROTECT    ;The final date for the report
+DECLARE Temp_Date_DQ8 = DQ8 WITH PUBLIC   ;Temporary date for processing funtions
+DECLARE Display_Line = VC WITH PROTECT, NOCONSTANT('') ;Report Display
+ 
+;Iterator
+DECLARE Nbr_Iterations = I4 WITH PROTECT, NOCONSTANT(0)
+ 
+/*=================================================================================================================================
+ 
+                                                           INITIALIZATION
+ 
+=================================================================================================================================*/
+CALL ECHO(CONCAT("INITIALIZATION...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+/*----------------------------------------------------  Begin_Date and End_Date -------------------------------------------------*/
+execute thc1_apmd_date_conversion $BEGINDATE, "BOD" ;Date, Beginning of Day
+SET Begin_Date = Temp_Date_DQ8
+execute thc1_apmd_date_conversion $ENDDATE, "EOD" ;Date parameter, End of Day
+SET End_Date = Temp_Date_DQ8
+ 
+CALL ECHO(CONCAT("VARIABLE AND CONSTANTS Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                        CLINICAL EVENTS
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+CALL ECHO(CONCAT("CLINICAL EVENTS...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+/*=================================================================================================================================
+ 
+                                                          DEMOGRAPHICS
+ 
+=================================================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+;Setup a sequence to give each row a unique number
+call parser("rdb drop sequence apmd_ce_seq go")
+call parser("rdb create sequence apmd_ce_seq go")
+ 
+;Get APMD Data
+SELECT INTO TABLE APMDEVT
+   ROW_NBR = SEQ(apmd_ce_seq, NEXTVAL),
+   TI.ENCNTR_ID,
+   FIN_NBR = CNVTALIAS(FIN.ALIAS, FIN.ALIAS_POOL_CD)
+ 
+FROM
+   TRACKING_CHECKIN TC,
+   TRACKING_ITEM TI,
+   ENCNTR_ALIAS FIN
+ 
+PLAN TC WHERE
+   TC.CHECKIN_DT_TM >= CNVTDATETIME(Begin_Date)
+   AND TC.CHECKIN_DT_TM <= CNVTDATETIME(End_Date)
+   AND TC.TRACKING_GROUP_CD = $TRACKING_GROUP_CD
+   AND TC.ACTIVE_IND = 1
+ 
+JOIN TI WHERE
+   TI.TRACKING_ID = TC.TRACKING_ID
+   AND TI.ENCNTR_ID +0.0 > 0.0
+;   AND TI.ENCNTR_ID IN(199538611.00,  199537797.00, 199538595.00, 199537456.00)
+   AND TI.ACTIVE_IND = 1
+ 
+JOIN FIN WHERE
+   FIN.ENCNTR_ID = OUTERJOIN(TI.ENCNTR_ID)
+   AND FIN.ENCNTR_ALIAS_TYPE_CD = OUTERJOIN(FIN_NBR_319_CV)
+   AND FIN.ACTIVE_IND = OUTERJOIN(1)
+   AND FIN.BEG_EFFECTIVE_DT_TM <= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+   AND FIN.END_EFFECTIVE_DT_TM >= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+ 
+WITH ORGANIZATION = W
+ 
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+/*=================================================================================================================================
+ 
+                                                        CLINICAL EVENTS
+ 
+=================================================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("CLINICAL EVENTS QUERY...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+;Calculate the Number of Times to Loop through the orders
+SET Nbr_Iterations = CURQUAL/ENCNTR_BLOCK
+IF (MOD(CURQUAL, ENCNTR_BLOCK) > 0)
+   SET Nbr_Iterations = Nbr_Iterations + 1
+ENDIF
+ 
+;Iterate and Add Clinical Events
+FOR (I = 1 to Nbr_Iterations)
+   IF (I = 1)
+      ;Write Initial Data File
+      SELECT INTO VALUE(APMD_ED_CLINICAL_EVENT_FILE)
+         EO.FIN_NBR,
+         CE.ORDER_ID,
+         CE.EVENT_CLASS_CD,
+         CE.CATALOG_CD,
+         CE.EVENT_CD,
+         CE.TASK_ASSAY_CD,
+         CE.EVENT_TITLE_TEXT,
+         CE.EVENT_TAG,
+         CE.RESULT_VAL,
+         CE.RESULT_UNITS_CD,
+         CE.EVENT_END_DT_TM,
+         CE.NORMALCY_CD,
+         CE.NORMAL_LOW,
+         CE.NORMAL_HIGH,
+         CE.CRITICAL_LOW,
+         CE.CRITICAL_HIGH
+ 
+      FROM
+         APMDEVT EO,
+         CLINICAL_EVENT CE
+ 
+      PLAN EO WHERE
+         EO.ROW_NBR > (I - 1) * ENCNTR_BLOCK
+         AND EO.ROW_NBR <= I * ENCNTR_BLOCK
+ 
+      JOIN CE WHERE
+         CE.ENCNTR_ID = EO.ENCNTR_ID
+         AND CE.ORDER_ID +0.0 > 0.0
+         AND CE.VALID_UNTIL_DT_TM >= CNVTDATETIME(CURDATE, CURTIME)
+         AND CE.VIEW_LEVEL = 1
+ 
+      HEAD REPORT
+       Display_Line = CONCAT(ROW_START, "PATIENT_CHART_NUMBER",
+                             SEPARATOR, "Order_Id",
+                             SEPARATOR, "Event_Class",
+                             SEPARATOR, "Proc_Number",
+                             SEPARATOR, "Proc_Display",
+                             SEPARATOR, "Event_Display",
+                             SEPARATOR, "DTA_Display",
+                             SEPARATOR, "Event_Title",
+                             SEPARATOR, "Event_Tag",
+                             SEPARATOR, "Result_Val",
+                             SEPARATOR, "Result_Units",
+                             SEPARATOR, "Result_Date_Time",
+                             SEPARATOR, "Normalcy",
+                             SEPARATOR, "Normal_Low",
+                             SEPARATOR, "Normal_High",
+                             SEPARATOR, "Critical_Low",
+                             SEPARATOR, "Critical_High",
+                             ROW_TERMINATE)
+       COL 0  Display_Line
+ 
+      DETAIL
+       Display_Line = BUILD(ROW_START, EO.FIN_NBR,
+                            SEPARATOR, CE.ORDER_ID,
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.EVENT_CLASS_CD),
+                            SEPARATOR, TRIM(CNVTSTRING(CE.CATALOG_CD), 3),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.CATALOG_CD),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.EVENT_CD),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.TASK_ASSAY_CD),
+                            SEPARATOR, CE.EVENT_TITLE_TEXT,
+                            SEPARATOR, CE.EVENT_TAG,
+                            SEPARATOR, CE.RESULT_VAL,
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.RESULT_UNITS_CD),
+                            SEPARATOR, FORMAT(CE.EVENT_END_DT_TM, "@SHORTDATETIME"),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.NORMALCY_CD),
+                            SEPARATOR, CE.NORMAL_LOW,
+                            SEPARATOR, CE.NORMAL_HIGH,
+                            SEPARATOR, CE.CRITICAL_LOW,
+                            SEPARATOR, CE.CRITICAL_HIGH,
+                            ROW_TERMINATE)
+       ROW +1
+       COL 0  Display_Line
+      WITH MAXROW = 1, MAXCOL = 32000, NOFORMFEED, FORMAT = UNDEFINED, NULLREPORT
+   ELSE
+      ;Query is exactly the same as above, modified to append to the data file
+      SELECT INTO VALUE(APMD_ED_CLINICAL_EVENT_FILE)
+         EO.FIN_NBR,
+         CE.ORDER_ID,
+         CE.EVENT_CLASS_CD,
+         CE.CATALOG_CD,
+         CE.EVENT_CD,
+         CE.TASK_ASSAY_CD,
+         CE.EVENT_TITLE_TEXT,
+         CE.EVENT_TAG,
+         CE.RESULT_VAL,
+         CE.RESULT_UNITS_CD,
+         CE.EVENT_END_DT_TM,
+         CE.NORMALCY_CD,
+         CE.NORMAL_LOW,
+         CE.NORMAL_HIGH,
+         CE.CRITICAL_LOW,
+         CE.CRITICAL_HIGH
+ 
+      FROM
+         APMDEVT EO,
+         CLINICAL_EVENT CE
+ 
+      PLAN EO WHERE
+         EO.ROW_NBR > (I - 1) * ENCNTR_BLOCK
+         AND EO.ROW_NBR <= I * ENCNTR_BLOCK
+ 
+      JOIN CE WHERE
+         CE.ENCNTR_ID = EO.ENCNTR_ID
+         AND CE.VALID_UNTIL_DT_TM >= CNVTDATETIME(CURDATE, CURTIME)
+         AND CE.VIEW_LEVEL = 1
+ 
+      DETAIL
+       Display_Line = BUILD(ROW_START, EO.FIN_NBR,
+                            SEPARATOR, CE.ORDER_ID,
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.EVENT_CLASS_CD),
+                            SEPARATOR, TRIM(CNVTSTRING(CE.CATALOG_CD), 3),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.CATALOG_CD),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.EVENT_CD),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.TASK_ASSAY_CD),
+                            SEPARATOR, CE.EVENT_TITLE_TEXT,
+                            SEPARATOR, CE.EVENT_TAG,
+                            SEPARATOR, CE.RESULT_VAL,
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.RESULT_UNITS_CD),
+                            SEPARATOR, FORMAT(CE.EVENT_END_DT_TM, "@SHORTDATETIMENOSEC"),
+                            SEPARATOR, UAR_GET_CODE_DISPLAY(CE.NORMALCY_CD),
+                            SEPARATOR, CE.NORMAL_LOW,
+                            SEPARATOR, CE.NORMAL_HIGH,
+                            SEPARATOR, CE.CRITICAL_LOW,
+                            SEPARATOR, CE.CRITICAL_HIGH,
+                            ROW_TERMINATE)
+       ROW +1
+       COL 0  Display_Line
+      WITH MAXROW = 1, MAXCOL = 32000, NOFORMFEED, FORMAT = UNDEFINED, NULLREPORT, APPEND
+   ENDIF
+ENDFOR
+ 
+CALL ECHO(CONCAT("CLINICAL EVENTS QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                 END
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+IF (VALIDATE(REPLY->OPS_EVENT) AND VALIDATE(REQUEST->OUTPUT_DIST) AND VALIDATE (REPLY->STATUS_DATA->STATUS))
+ ;This code executes inside operations
+ ;Declares a successful run
+ SET REPLY->STATUS_DATA->STATUS = "S"
+ENDIF
+ 
+END GO
