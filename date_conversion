@@ -1,0 +1,472 @@
+drop program thc1_apmd_date_conversion go
+create program thc1_apmd_date_conversion
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Begin Date" = "CURDATE"
+	, "End Date" = "CURDATE"
+	, "Tracking Grop" = 0
+ 
+with OUTDEV, BEGINDATE, ENDDATE, TRACKING_GROUP_CD
+ 
+/****************************************************************************************************************
+                                             PROGRAM NAME HEADER
+              Purpose:	Sets up date prompts to execute from operations or explorer menu
+     Source File Name:	thc1_date_conversion.prg
+          Application:	Functional Program
+  Exectuion Locations:	Backend Only
+            Request #:	None
+      Translated From:	N/A
+        Special Notes:	Requires Variable Declaration:
+                            DECLARE Temp_Date_DQ8 = DQ8 WITH PUBLIC, NOCONSTANT
+ 
+                            Parameters:  $1 = Date (can also flex to full date/time)
+                                         $2 = Time
+ 
+                            Accepts Dates in the following formats and converts
+                            to a system date:
+ 
+       1) thc1_apmd_date_conversion curdate, curtime          ; Current Date (numeric Julian Date) / Current Time (numeric)
+       2) thc1_apmd_date_conversion curdate, "EOB"            ; Current Date (numeric Julian Date) / End of Business Day (5:00 PM)
+       3) thc1_apmd_date_conversion "curdate|curtime", "None" ; Current Date and time from operations
+       4) thc1_apmd_date_conversion "curdate|standard", "EOB" ; Current Date based on standard time / End of Business Day (5:00 PM)
+       5) thc1_apmd_date_conversion "01-JAN-2005", "EOB"      ; Jan 1st 2005 / End of Business Dat (5:00 PM)
+       6) thc1_apmd_date_conversion "01-JAN-2005 08:30", "None" ;Jan 1st 2005 / 08:30 (8:30 AM)
+       7) thc1_apmd_date_conversion "01-JAN-2005 08:30:26", "None" ;Jan 1st 2005 / 08:30:26 (8:30:26 AM)
+       8) thc1_apmd_date_conversion "BOM|standard", "EOB"  ;Begining of the Month (1st of this month) / End of Business Day (5:00 PM)
+       9) thc1_apmd_date_conversion "DOM:15-3|standard", "EOB" ; 15th day of the month 3 months ago / End of Business Day (5:00 PM)
+ 
+ 
+;****************************************************************************************************************
+ 
+                                           MODIFICATION CONTROL LOG
+ 
+;****************************************************************************************************************
+ 
+   Mod	Date		Engineer		Description
+   ---  --------------- ----------------------- ----------------------------------------------------------------
+    1	10/04/2016	Amelia Jamison	Initial Release
+ 
+;***************************************************************************************************************/
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                             CURDATE, CURTIME CASE (#1)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+IF (ISNUMERIC($1) AND ISNUMERIC($2))
+   SET Temp_Date_DQ8 = CNVTDATETIME($1, $2)
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                        CURDATE, STANDARD TIME CONVENTION (#2)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+ELSEIF(ISNUMERIC($1))
+   CASE ($2)
+    OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME($1, 0)
+    OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME($1, 235959)
+    OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME($1, 120000)
+    OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME($1, 170000)
+    OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME($1, 080000)
+   ELSE
+      SET Temp_Date_DQ8 = CNVTDATETIME($1)
+   ENDCASE
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                      TEXT WITH NO SECOND PARAMETER (#3, #8, #9)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+ELSEIF (FINDSTRING("|", CNVTUPPER($1)) AND CNVTUPPER($2) = "NONE")
+   ;Below is a Big Switchboard translating textual user input - Cases are indicated in comment (with the case of
+   ; curtime, curtime2, or curtime3 included)
+   SET CurdateString = CNVTUPPER(SUBSTRING(1, FINDSTRING('|', $1) - 1, $1))
+   SET CurtimeString = CNVTUPPER(SUBSTRING(FINDSTRING('|', $1) + 1, TEXTLEN($1), $1))
+ 
+   ;Code for Begining of the month
+   IF (FINDSTRING('BOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+       ;Adjusting the date to the Beginning of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","B","B")
+ 
+      ;Adding on time
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"),
+                                          CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ;Code for End of the month
+   ELSEIF (FINDSTRING('EOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month Offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+      ;Adjusting the date to the end of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","E","B")
+ 
+       ;Adding on time
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(Temp_Date_DQ8, "DD-MMM-YYYY;;D"),
+                                          CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ;Code for Day of the Month
+   ELSEIF (FINDSTRING('DOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month Offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(FINDSTRING('-', CurdateString) - 1,
+                                               TEXTLEN(CurdateString),
+                                               CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(FINDSTRING('+', CurdateString) - 1,
+                                               TEXTLEN(CurdateString),
+                                               CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+       ;Adjusting the date to the Beginning of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","B","B")
+ 
+      ;Getting the correct day
+      DECLARE DAY_OF_MNTH = I4 WITH PUBLIC, NOCONSTANT
+ 
+      IF (FINDSTRING('-', CurdateString))
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, FINDSTRING('-', CurdateString) - 5, CNVTALPHANUM(CurdateString)))
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, FINDSTRING('+', CurdateString) - 5, CNVTALPHANUM(CurdateString)))
+      ELSE
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString)))
+      ENDIF
+      CASE (MONTH(Temp_Date_DQ8))
+       OF  1: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  2: IF (DAY_OF_MNTH > 28)
+                SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, 2, FORMAT(DATETIMEFIND(Temp_Date_DQ8,"M","E","E"), "@SHORTDATE")))
+              ENDIF
+       OF  3: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  4: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF  5: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  6: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF  7: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  8: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  9: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF 10: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF 11: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF 12: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+      ENDCASE
+ 
+       ;Adding on time
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"), CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"), CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"), CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CNVTDATE(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                          CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ;Addition on Curdate
+   ELSEIF (FINDSTRING('+', CurdateString))
+ 
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE + CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE + CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE + CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE + CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ;Subtraction on Curdate
+   ELSEIF (FINDSTRING('-', CurdateString))
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE - CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE - CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE - CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE - CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))),
+                                          CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ;No operations performed on Curdate
+   ELSE
+      IF (FINDSTRING('CURTIME3', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, CURTIME3)
+      ELSEIF (FINDSTRING('CURTIME2', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, CURTIME2)
+      ELSEIF (FINDSTRING('CURTIME', CurtimeString))
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, CURTIME)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, CNVTINT(REPLACE(CurtimeString, ":", "")))
+      ENDIF
+ 
+   ENDIF
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                    TEXT WITH STANDARD CONVENTIONS (#5, #8, #9)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+ELSEIF (FINDSTRING("STANDARD", CNVTUPPER($1)))
+   ;Below is a Switchboard translating textual user input - Cases are indicated in comment (with the case of
+   ; curtime, curtime2, or curtime3 included)
+   SET CurdateString = CNVTUPPER(SUBSTRING(1, FINDSTRING('|', $1) - 1, $1))
+ 
+   ;Code for Begining of the month
+   IF (FINDSTRING('BOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+       ;Adjusting the date to the Beginning of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","B","B")
+ 
+      ;Standard Time definitions
+      CASE ($2)
+       OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 00:00:00"))
+       OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 23:59:59"))
+       OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 12:00:00"))
+       OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 17:00:00"))
+       OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 08:00:00"))
+      ENDCASE
+ 
+   ;Code for End of the month
+   ELSEIF (FINDSTRING('EOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month Offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+      ;Adjusting the date to the end of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","E","B")
+ 
+      ;Standard Time definitions
+      CASE ($2)
+       OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 00:00:00"))
+       OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 23:59:59"))
+       OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 12:00:00"))
+       OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 17:00:00"))
+       OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(Temp_Date_DQ8, "DD-MMM-YYYY;;D"), " 08:00:00"))
+      ENDCASE
+ 
+   ELSEIF (FINDSTRING('DOM', CurdateString))
+      SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","B","B")
+ 
+      ;Month Offset
+      IF (FINDSTRING('-', CurdateString))
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(FINDSTRING('-', CurdateString) - 1,
+                                               TEXTLEN(CurdateString),
+                                               CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, - 1),"M","B","B")
+         ENDFOR
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET Temp_Date_DQ8 = DATETIMEFIND(CNVTDATETIME(CURDATE, CURTIME),"M","E","E")
+         FOR (MNTHCNT = 1 TO CNVTINT(SUBSTRING(FINDSTRING('+', CurdateString),
+                                               TEXTLEN(CurdateString),
+                                               CNVTALPHANUM(CurdateString))))
+            SET Temp_Date_DQ8 = DATETIMEFIND(DATETIMEADD(Temp_Date_DQ8, + 1),"M","E","E")
+         ENDFOR
+      ENDIF
+ 
+       ;Adjusting the date to the Beginning of the month
+      SET Temp_Date_DQ8 = DATETIMEFIND(Temp_Date_DQ8,"M","B","B")
+ 
+      ;Getting the correct day
+      DECLARE DAY_OF_MNTH = I4 WITH PUBLIC, NOCONSTANT
+      IF (FINDSTRING('-', CurdateString))
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, FINDSTRING('-', CurdateString) - 5, CNVTALPHANUM(CurdateString)))
+      ELSEIF (FINDSTRING('+', CurdateString))
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, FINDSTRING('+', CurdateString) - 5, CNVTALPHANUM(CurdateString)))
+      ELSE
+         SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString)))
+      ENDIF
+      CASE (MONTH(Temp_Date_DQ8))
+       OF  1: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  2: IF (DAY_OF_MNTH > 28)
+                SET DAY_OF_MNTH = CNVTINT(SUBSTRING(4, 2, FORMAT(DATETIMEFIND(Temp_Date_DQ8,"M","E","E"), "@SHORTDATE")))
+              ENDIF
+       OF  3: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  4: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF  5: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  6: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF  7: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  8: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF  9: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF 10: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+       OF 11: IF (DAY_OF_MNTH > 30) SET DAY_OF_MNTH = 30 ENDIF
+       OF 12: IF (DAY_OF_MNTH > 31) SET DAY_OF_MNTH = 31 ENDIF
+      ENDCASE
+ 
+      ;Standard time definitions
+      CASE ($2)
+       OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                                  " 00:00:00"))
+       OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                                  " 23:59:59"))
+       OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                                  " 12:00:00"))
+       OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                                  " 17:00:00"))
+       OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT(FORMAT(DATETIMEADD(Temp_Date_DQ8, + DAY_OF_MNTH -1), "DD-MMM-YYYY;;D"),
+                                                  " 08:00:00"))
+      ENDCASE
+ 
+   ;Addition on Curdate
+   ELSEIF (FINDSTRING('+', CurdateString))
+      CASE ($2)
+       OF  'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE +
+                                                  CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 0)
+       OF  'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE +
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 235959)
+       OF  'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE +
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 120000)
+       OF  'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE +
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 170000)
+       OF  'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE +
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 080000)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE + CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+      ENDCASE
+ 
+   ;Subtraction on Curdate
+   ELSEIF (FINDSTRING('-', CurdateString))
+      CASE ($2)
+       OF  'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE -
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 0)
+       OF  'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE -
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 235959)
+       OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE -
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 120000)
+       OF  'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE -
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 170000)
+       OF  'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE -
+                                               CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))), 080000)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE - CNVTINT(SUBSTRING(8, TEXTLEN(CurdateString), CNVTALPHANUM(CurdateString))))
+      ENDCASE
+ 
+   ;No operations on curdate
+   ELSE
+      CASE ($2)
+       OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, 0)
+       OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, 235959)
+       OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, 120000)
+       OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, 170000)
+       OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE, 080000)
+      ELSE
+         SET Temp_Date_DQ8 = CNVTDATETIME(CURDATE)
+      ENDCASE
+   ENDIF
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                            DATE GIVEN WITH STANDARD TIME (#5)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+ELSEIF (TEXTLEN($1) = 11)
+   CASE ($2)
+    OF 'BOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1, " 00:00:00"))
+    OF 'EOD': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1, " 23:59:59"))
+    OF 'NOON': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1, " 12:00:00"))
+    OF 'EOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1, " 17:00:00"))
+    OF 'BOB': SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1, " 08:00:00"))
+   ELSE
+      SET Temp_Date_DQ8 = CNVTDATETIME(CONCAT($1))
+   ENDCASE
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                DATE AND TIME GIVEN WITH AND WITHOUT SECONDS (#6, #7)
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ 
+ELSEIF (TEXTLEN($1) = 20 OR TEXTLEN($1) = 17)
+   SET Temp_Date_DQ8 = CNVTDATETIME($1)
+;Return error condition
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                    ELSE ERROR
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+ELSE
+   SET Temp_Date_DQ8 = 0
+ENDIF
+/**/
+END GO
+ 
+ 
