@@ -1,0 +1,585 @@
+drop program thc1_apmd_ed_prescriptions go
+create program thc1_apmd_ed_prescriptions
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Begin Date" = "CURDATE"
+	, "End Date" = "CURDATE"
+	, "Tracking Grop" = 0
+ 
+with OUTDEV, BEGINDATE, ENDDATE, TRACKING_GROUP_CD
+ 
+ 
+/**********************************************************************************************************************************
+              Purpose:	Basic Patient Demographics and Tracking Events for APMD
+          Application:	FirstNet
+  Exectuion Locations:	Operations
+            Request #:  NA
+      Translated From:	Not Translated
+        Special Notes:
+/**********************************************************************************************************************************
+ 
+                                           MODIFICATION CONTROL LOG
+ 
+***********************************************************************************************************************************
+   Mod #    Date           Engineer             Description
+   -----    -------------  ------------------   -----------------------------------------------------------------------------------
+   1        10/14/2016		Amelia Jamison		Initial Release
+ 
+**********************************************************************************************************************************/
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                         DECLARATIONS
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+declare Section_Start_Dt_Tm = dq8 with protect, noconstant(cnvtdatetime(curdate, curtime3))
+call echo(concat("DECLARATIONS...", format(cnvtdatetime(curdate, curtime3), "@SHORTDATETIME")))
+/*=================================================================================================================================
+ 
+                                                           CONSTANTS
+ 
+=================================================================================================================================*/
+DECLARE FILE_DIRECTORY = VC WITH PROTECT, CONSTANT(build2(logical("CCLUSERDIR"), "/"))  ;Must be full path with / at end
+DECLARE APMD_PRESCRIPTION_FILE = VC WITH PROTECT, CONSTANT(CONCAT(FILE_DIRECTORY,  'apmd_ed_prescription.dat'))
+ 
+;Medical Record Number and Chart Number Constants
+DECLARE FIN_NBR_319_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 319, "FINNBR"))
+ 
+;Order Constants
+DECLARE NORMAL_ORDER_FLAG = I1 WITH PROTECT, CONSTANT(0)
+DECLARE PRESCRIPTION_DISCHARGE_ORDER_FLAG = I1 WITH PROTECT, CONSTANT(1)
+DECLARE PHARMACY_6000_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6000, "PHARMACY"))
+DECLARE ORDERED_6004_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6004, "ORDERED"))
+DECLARE COMPLETED_6004_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6004, "COMPLETED"))
+DECLARE DISCONTINUED_6004_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6004, "DISCONTINUED"))
+DECLARE ORDER_6003_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6003, "ORDER"))
+DECLARE REVIEW_6003_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6003, "REVIEW"))
+DECLARE COMPLETE_6003_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6003, "COMPLETE"))
+DECLARE STATUS_CHANGE_6003_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 6003, "STATUSCHANGE"))
+DECLARE IN_LAB_14281_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 14281, "INLAB"))
+ 
+;Number of Encounters to Search for Orders at a Time
+DECLARE ENCNTR_BLOCK = I4 WITH PROTECT, CONSTANT(200)
+ 
+;Memory Blocks for record structures
+DECLARE MEDS_BLOCK_SIZE = I1 WITH PROTECT, CONSTANT(10) ;Number of orders to add at a time
+ 
+;Delimiters
+DECLARE SEPARATOR = VC WITH PROTECT, CONSTANT('"|"')
+DECLARE ROW_START = VC WITH PROTECT, CONSTANT('"')
+DECLARE ROW_TERMINATE = VC WITH PROTECT, CONSTANT('"')
+ 
+ 
+/*=================================================================================================================================
+ 
+                                                            VARIABLES
+ 
+=================================================================================================================================*/
+DECLARE Begin_Date = DQ8 WITH PROTECT   ;The start date for the report
+DECLARE End_Date = DQ8 WITH PROTECT     ;The final date for the report
+DECLARE Temp_Date_DQ8 = DQ8 WITH PUBLIC    ;Temporary date for processing funtions
+DECLARE Display_Line = VC WITH PROTECT, NOCONSTANT('') ;Report Display
+ 
+DECLARE Meds_Counter = I4 WITH PROTECT, NOCONSTANT(0) ;Meds Counter
+;Iterator
+DECLARE Nbr_Iterations = I4 WITH PROTECT, NOCONSTANT(0)
+/*=================================================================================================================================
+ 
+                                                             RECORDS
+ 
+=================================================================================================================================*/
+/*---------------------------------------  Prescription Information File ---------------------------------------------*/
+ 
+ 
+FREE RECORD MEDS
+RECORD MEDS (
+ 1 Order_Cnt = I4
+ 1 MEDS[*]
+   2 Patient_Chart_Number = VC
+   2 Print_Ind = I1
+   2 Status_Dt_Tm = DQ8
+   2 Orig_Order_Dt_Tm = DQ8
+   2 Orig_Ord_As_Flag = I1
+   2 Discontinue_Effective_Dt_Tm = DQ8
+   2 Discontinue_Reason = F8
+   2 Medication_Section = I1
+   2 Ordering_Provider = VC
+   2 Ordering_Provider_Position = VC
+   2 Routing_Pharmacy_Name = VC
+   2 Routing_Type = F8
+   2 Catalog_Cd = F8
+   2 CKI = VC
+   2 Order_Id = F8
+   2 Order_Comment_Ind = I1
+   2 Last_Action_Sequence = I4
+   2 Order_Mnemonic = VC
+   2 Ordered_As_Mnemonic = VC
+   2 Display_Line = VC
+   2 Calculated_Instructions = VC
+   2 Calculated_Command = VC
+   2 Strength_Dose = VC
+   2 Strength_Dose_Unit = F8
+   2 Strength_Dose_Unit_Display = VC
+   2 Volume_Dose = VC
+   2 Volume_Dose_Unit = F8
+   2 Volume_Dose_Unit_Display = VC
+   2 Free_Text_Dose = VC
+   2 Calculated_Dose = VC
+   2 New_Dose_Ind = I1
+   2 Route = F8
+   2 Route_Display = VC
+   2 Route_Display_Ind = I1
+   2 Frequency = F8
+   2 Frequency_Display = VC
+   2 PRN_Tag = VC
+   2 PRN_Reason = VC
+   2 PRN_Instructions = VC
+   2 Calculated_PRN_Display = VC
+   2 Duration = VC
+   2 Duration_Unit = F8
+   2 Duration_Unit_Display = VC
+   2 Special_Instructions = VC
+   2 Number_of_Refills = I4
+   2 Total_Refills = I4
+   2 Comment = VC
+)
+/*=================================================================================================================================
+ 
+                                                           INITIALIZATION
+ 
+=================================================================================================================================*/
+CALL ECHO(CONCAT("INITIALIZATION...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+/*----------------------------------------------------  Begin_Date and End_Date -------------------------------------------------*/
+execute thc1_apmd_date_conversion $BEGINDATE, "BOD" ;Date, Beginning of Day
+SET Begin_Date = Temp_Date_DQ8
+execute thc1_apmd_date_conversion $ENDDATE, "EOD" ;Date parameter, End of Day
+SET End_Date = Temp_Date_DQ8
+ 
+CALL ECHO(CONCAT("VARIABLE AND CONSTANTS Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                      DEMOGRAPHIC SECTION
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+CALL ECHO(CONCAT("DEMOGRAPHIC SECTION...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+/*=================================================================================================================================
+ 
+                                                       DEMOGRAPHIC QUERY
+ 
+=================================================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+;Setup a sequence to give each row a unique number
+call parser("rdb drop sequence apmd_med_seq go")
+call parser("rdb create sequence apmd_med_seq go")
+ 
+ 
+free record amj_test
+record amj_test
+(
+	1 apmd_med_seq = i4
+ 
+)
+ 
+set amj_test->apmd_med_seq = apmd_med_seq
+;Get APMD Data
+SELECT INTO TABLE APMDMED
+   ROW_NBR = SEQ(apmd_med_seq, NEXTVAL),
+   TI.ENCNTR_ID,
+   FIN_NBR = CNVTALIAS(FIN.ALIAS, FIN.ALIAS_POOL_CD)
+ 
+FROM
+   TRACKING_CHECKIN TC,
+   TRACKING_ITEM TI,
+   ENCNTR_ALIAS FIN
+ 
+PLAN TC WHERE
+   TC.CHECKIN_DT_TM >= CNVTDATETIME(Begin_Date)
+   AND TC.CHECKIN_DT_TM <= CNVTDATETIME(End_Date)
+   AND TC.TRACKING_GROUP_CD = $TRACKING_GROUP_CD
+   AND TC.ACTIVE_IND = 1
+ 
+JOIN TI WHERE
+   TI.TRACKING_ID = TC.TRACKING_ID
+   AND TI.ENCNTR_ID +0.0 > 0.0
+;   AND TI.ENCNTR_ID IN(199538611.00,  199537797.00, 199538595.00, 199537456.00)
+   AND TI.ACTIVE_IND = 1
+ 
+JOIN FIN WHERE
+   FIN.ENCNTR_ID = OUTERJOIN(TI.ENCNTR_ID)
+   AND FIN.ENCNTR_ALIAS_TYPE_CD = OUTERJOIN(FIN_NBR_319_CV)
+   AND FIN.ACTIVE_IND = OUTERJOIN(1)
+   AND FIN.BEG_EFFECTIVE_DT_TM <= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+   AND FIN.END_EFFECTIVE_DT_TM >= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+ 
+WITH ORGANIZATION = W
+ 
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+/*===============================================================================================================
+ 
+                                              MEDICATION QUERY
+ 
+===============================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("MEDICATION QUERY...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+SELECT INTO "NL:"
+   EM.FIN_NBR,
+	O.ORDER_ID,
+	O.CATALOG_CD,
+	O.DEPT_MISC_LINE,
+	OD.OE_FIELD_DISPLAY_VALUE,
+	OD.OE_FIELD_MEANING,
+	O.ORDER_MNEMONIC,
+	O.ORDERED_AS_MNEMONIC,
+	O.CLINICAL_DISPLAY_LINE
+ 
+ 
+FROM
+   APMDMED EM,
+   ORDERS O,
+   ((SELECT
+      ORDER_ID,
+      OE_FIELD_MEANING,
+      OE_FIELD_VALUE,
+      OE_FIELD_DISPLAY_VALUE
+   FROM
+      ORDER_DETAIL
+   WHERE
+      OE_FIELD_MEANING IN("RXROUTE", "STRENGTHDOSE", "STRENGTHDOSEUNIT", "VOLUMEDOSE", "VOLUMEDOSEUNIT", "FREETXTDOSE", "FREQ",
+                          "REQSTARTDTTM", "STOPDTTM", "SCH/PRN", "PRNREASON", "PRNINSTRUCTIONS", "SPECINX", "DURATION",
+                          "DURATIONUNIT", "RATE", "RATEUNIT", "FREETEXTRATE", "REQROUTINGTYPE", "ROUTINGPHARMACYNAME",
+                          "NBRREFILLS", "TOTALREFILLS")
+   WITH SQLTYPE('F8', 'C25', 'F8', 'C255'))
+   OD)
+ 
+PLAN EM
+JOIN O WHERE
+	O.ENCNTR_ID = EM.ENCNTR_ID
+	AND O.TEMPLATE_ORDER_ID = 0
+	AND O.ORIG_ORD_AS_FLAG +0 = PRESCRIPTION_DISCHARGE_ORDER_FLAG
+	AND O.CATALOG_TYPE_CD = PHARMACY_6000_CV
+	AND O.ORDER_STATUS_CD IN(ORDERED_6004_CV, COMPLETED_6004_CV)
+	AND O.ACTIVE_IND = 1
+ 
+JOIN OD WHERE
+	OD.ORDER_ID = OUTERJOIN(O.ORDER_ID)
+ 
+ORDER BY O.CATALOG_CD, O.ORDER_ID
+ 
+HEAD O.ORDER_ID
+ ;Recordset Maintenance
+ MEDS->Order_Cnt = MEDS->Order_Cnt + 1
+ Meds_Counter = MEDS->Order_Cnt
+ IF(MOD(Meds_Counter, MEDS_BLOCK_SIZE) = 1)
+    STAT = ALTERLIST(MEDS->MEDS, Meds_Counter + MEDS_BLOCK_SIZE - 1)
+ ENDIF
+ 
+ ;Loading Record Structure
+ MEDS->MEDS[Meds_Counter].Patient_Chart_Number = EM.FIN_NBR
+ MEDS->MEDS[Meds_Counter].Catalog_Cd = O.CATALOG_CD
+ MEDS->MEDS[Meds_Counter].New_Dose_Ind = 0
+ MEDS->MEDS[Meds_Counter].Print_Ind = 1
+ MEDS->MEDS[Meds_Counter].Status_Dt_Tm = O.STATUS_DT_TM
+ MEDS->MEDS[Meds_Counter].CKI = O.CKI
+ MEDS->MEDS[Meds_Counter].Order_Id = O.ORDER_ID
+ MEDS->MEDS[Meds_Counter].Order_Comment_Ind = O.ORDER_COMMENT_IND
+ MEDS->MEDS[Meds_Counter].Last_Action_Sequence = O.LAST_ACTION_SEQUENCE
+ MEDS->MEDS[Meds_Counter].Order_Mnemonic = O.ORDER_MNEMONIC
+ MEDS->MEDS[Meds_Counter].Ordered_As_Mnemonic = O.ORDERED_AS_MNEMONIC
+ MEDS->MEDS[Meds_Counter].Orig_Order_Dt_Tm = O.ORIG_ORDER_DT_TM
+ MEDS->MEDS[Meds_Counter].Orig_Ord_As_Flag = O.ORIG_ORD_AS_FLAG
+ MEDS->MEDS[Meds_Counter].Discontinue_Effective_Dt_Tm = O.DISCONTINUE_EFFECTIVE_DT_TM
+ 
+DETAIL
+ 
+ CASE (OD.OE_FIELD_MEANING)
+  OF             "RXROUTE" : MEDS->MEDS[Meds_Counter].Route = OD.OE_FIELD_VALUE
+                             MEDS->MEDS[Meds_Counter].Route_Display = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+                             MEDS->MEDS[Meds_Counter].Calculated_Command  = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+  OF        "STRENGTHDOSE" : MEDS->MEDS[Meds_Counter].Strength_Dose = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF    "STRENGTHDOSEUNIT" : MEDS->MEDS[Meds_Counter].Strength_Dose_Unit = OD.OE_FIELD_VALUE
+                       MEDS->MEDS[Meds_Counter].Strength_Dose_Unit_Display = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+  OF          "VOLUMEDOSE" : MEDS->MEDS[Meds_Counter].Volume_Dose = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF      "VOLUMEDOSEUNIT" : MEDS->MEDS[Meds_Counter].Volume_Dose_Unit = OD.OE_FIELD_VALUE
+                         MEDS->MEDS[Meds_Counter].Volume_Dose_Unit_Display = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+  OF         "FREETXTDOSE" : MEDS->MEDS[Meds_Counter].Free_Text_Dose = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF                "FREQ" : MEDS->MEDS[Meds_Counter].Frequency = OD.OE_FIELD_VALUE
+                             MEDS->MEDS[Meds_Counter].Frequency_Display = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+  OF             "SCH/PRN" : IF (OD.OE_FIELD_VALUE = 1.0)
+                                MEDS->MEDS[Meds_Counter].PRN_Tag = "As Needed"
+                             ELSE
+                                MEDS->MEDS[Meds_Counter].PRN_Tag = ""
+                             ENDIF
+  OF           "PRNREASON" : MEDS->MEDS[Meds_Counter].PRN_Reason = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF     "PRNINSTRUCTIONS" : MEDS->MEDS[Meds_Counter].PRN_Instructions = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF            "DURATION" : MEDS->MEDS[Meds_Counter].Duration = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF        "DURATIONUNIT" : MEDS->MEDS[Meds_Counter].Duration_Unit = OD.OE_FIELD_VALUE
+                             MEDS->MEDS[Meds_Counter].Duration_Unit_Display = TRIM(UAR_GET_CODE_DISPLAY(OD.OE_FIELD_VALUE), 3)
+  OF             "SPECINX" : IF (FINDSTRING(".", OD.OE_FIELD_DISPLAY_VALUE))
+                               MEDS->MEDS[Meds_Counter].Special_Instructions = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+                             ELSE
+                               MEDS->MEDS[Meds_Counter].Special_Instructions = CONCAT(TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3), ".")
+                             ENDIF
+  OF      "REQROUTINGTYPE" : MEDS->MEDS[Meds_Counter].Routing_Type = OD.OE_FIELD_VALUE
+  OF "ROUTINGPHARMACYNAME" : MEDS->MEDS[Meds_Counter].Routing_Pharmacy_Name = TRIM(OD.OE_FIELD_DISPLAY_VALUE, 3)
+  OF          "NBRREFILLS" : MEDS->MEDS[Meds_Counter].Number_of_Refills = OD.OE_FIELD_VALUE
+  OF        "TOTALREFILLS" : MEDS->MEDS[Meds_Counter].Total_Refills = OD.OE_FIELD_VALUE
+ 
+ ENDCASE
+ 
+ 
+FOOT O.ORDER_ID
+ ;Calculated PRN Instructions
+ IF (MEDS->MEDS[Meds_Counter].PRN_Instructions > " ")
+    IF (FINDSTRING(TRIM(CNVTUPPER(MEDS->MEDS[Meds_Counter].PRN_Tag), 3),
+                   CNVTUPPER(MEDS->MEDS[Meds_Counter].PRN_Instructions)))
+       MEDS->MEDS[Meds_Counter].Calculated_PRN_Display = TRIM(MEDS->MEDS[Meds_Counter].PRN_Instructions, 3)
+    ELSE
+       MEDS->MEDS[Meds_Counter].Calculated_PRN_Display = CONCAT(TRIM(MEDS->MEDS[Meds_Counter].PRN_Tag, 3),
+                                                                    " ",
+                                                                    TRIM(MEDS->MEDS[Meds_Counter].PRN_Instructions, 3))
+    ENDIF
+ ELSEIF(MEDS->MEDS[Meds_Counter].PRN_Reason > " ")
+    IF (FINDSTRING("FOR", CNVTUPPER(MEDS->MEDS[Meds_Counter].PRN_Reason)))
+       MEDS->MEDS[Meds_Counter].Calculated_PRN_Display = CONCAT(TRIM(MEDS->MEDS[Meds_Counter].PRN_Tag, 3),
+                                                                    " ",
+                                                                    TRIM(MEDS->MEDS[Meds_Counter].PRN_Reason, 3))
+    ELSE
+       MEDS->MEDS[Meds_Counter].Calculated_PRN_Display = CONCAT(TRIM(MEDS->MEDS[Meds_Counter].PRN_Tag, 3),
+                                                                    " for ",
+                                                                    TRIM(MEDS->MEDS[Meds_Counter].PRN_Reason, 3))
+    ENDIF
+ ELSE
+    MEDS->MEDS[Meds_Counter].Calculated_PRN_Display = TRIM(MEDS->MEDS[Meds_Counter].PRN_Tag, 3)
+ ENDIF
+ 
+ ;Calculated Dose
+; IF (MEDS->MEDS[Meds_Counter].Strength_Dose > " " AND MEDS->MEDS[Meds_Counter].Volume_Dose > " ")
+;    MEDS->MEDS[Meds_Counter].Calculated_Dose =
+;                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Strength_Dose, 3),
+;                     " ",
+;                     TRIM(UAR_GET_CODE_DESCRIPTION(MEDS->MEDS[Meds_Counter].Strength_Dose_Unit), 3),
+;                     " = ",
+;                     TRIM(MEDS->MEDS[Meds_Counter].Volume_Dose, 3),
+;                     " ",
+;                     TRIM(UAR_GET_CODE_DESCRIPTION(MEDS->MEDS[Meds_Counter].Volume_Dose_Unit), 3))
+; ELSEIF (MEDS->MEDS[Meds_Counter].Volume_Dose > " ") ;This line or the line below must be activated
+ IF (MEDS->MEDS[Meds_Counter].Volume_Dose > " ")      ;This line or the line above must be active
+    MEDS->MEDS[Meds_Counter].Calculated_Dose =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Volume_Dose, 3),
+                     " ",
+                     TRIM(MEDS->MEDS[Meds_Counter].Volume_Dose_Unit_Display, 3))
+ ELSEIF (MEDS->MEDS[Meds_Counter].Strength_Dose > " " )
+    MEDS->MEDS[Meds_Counter].Calculated_Dose =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Strength_Dose, 3),
+                     " ",
+                     TRIM(MEDS->MEDS[Meds_Counter].Strength_Dose_Unit_Display, 3))
+ 
+ ELSEIF(CNVTUPPER(CNVTALPHANUM(MEDS->MEDS[Meds_Counter].Free_Text_Dose)) != "SEEINSTRUCTIONS")
+    MEDS->MEDS[Meds_Counter].Calculated_Dose = TRIM(MEDS->MEDS[Meds_Counter].Free_Text_Dose, 3)
+ ENDIF
+ 
+ ;Calculating Full Instructions
+ MEDS->MEDS[Meds_Counter].Calculated_Instructions = BUILD(" ")
+ ;Add Calculated Dose
+ IF (MEDS->MEDS[Meds_Counter].Calculated_Dose > " ")
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions = MEDS->MEDS[Meds_Counter].Calculated_Dose
+ ENDIF
+ ;Add Route
+ IF (MEDS->MEDS[Meds_Counter].Route AND MEDS->MEDS[Meds_Counter].Route_Display_Ind)
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(MEDS->MEDS[Meds_Counter].Calculated_Instructions,
+                            " ",
+                            TRIM(MEDS->MEDS[Meds_Counter].Route_Display, 3))
+ ENDIF
+ ;Add Frequency
+ IF (MEDS->MEDS[Meds_Counter].Frequency)
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(MEDS->MEDS[Meds_Counter].Calculated_Instructions,
+                            " ",
+                            TRIM(MEDS->MEDS[Meds_Counter].Frequency_Display, 3))
+ ENDIF
+ ;Add Calculated PRN Display
+ IF (MEDS->MEDS[Meds_Counter].Calculated_PRN_Display > " ")
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(MEDS->MEDS[Meds_Counter].Calculated_Instructions,
+                            " ",
+                            TRIM(MEDS->MEDS[Meds_Counter].Calculated_PRN_Display, 3))
+ ENDIF
+ ;Add Duration
+ IF (MEDS->MEDS[Meds_Counter].Duration > " ")
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(MEDS->MEDS[Meds_Counter].Calculated_Instructions,
+                            " for ",
+                            TRIM(MEDS->MEDS[Meds_Counter].Duration, 3))
+ ENDIF
+ ;Add Duration Unit
+ IF (MEDS->MEDS[Meds_Counter].Duration_Unit)
+    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(MEDS->MEDS[Meds_Counter].Calculated_Instructions,
+                            " ",
+                            TRIM(MEDS->MEDS[Meds_Counter].Duration_Unit_Display, 3))
+ ENDIF
+ 
+ ;Converting instructions to lower case
+ MEDS->MEDS[Meds_Counter].Calculated_Instructions = MEDS->MEDS[Meds_Counter].Calculated_Instructions
+ 
+ ;Add Calculated Command back to Beginning
+; IF (MEDS->MEDS[Meds_Counter].Calculated_Command > " ")
+;    MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+;                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Command, 3),
+;                            " ",
+;                            TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3))
+; ENDIF
+ 
+ ;Put a Period on the end
+ IF (MEDS->MEDS[Meds_Counter].Calculated_Instructions > " ")
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3),
+                            ".")
+ ENDIF
+ 
+ ;Add refills
+ IF (MEDS->MEDS[Meds_Counter].Number_of_Refills > 0)
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3),
+                            " Refill ",
+                            TRIM(CNVTSTRING(MEDS->MEDS[Meds_Counter].Number_of_Refills), 3))
+   ;Use singular or plural
+   IF (MEDS->MEDS[Meds_Counter].Number_of_Refills > 1)
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3), " times.")
+   ELSE
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3), " time.")
+   ENDIF
+ ELSEIF (MEDS->MEDS[Meds_Counter].Total_Refills > 0)
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3),
+                            " Refill ",
+                            TRIM(CNVTSTRING(MEDS->MEDS[Meds_Counter].Total_Refills), 3))
+   ;Use singular or plural
+   IF (MEDS->MEDS[Meds_Counter].Total_Refills > 1)
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3), " times.")
+   ELSE
+     MEDS->MEDS[Meds_Counter].Calculated_Instructions =
+                     CONCAT(TRIM(MEDS->MEDS[Meds_Counter].Calculated_Instructions, 3), " time.")
+   ENDIF
+ ENDIF
+ 
+WITH COUNTER
+ 
+SET STAT = ALTERLIST(MEDS->MEDS, Meds_Counter)
+ 
+call echorecord(meds, "meds.dat")
+ 
+CALL ECHO(CONCAT("MEDICATION QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+/*===============================================================================================================
+ 
+                                               MEDICATION ORDERING PROVIDER
+ 
+===============================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("MEDICATION ORDERING PROVIDER...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+SELECT INTO "NL:"
+FROM
+   (DUMMYT D WITH SEQ = MEDS->Order_Cnt),
+   ORDER_ACTION OA,
+   PRSNL P
+ 
+PLAN D
+JOIN OA WHERE
+   OA.ORDER_ID = MEDS->MEDS[D.SEQ].Order_Id
+   AND OA.ACTION_TYPE_CD = ORDER_6003_CV
+ 
+JOIN P WHERE
+   P.PERSON_ID = OA.ACTION_PERSONNEL_ID
+   AND P.ACTIVE_IND = 1
+   AND P.BEG_EFFECTIVE_DT_TM <= CNVTDATETIME(CURDATE, CURTIME)
+   AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME)
+ 
+DETAIL
+ MEDS->MEDS[D.SEQ].Ordering_Provider = P.NAME_FULL_FORMATTED
+ MEDS->MEDS[D.SEQ].Ordering_Provider_Position = TRIM(UAR_GET_CODE_DISPLAY(P.POSITION_CD), 3)
+ 
+WITH COUNTER
+ 
+CALL ECHO(CONCAT("MEDICATION ORDERING PROVIDER Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+/*===============================================================================================================
+ 
+                                             OUTPUT PRESCRIPTIONS
+ 
+===============================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("OUTPUT PRESCRIPTIONS...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+;select into $outdev
+ 
+SELECT INTO VALUE(APMD_PRESCRIPTION_FILE)
+   Patient_Chart_Number = MEDS->MEDS[D.SEQ].Patient_Chart_Number,
+   Order_Mnemonic = MEDS->MEDS[D.SEQ].Order_Mnemonic,
+   Ordering_Provider = MEDS->MEDS[D.SEQ].Ordering_Provider,
+   Ordering_Provider_Position = MEDS->MEDS[D.SEQ].Ordering_Provider_Position,
+   Calculated_Dose = MEDS->MEDS[D.SEQ].Calculated_Dose,
+   Number_of_Refills = MEDS->MEDS[D.SEQ].Number_of_Refills
+ 
+FROM
+   (DUMMYT D WITH SEQ = MEDS->Order_Cnt)
+ 
+PLAN D WHERE
+   MEDS->MEDS[D.SEQ].Print_Ind = 1
+ 
+HEAD REPORT
+  Display_Line = CONCAT(ROW_START, "PATIENT_CHART_NUMBER",
+                        SEPARATOR, "ORDER_MNEMONIC",
+                        SEPARATOR, "ORDERING_PROVIDER",
+                        SEPARATOR, "ORDERING_PROVIDER_POSITION",
+                        SEPARATOR, "CALCULATED_DOSE",
+                        SEPARATOR, "NUMBER_OF_REFILLS",
+                        ROW_TERMINATE)
+  COL 0  Display_Line
+  ROW +1
+ 
+DETAIL
+  Display_Line = BUILD(ROW_START, MEDS->MEDS[D.SEQ].Patient_Chart_Number,
+                       SEPARATOR, MEDS->MEDS[D.SEQ].Order_Mnemonic,
+                       SEPARATOR, MEDS->MEDS[D.SEQ].Ordering_Provider,
+                       SEPARATOR, MEDS->MEDS[D.SEQ].Ordering_Provider_Position,
+                       SEPARATOR, MEDS->MEDS[D.SEQ].Calculated_Dose,
+                       SEPARATOR, MEDS->MEDS[D.SEQ].Number_of_Refills,
+                       ROW_TERMINATE)
+  COL 0  Display_Line
+  ROW +1
+WITH MAXROW = 1, MAXCOL = 32000, NOFORMFEED, FORMAT = UNDEFINED, NULLREPORT
+ 
+CALL ECHO(CONCAT("OUTPUT PRESCRIPTIONS Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                 END
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+IF (VALIDATE(REPLY->OPS_EVENT) AND VALIDATE(REQUEST->OUTPUT_DIST) AND VALIDATE (REPLY->STATUS_DATA->STATUS))
+ ;This code executes inside operations
+ ;Declares a successful run
+ SET REPLY->STATUS_DATA->STATUS = "S"
+ENDIF
+ 
+END GO
