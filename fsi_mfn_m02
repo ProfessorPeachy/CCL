@@ -1,0 +1,3345 @@
+DROP PROGRAM fsi_mfn_m02 :dba GO
+CREATE PROGRAM fsi_mfn_m02 :dba
+ CALL echo ("<===== FSI_MFN_M02 Begin =====>" )
+ CALL echo ("MOD:002" )
+ FREE
+ SET reply
+ RECORD reply (
+   1 prsnl
+     2 prsnl [* ]
+       3 active_status_cd = f8
+       3 physician_ind = i2
+       3 position_cd = f8
+       3 beg_effective_dt_tm = dq8
+       3 end_effective_dt_tm = dq8
+       3 active_ind = i2
+     2 person_name [* ]
+       3 name_type_cd = f8
+       3 name_first = vc
+       3 name_last = vc
+       3 name_middle = vc
+       3 name_suffix = vc
+       3 name_prefix = vc
+       3 name_degree = vc
+     2 person_demog [* ]
+       3 sex = f8
+       3 birth_dt_tm = dq8
+       3 birth_tz = i4
+       3 birth_prec_flag = i2
+   1 si_info
+     2 longlist [* ]
+       3 lval = i4
+       3 strmeaning = vc
+     2 stringlist [* ]
+       3 strval = vc
+       3 strmeaning = vc
+     2 doublelist [* ]
+       3 dval = f8
+       3 strmeaning = vc
+   1 status_data
+     2 status = c1
+     2 subeventstatus [* ]
+       3 operationname = c25
+       3 operationstatus = c1
+       3 targetobjectname = c25
+       3 targetobjectvalue = vc
+ )
+ FREE
+ SET staff_ids
+ RECORD staff_ids (
+   1 stf [* ]
+     2 alias = vc
+     2 person_alias_type_cd = f8
+     2 person_alias_sub_type_cd = f8
+     2 alias_pool_cd = f8
+     2 check_digit = i4
+     2 check_digit_method_cd = f8
+     2 contributor_system_cd = f8
+ )
+ CALL echo ("<===== ESO_HL7_FORMATTING.INC  START =====>" )
+ CALL echo ("MOD:047" )
+ CALL echo ("<===== ESO_COMMON_ROUTINES.INC  START =====>" )
+ CALL echo ("MOD:018" )
+ CALL echo ("<===== ESO_GET_CODE.INC Begin =====>" )
+ CALL echo ("MOD:008" )
+ DECLARE eso_get_code_meaning (code ) = c12
+ DECLARE eso_get_code_display (code ) = c40
+ DECLARE eso_get_meaning_by_codeset (x_code_set ,x_meaning ) = f8
+ DECLARE eso_get_code_set (code ) = i4
+ DECLARE eso_get_alias_or_display (code ,contrib_src_cd ) = vc
+ SUBROUTINE  eso_get_code_meaning (code )
+  CALL echo ("Entering eso_get_code_meaning subroutine" )
+  CALL echo (build ("    code=" ,code ) )
+  FREE
+  SET t_meaning
+  DECLARE t_meaning = c12
+  SET t_meaning = fillstring (12 ," " )
+  IF ((code > 0 ) )
+   IF (validate (readme_data ,0 ) )
+    CALL echo ("    A Readme is calling this script" )
+    CALL echo ("    selecting rows from code_value table" )
+    SELECT INTO "nl:"
+     cv.*
+     FROM (code_value cv )
+     WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 )
+     ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1 )
+     DETAIL
+      t_meaning = cv.cdf_meaning
+     WITH maxqual (cv ,1 )
+    ;end select
+    IF ((curqual < 1 ) )
+     CALL echo ("    no rows qualified on code_value table" )
+    ENDIF
+   ELSE
+    SET t_meaning = uar_get_code_meaning (cnvtreal (code ) )
+    IF ((trim (t_meaning ) = "" ) )
+     CALL echo ("    uar_get_code_meaning failed" )
+     CALL echo ("    selecting row from code_value table" )
+     SELECT INTO "nl:"
+      cv.*
+      FROM (code_value cv )
+      WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3
+       ) ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1
+      )
+      DETAIL
+       t_meaning = cv.cdf_meaning
+      WITH maxqual (cv ,1 )
+     ;end select
+     IF ((curqual < 1 ) )
+      CALL echo ("    no rows qualified on code_value table" )
+     ENDIF
+    ENDIF
+   ENDIF
+  ENDIF
+  CALL echo (build ("    t_meaning=" ,t_meaning ) )
+  CALL echo ("Exiting eso_get_code_meaning subroutine" )
+  RETURN (trim (t_meaning ,3 ) )
+ END ;Subroutine
+ SUBROUTINE  eso_get_code_display (code )
+  CALL echo ("Entering eso_get_code_display subroutine" )
+  CALL echo (build ("    code=" ,code ) )
+  FREE
+  SET t_display
+  DECLARE t_display = c40
+  SET t_display = fillstring (40 ," " )
+  IF ((code > 0 ) )
+   IF (validate (readme_data ,0 ) )
+    CALL echo ("   A Readme is calling this script" )
+    CALL echo ("   Selecting rows from code_value table" )
+    SELECT INTO "nl:"
+     cv.*
+     FROM (code_value cv )
+     WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 )
+     ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1 )
+     DETAIL
+      t_display = cv.display
+     WITH maxqual (cv ,1 )
+    ;end select
+    IF ((curqual < 1 ) )
+     CALL echo ("    no rows qualified on code_value table" )
+    ENDIF
+   ELSE
+    SET t_display = uar_get_code_display (cnvtreal (code ) )
+    IF ((trim (t_display ) = "" ) )
+     CALL echo ("    uar_get_code_display failed" )
+     CALL echo ("    selecting row from code_value table" )
+     SELECT INTO "nl:"
+      cv.*
+      FROM (code_value cv )
+      WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3
+       ) ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1
+      )
+      DETAIL
+       t_display = cv.display
+      WITH maxqual (cv ,1 )
+     ;end select
+     IF ((curqual < 1 ) )
+      CALL echo ("    no rows qualified on code_value table" )
+     ENDIF
+    ENDIF
+   ENDIF
+  ENDIF
+  CALL echo (build ("    t_display=" ,t_display ) )
+  CALL echo ("Exiting eso_get_code_display subroutine" )
+  RETURN (trim (t_display ,3 ) )
+ END ;Subroutine
+ SUBROUTINE  eso_get_meaning_by_codeset (x_code_set ,x_meaning )
+  CALL echo ("Entering eso_get_meaning_by_codeset subroutine" )
+  CALL echo (build ("    code_set=" ,x_code_set ) )
+  CALL echo (build ("    meaning=" ,x_meaning ) )
+  FREE
+  SET t_code
+  DECLARE t_code = f8
+  SET t_code = 0.0
+  IF ((x_code_set > 0 ) AND (trim (x_meaning ) > "" ) )
+   FREE
+   SET t_meaning
+   DECLARE t_meaning = c12
+   SET t_meaning = fillstring (12 ," " )
+   SET t_meaning = x_meaning
+   FREE
+   SET t_rc
+   IF (validate (readme_data ,0 ) )
+    CALL echo ("   A Readme is calling this script" )
+    CALL echo ("   Selecting rows from code_value table" )
+    SELECT INTO "nl:"
+     cv.*
+     FROM (code_value cv )
+     WHERE (cv.code_set = x_code_set ) AND (cv.cdf_meaning = trim (x_meaning ) ) AND (cv
+     .begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 ) ) AND (cv.end_effective_dt_tm >
+     cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1 )
+     DETAIL
+      t_code = cv.code_value
+     WITH maxqual (cv ,1 )
+    ;end select
+    IF ((curqual < 1 ) )
+     CALL echo ("    no rows qualified on code_value table" )
+    ENDIF
+   ELSE
+    SET t_rc = uar_get_meaning_by_codeset (cnvtint (x_code_set ) ,nullterm (t_meaning ) ,1 ,t_code )
+    IF ((t_code <= 0 ) )
+     CALL echo ("    uar_get_meaning_by_codeset failed" )
+     CALL echo ("    selecting row from code_value table" )
+     SELECT INTO "nl:"
+      cv.*
+      FROM (code_value cv )
+      WHERE (cv.code_set = x_code_set ) AND (cv.cdf_meaning = trim (x_meaning ) ) AND (cv
+      .begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 ) ) AND (cv.end_effective_dt_tm >
+      cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1 )
+      DETAIL
+       t_code = cv.code_value
+      WITH maxqual (cv ,1 )
+     ;end select
+     IF ((curqual < 1 ) )
+      CALL echo ("    no rows qualified on code_value table" )
+     ENDIF
+    ENDIF
+   ENDIF
+  ENDIF
+  CALL echo (build ("    t_code=" ,t_code ) )
+  CALL echo ("Exiting eso_get_meaning_by_codeset subroutine" )
+  RETURN (t_code )
+ END ;Subroutine
+ SUBROUTINE  eso_get_code_set (code )
+  CALL echo ("Entering eso_get_code_set subroutine" )
+  CALL echo (build ("    code=" ,code ) )
+  DECLARE icode_set = i4 WITH private ,noconstant (0 )
+  IF ((code > 0 ) )
+   IF (validate (readme_data ,0 ) )
+    CALL echo ("   A Readme is calling this script" )
+    CALL echo ("   Selecting rowS from code_value table" )
+    SELECT INTO "nl:"
+     cv.code_set
+     FROM (code_value cv )
+     WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 )
+     ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1 )
+     DETAIL
+      icode_set = cv.code_set
+     WITH maxqual (cv ,1 )
+    ;end select
+    IF ((curqual < 1 ) )
+     CALL echo ("    no rows qualified on code_value table" )
+    ENDIF
+   ELSE
+    SET icode_set = uar_get_code_set (cnvtreal (code ) )
+    IF (NOT ((icode_set > 0 ) ) )
+     CALL echo ("    uar_get_code_set failed" )
+     CALL echo ("    selecting row from code_value table" )
+     SELECT INTO "nl:"
+      cv.code_set
+      FROM (code_value cv )
+      WHERE (cv.code_value = code ) AND (cv.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3
+       ) ) AND (cv.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) AND (cv.active_ind = 1
+      )
+      DETAIL
+       icode_set = cv.code_set
+      WITH maxqual (cv ,1 )
+     ;end select
+     IF ((curqual < 1 ) )
+      CALL echo ("    no rows qualified on code_value table" )
+     ENDIF
+    ENDIF
+   ENDIF
+  ENDIF
+  CALL echo (build ("    Code_set=" ,icode_set ) )
+  CALL echo ("Exiting eso_get_code_set subroutine" )
+  RETURN (icode_set )
+ END ;Subroutine
+ SUBROUTINE  eso_get_alias_or_display (code ,contrib_src_cd )
+  CALL echo ("Entering eso_get_alias_or_display" )
+  CALL echo (build ("   code            = " ,code ) )
+  CALL echo (build ("   contrib_src_cd = " ,contrib_src_cd ) )
+  FREE
+  SET t_alias_or_display
+  DECLARE t_alias_or_display = vc
+  SET t_alias_or_display = " "
+  IF (NOT ((code > 0.0 ) ) )
+   RETURN (t_alias_or_display )
+  ENDIF
+  IF ((contrib_src_cd > 0.0 ) )
+   SELECT INTO "nl:"
+    cvo.alias
+    FROM (code_value_outbound cvo )
+    WHERE (cvo.code_value = code ) AND (cvo.contributor_source_cd = contrib_src_cd )
+    DETAIL
+     IF ((cvo.alias > "" ) ) t_alias_or_display = cvo.alias
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDIF
+  IF ((size (trim (t_alias_or_display ) ) = 0 ) )
+   CALL echo ("Alias not found, checking code value display" )
+   SET t_alias_or_display = eso_get_code_display (code )
+  ENDIF
+  CALL echo ("Exiting eso_get_alias_or_display" )
+  RETURN (t_alias_or_display )
+ END ;Subroutine
+ CALL echo ("<===== ESO_GET_CODE.INC End =====>" )
+ DECLARE get_esoinfo_long_index (sea_name ) = i4
+ DECLARE get_esoinfo_long (sea_name ) = i4
+ DECLARE set_esoinfo_long (sea_name ,lvalue ) = i4
+ DECLARE get_esoinfo_string_index (sea_name ) = i4
+ DECLARE get_esoinfo_string (sea_name ) = c200
+ DECLARE set_esoinfo_string (sea_name ,svalue ) = i4
+ DECLARE get_esoinfo_double_index (sea_name ) = i4
+ DECLARE get_esoinfo_double (sea_name ) = f8
+ DECLARE set_esoinfo_double (sea_name ,dvalue ) = i4
+ DECLARE get_request_long_index (sea_name ) = i4
+ DECLARE get_request_long (sea_name ) = i4
+ DECLARE set_request_long (sea_name ,lvalue ) = i4
+ DECLARE get_reqinfo_double_index (sea_name ) = i4
+ DECLARE get_reqinfo_double (sea_name ) = f8
+ DECLARE set_reqinfo_double (sea_name ,dvalue ) = i4
+ DECLARE get_reqinfo_string_index (sea_name ) = i4
+ DECLARE get_reqinfo_string (sea_name ) = c200
+ DECLARE set_reqinfo_string (sea_name ,svalue ) = i4
+ DECLARE eso_trim_zeros (number ) = c20
+ DECLARE eso_trim_zeros_pos (number ,pos ) = c20
+ DECLARE eso_trim_zeros_sig_dig ((number = f8 ) ,(sig_dig = i4 ) ) = c20
+ DECLARE eso_remove_decimal (snumber ) = vc
+ DECLARE parse_formatting_string (f_string ,arg ) = vc
+ DECLARE get_int_routine_arg ((arg = vc ) ,(args = vc ) ) = i4
+ DECLARE eso_column_exists (tablename ,columnname ) = i4
+ DECLARE eso_pharm_decimal (decimal_val ) = vc
+ DECLARE get_routine_arg_value (name ) = vc
+ DECLARE rtfformatingremove ((srtfstring = vc ) ) = vc
+ DECLARE get_synoptic_nomen_config ((name = vc ) ) = vc
+ DECLARE routine_arg_exists ((name = vc ) ) = i2
+ DECLARE additional_character_exists ((arg_string = vc ) ,(arg_string_size = i4 ) ,(start_idx = i4 )
+  ,(search_increment = i4 ) ) = i2
+ DECLARE search_forward = i4 WITH protect ,constant (1 )
+ DECLARE search_backward = i4 WITH protect ,constant (- (1 ) )
+ DECLARE uar_rtf2 ((p1 = vc (ref ) ) ,(p2 = i4 (ref ) ) ,(p3 = vc (ref ) ) ,(p4 = i4 (ref ) ) ,(p5 =
+  i4 (ref ) ) ,(p6 = i4 (ref ) ) ) = i4
+ SUBROUTINE  get_esoinfo_long_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (context->cerner.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_esoinfo_long (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (context->cerner.longlist[eso_idx ].lval )
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  set_esoinfo_long (sea_name ,lvalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET context->cerner.longlist[eso_idx ].lval = lvalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (context->cerner.longlist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (context->cerner.longlist ,eso_idx )
+   SET context->cerner.longlist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET context->cerner.longlist[eso_idx ].lval = lvalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  get_esoinfo_string_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (context->cerner.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_esoinfo_string (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (context->cerner.stringlist[eso_idx ].strval )
+  ENDIF
+  RETURN (" " )
+ END ;Subroutine
+ SUBROUTINE  set_esoinfo_string (sea_name ,svalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET context->cerner.stringlist[eso_idx ].strval = svalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (context->cerner.stringlist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (context->cerner.stringlist ,eso_idx )
+   SET context->cerner.stringlist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET context->cerner.stringlist[eso_idx ].strval = svalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  get_esoinfo_double_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (context->cerner.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_esoinfo_double (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (context->cerner.doublelist[eso_idx ].dval )
+  ENDIF
+  RETURN (0.0 )
+ END ;Subroutine
+ SUBROUTINE  set_esoinfo_double (sea_name ,dvalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (context->cerner.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((context->cerner.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET context->cerner.doublelist[eso_idx ].dval = dvalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (context->cerner.doublelist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (context->cerner.doublelist ,eso_idx )
+   SET context->cerner.doublelist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET context->cerner.doublelist[eso_idx ].dval = dvalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  get_request_long_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_request_long (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (request->esoinfo.longlist[eso_idx ].lval )
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  set_request_long (sea_name ,lvalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.longlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.longlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET request->esoinfo.longlist[eso_idx ].lval = lvalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (request->esoinfo.longlist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (request->esoinfo.longlist ,eso_idx )
+   SET request->esoinfo.longlist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET request->esoinfo.longlist[eso_idx ].lval = lvalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  get_reqinfo_double_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_reqinfo_double (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (request->esoinfo.doublelist[eso_idx ].dval )
+  ENDIF
+  RETURN (0.0 )
+ END ;Subroutine
+ SUBROUTINE  set_reqinfo_double (sea_name ,dvalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.doublelist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.doublelist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET request->esoinfo.doublelist[eso_idx ].dval = dvalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (request->esoinfo.doublelist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (request->esoinfo.doublelist ,eso_idx )
+   SET request->esoinfo.doublelist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET request->esoinfo.doublelist[eso_idx ].dval = dvalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  get_reqinfo_string_index (sea_name )
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     RETURN (eso_x )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  get_reqinfo_string (sea_name )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   RETURN (request->esoinfo.stringlist[eso_idx ].strval )
+  ENDIF
+  RETURN (" " )
+ END ;Subroutine
+ SUBROUTINE  set_reqinfo_string (sea_name ,svalue )
+  SET eso_idx = 0
+  SET list_size = 0
+  SET list_size = size (request->esoinfo.stringlist ,5 )
+  IF ((list_size > 0 ) )
+   SET eso_x = 1
+   FOR (eso_x = eso_x TO list_size )
+    IF ((request->esoinfo.stringlist[eso_x ].strmeaning = cnvtlower (sea_name ) ) )
+     SET eso_idx = eso_x
+    ENDIF
+   ENDFOR
+  ENDIF
+  IF ((eso_idx > 0 ) )
+   SET request->esoinfo.stringlist[eso_idx ].strval = svalue
+   RETURN (0 )
+  ELSE
+   SET list_size = 0
+   SET list_size = size (request->esoinfo.stringlist ,5 )
+   SET eso_idx = 0
+   SET eso_idx = (list_size + 1 )
+   SET stat = alterlist (request->esoinfo.stringlist ,eso_idx )
+   SET request->esoinfo.stringlist[eso_idx ].strmeaning = cnvtlower (sea_name )
+   SET request->esoinfo.stringlist[eso_idx ].strval = svalue
+   RETURN (1 )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_trim_zeros (number )
+  CALL echo ("Entering eso_trim_zeros subroutine" )
+  FREE
+  SET t_initial
+  FREE
+  SET t_length
+  FREE
+  SET t_decimal
+  FREE
+  SET t_last_sig
+  FREE
+  SET t_final
+  FREE
+  SET t_i
+  SET t_initial = build (number )
+  SET t_length = size (t_initial )
+  SET t_decimal = findstring ("." ,t_initial ,1 )
+  SET t_final = trim (t_initial ,3 )
+  CALL echo (build ("    number=" ,number ) )
+  CALL echo (build ("    t_initial=" ,t_initial ) )
+  IF ((t_decimal > 0 ) )
+   SET t_last_sig = (t_decimal - 1 )
+   SET t_i = 0
+   FOR (t_i = (t_decimal + 1 ) TO t_length )
+    IF ((substring (t_i ,1 ,t_initial ) > "0" ) )
+     SET t_last_sig = t_i
+    ENDIF
+   ENDFOR
+   SET t_final = trim (substring (1 ,t_last_sig ,t_initial ) ,3 )
+  ENDIF
+  FREE
+  SET t_initial
+  FREE
+  SET t_length
+  FREE
+  SET t_decimal
+  FREE
+  SET t_last_sig
+  FREE
+  SET t_i
+  CALL echo (build ("    t_final=" ,t_final ) )
+  CALL echo ("Exiting eso_trim_zeros subroutine" )
+  RETURN (t_final )
+ END ;Subroutine
+ SUBROUTINE  eso_trim_zeros_pos (number ,pos )
+  CALL echo ("Entering eso_trim_zeros_pos subroutine" )
+  FREE
+  SET t_initial
+  FREE
+  SET t_length
+  FREE
+  SET t_decimal
+  FREE
+  SET t_last_sig
+  FREE
+  SET t_final
+  FREE
+  SET t_i
+  SET t_initial = build (number )
+  SET t_length = size (t_initial )
+  SET t_decimal = findstring ("." ,t_initial ,1 )
+  SET t_final = trim (t_initial )
+  IF ((t_decimal > 0 ) )
+   SET t_decimal = (t_decimal + pos )
+   SET t_last_sig = t_decimal
+   SET t_i = 0
+   FOR (t_i = (t_decimal + 1 ) TO t_length )
+    IF ((substring (t_i ,1 ,t_initial ) > "0" ) )
+     SET t_last_sig = t_i
+    ENDIF
+   ENDFOR
+   SET t_final = trim (substring (1 ,t_last_sig ,t_initial ) )
+  ENDIF
+  FREE
+  SET t_initial
+  FREE
+  SET t_length
+  FREE
+  SET t_decimal
+  FREE
+  SET t_last_sig
+  FREE
+  SET t_i
+  CALL echo (build ("    t_final=" ,t_final ) )
+  CALL echo ("Exiting eso_trim_zeros_pos subroutine" )
+  RETURN (t_final )
+ END ;Subroutine
+ SUBROUTINE  eso_trim_zeros_sig_dig (number ,sig_dig )
+  CALL echo ("Entering eso_trim_zeros_sig_dig subroutine" )
+  DECLARE strzeros = vc WITH private ,noconstant ("" )
+  SET strzeros = eso_trim_zeros (trim (cnvtstring (number ,20 ,value (sig_dig ) ) ) )
+  CALL echo ("Exiting eso_trim_zeros_sig_dig subroutine" )
+  RETURN (strzeros )
+ END ;Subroutine
+ SUBROUTINE  parse_formatting_string (f_string ,arg )
+  CALL echo ("Entering parse_formatting_string() subroutine" )
+  DECLARE p_pos = i2 WITH private ,noconstant (0 )
+  DECLARE c_pos = i2 WITH private ,noconstant (0 )
+  DECLARE argument = vc WITH private ,noconstant ("" )
+  DECLARE f_string_len = i4 WITH private ,noconstant (0 )
+  SET f_string = trim (f_string ,3 )
+  SET f_string_len = size (f_string ,1 )
+  CALL echo (build ("arg      =" ,arg ) )
+  CALL echo (build ("f_string =" ,f_string ) )
+  IF (f_string_len )
+   IF (arg )
+    SET p_pos = 0
+    FOR (x_i = 1 TO arg )
+     SET c_pos = findstring ("," ,f_string ,(p_pos + 1 ) )
+     IF ((x_i = arg ) )
+      IF ((p_pos > 0 ) AND (c_pos = 0 ) )
+       SET argument = substring ((p_pos + 1 ) ,(f_string_len - p_pos ) ,f_string )
+      ELSE
+       SET argument = substring ((p_pos + 1 ) ,(c_pos - (p_pos + 1 ) ) ,f_string )
+      ENDIF
+     ENDIF
+     SET p_pos = c_pos
+    ENDFOR
+   ELSE
+    CALL echo ("ERROR!! a valid argument number was not passed in" )
+   ENDIF
+  ELSE
+   CALL echo ("ERROR!! a valid formatting string was not passed in" )
+  ENDIF
+  CALL echo ("Exiting parse_formatting_string() subroutine" )
+  RETURN (argument )
+ END ;Subroutine
+ SUBROUTINE  eso_remove_decimal (number )
+  CALL echo ("Entering eso_remove_decimal() subroutine" )
+  DECLARE t_pos = i4 WITH private ,noconstant (0 )
+  DECLARE t_number = vc WITH private ,noconstant ("" )
+  SET t_number = build (number )
+  CALL echo (build ("t_number = " ,t_number ) )
+  SET t_pos = findstring ("." ,t_number )
+  IF (t_pos )
+   SET t_number = substring (1 ,(t_pos + 2 ) ,t_number )
+   CALL echo (build ("t_number = " ,t_number ) )
+   SET t_number = trim (replace (t_number ,"." ,"" ,1 ) ,3 )
+   CALL echo (build ("t_number = " ,t_number ) )
+  ENDIF
+  CALL echo ("Exiting eso_remove_decimal() subroutine" )
+  RETURN (t_number )
+ END ;Subroutine
+ SUBROUTINE  get_int_routine_arg (arg ,args )
+  CALL echo ("Entering get_int_routine_arg() subroutine" )
+  DECLARE pos = i4 WITH private ,noconstant (0 )
+  DECLARE b_pos = i4 WITH private ,noconstant (0 )
+  DECLARE value = i4 WITH private ,noconstant (0 )
+  DECLARE stop = i2 WITH private ,noconstant (0 )
+  IF ((args <= "" ) )
+   IF ((validate (request->esoinfo ,"!" ) != "!" ) )
+    SET args = request->esoinfo.scriptcontrolargs
+   ELSE
+    CALL echo ("No incoming request->esoinfo structure detected" )
+   ENDIF
+  ENDIF
+  SET pos = findstring (arg ,args )
+  IF (pos )
+   SET pos = (pos + 10 )
+   SET b_pos = pos
+   SET stop = 0
+   WHILE (NOT (stop ) )
+    IF (isnumeric (substring (pos ,1 ,args ) ) )
+     SET value = cnvtint (substring (b_pos ,((pos + 1 ) - b_pos ) ,args ) )
+     SET pos = (pos + 1 )
+    ELSE
+     SET stop = 1
+    ENDIF
+   ENDWHILE
+  ELSE
+   CALL echo (concat ("arg=" ,arg ," not found in routine args=" ,args ) )
+  ENDIF
+  CALL echo (build ("value=" ,value ) )
+  CALL echo ("Exiting get_int_routine_arg() subroutine" )
+  RETURN (value )
+ END ;Subroutine
+ SUBROUTINE  eso_column_exists (tablename ,columnname )
+  CALL echo ("Entering eso_column_exists subroutine" )
+  DECLARE ce_flag = i4 WITH noconstant (0 )
+  SELECT INTO "nl:"
+   l.attr_name
+   FROM (dtableattr a ),
+    (dtableattrl l )
+   WHERE (a.table_name = tablename ) AND (l.attr_name = columnname ) AND (l.structtype = "F" ) AND (
+   btest (l.stat ,0 ) = 1 )
+   DETAIL
+    ce_flag = 1
+   WITH nocounter
+  ;end select
+  CALL echo (build ("ce_flag = " ,ce_flag ) )
+  CALL echo ("Exiting eso_column_exists subroutine" )
+  RETURN (ce_flag )
+ END ;Subroutine
+ SUBROUTINE  eso_pharm_decimal (decimal_val )
+  CALL echo ("Entering eso_pharm_decimal..." )
+  DECLARE strdecimal = vc WITH noconstant (" " )
+  SET strdecimal = cnvtstring (decimal_val ,20 ,6 )
+  SET idecimalidx = findstring ("." ,strdecimal )
+  IF ((idecimalidx > 0 ) )
+   SET iend = size (strdecimal ,1 )
+   WHILE ((substring (iend ,1 ,strdecimal ) = "0" ) )
+    SET iend = (iend - 1 )
+   ENDWHILE
+   SET strdecimal = substring (1 ,iend ,strdecimal )
+   CALL echo (build2 ("removed zeros - " ,strdecimal ) )
+   IF ((substring (size (strdecimal ,1 ) ,1 ,strdecimal ) = "." ) )
+    SET strdecimal = substring (1 ,(size (strdecimal ,1 ) - 1 ) ,strdecimal )
+    CALL echo (build2 ("removed decimal - " ,strdecimal ) )
+   ENDIF
+   IF ((idecimalidx = 1 ) )
+    SET strdecimal = ("0" + strdecimal )
+    CALL echo (build2 ("added leading zero - " ,strdecimal ) )
+   ENDIF
+  ENDIF
+  CALL echo ("Exiting eso_pharm_decimal..." )
+  RETURN (strdecimal )
+ END ;Subroutine
+ SUBROUTINE  get_routine_arg_value (name )
+  CALL echo ("Entering get_routine_arg_value..." )
+  SET routine_args = trim (request->esoinfo.scriptcontrolargs )
+  DECLARE strvalue = vc WITH public ,noconstant (" " )
+  SET iindex = findstring (name ,routine_args )
+  IF (iindex )
+   SET iequalidx = findstring ("=" ,routine_args ,(iindex + size (name ) ) )
+   IF ((iequalidx > 0 ) )
+    SET isemiidx = findstring (";" ,routine_args ,(iequalidx + 1 ) )
+    IF ((isemiidx > 0 ) )
+     SET strvalue = trim (substring ((iequalidx + 1 ) ,((isemiidx - iequalidx ) - 1 ) ,routine_args
+       ) ,3 )
+    ELSE
+     SET strvalue = trim (substring ((iequalidx + 1 ) ,(size (routine_args ) - iequalidx ) ,
+       routine_args ) ,3 )
+    ENDIF
+   ENDIF
+  ENDIF
+  RETURN (strvalue )
+  CALL echo ("Exiting get_routine_arg_value..." )
+ END ;Subroutine
+ SUBROUTINE  routine_arg_exists (name )
+  DECLARE routine_args = vc WITH private ,constant (trim (request->esoinfo.scriptcontrolargs ) )
+  DECLARE routine_args_size = i4 WITH private ,constant (size (routine_args ) )
+  DECLARE name_start = i4 WITH private ,noconstant (0 )
+  DECLARE next_char_idx = i4 WITH private ,noconstant (0 )
+  DECLARE trailing_char_exists = i2 WITH private ,noconstant (0 )
+  DECLARE leading_char_exists = i2 WITH private ,noconstant (0 )
+  IF ((size (trim (name ) ) = 0 ) )
+   CALL echo ("Invalid Empty Routine Arg" )
+   RETURN (0 )
+  ENDIF
+  SET name_start = findstring (name ,routine_args ,1 )
+  WHILE ((name_start > 0 ) )
+   SET next_char_idx = (name_start + size (name ) )
+   SET trailing_char_exists = additional_character_exists (routine_args ,routine_args_size ,
+    next_char_idx ,search_forward )
+   IF ((trailing_char_exists = 0 ) )
+    SET leading_char_exists = additional_character_exists (routine_args ,routine_args_size ,(
+     name_start - 1 ) ,search_backward )
+   ENDIF
+   IF ((leading_char_exists = 0 ) AND (trailing_char_exists = 0 ) )
+    RETURN (1 )
+   ELSE
+    SET name_start = findstring (name ,routine_args ,next_char_idx )
+   ENDIF
+  ENDWHILE
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  additional_character_exists (arg_string ,arg_string_size ,start_idx ,search_increment )
+  DECLARE end_of_token_found = i4 WITH private ,noconstant (0 )
+  DECLARE char_exists = i2 WITH private ,noconstant (0 )
+  DECLARE check_idx = i4 WITH private ,noconstant (start_idx )
+  DECLARE check_char = c1 WITH private ,noconstant (" " )
+  WHILE (NOT (end_of_token_found ) )
+   IF ((((check_idx < 1 ) ) OR ((check_idx > arg_string_size ) )) )
+    SET end_of_token_found = 1
+   ELSE
+    SET check_char = substring (check_idx ,1 ,arg_string )
+    IF ((check_char = ";" ) )
+     SET end_of_token_found = 1
+    ELSEIF (NOT ((check_char = " " ) ) )
+     SET char_exists = 1
+     SET end_of_token_found = 1
+    ELSE
+     SET check_idx = (check_idx + search_increment )
+    ENDIF
+   ENDIF
+  ENDWHILE
+  RETURN (char_exists )
+ END ;Subroutine
+ SUBROUTINE  get_synoptic_nomen_config (name )
+  CALL echo ("Entering get_synoptic_nomen_config..." )
+  SET routine_args = trim (get_esoinfo_string ("routine_args" ) ,3 )
+  DECLARE strvalue = vc WITH public ,noconstant (" " )
+  SET iindex = findstring (name ,routine_args )
+  IF (iindex )
+   SET iequalidx = findstring ("=" ,routine_args ,(iindex + size (name ) ) )
+   IF ((iequalidx > 0 ) )
+    SET isemiidx = findstring (";" ,routine_args ,(iequalidx + 1 ) )
+    IF ((isemiidx > 0 ) )
+     SET strvalue = trim (substring ((iequalidx + 1 ) ,((isemiidx - iequalidx ) - 1 ) ,routine_args
+       ) ,3 )
+    ELSE
+     SET strvalue = trim (substring ((iequalidx + 1 ) ,(size (routine_args ) - iequalidx ) ,
+       routine_args ) ,3 )
+    ENDIF
+   ENDIF
+  ENDIF
+  CALL echo (build ("strValue:" ,strvalue ) )
+  RETURN (strvalue )
+  CALL echo ("Exiting get_synoptic_nomen_config..." )
+ END ;Subroutine
+ SUBROUTINE  rtfformatingremove (srtfstring )
+  CALL echo ("Entering rtfFormat" )
+  CALL echo (build ("sRtfString = " ,srtfstring ) )
+  IF (NOT (validate (g_strreplacetext ) ) )
+   DECLARE dpicttextcd = f8 WITH private ,noconstant (0.0 )
+   SET dpicttextcd = eso_get_meaning_by_codeset (40700 ,"PICT_TEXT" )
+   DECLARE strdisplayvalue = vc WITH private ,noconstant (" " )
+   SET strdisplayvalue = eso_get_code_display (dpicttextcd )
+   DECLARE g_strreplacetext = vc WITH private ,noconstant (" " )
+   SET g_strreplacetext = concat (" " ,trim (strdisplayvalue ,3 ) ," {\pict" )
+  ENDIF
+  DECLARE srtftxt = vc WITH private ,noconstant (" " )
+  SET srtftxt = trim (replace (srtfstring ,"{\pict" ,g_strreplacetext ,0 ) ,3 )
+  DECLARE irtftextsize = i4 WITH private ,noconstant (textlen (srtftxt ) )
+  CALL echo (build ("iRtfTextSize =" ,irtftextsize ) )
+  DECLARE sasciitext = vc WITH private ,noconstant (concat (srtftxt ,"0123456789" ) )
+  DECLARE iacsiilength = i4 WITH private ,noconstant (0 )
+  DECLARE s_irtfflag = i4 WITH private ,noconstant (1 )
+  SET iretvalue = uar_rtf2 (srtftxt ,irtftextsize ,sasciitext ,irtftextsize ,iacsiilength ,
+   s_irtfflag )
+  CALL echo (build ("iRetValue=" ,iretvalue ) )
+  FREE
+  SET srtftxt
+  SET sasciitext = trim (substring (1 ,iacsiilength ,sasciitext ) )
+  CALL echo (build ("sAsciiText=" ,sasciitext ) )
+  CALL echo ("Exiting rtfFormat" )
+  RETURN (sasciitext )
+ END ;Subroutine
+ CALL echo ("<===== ESO_COMMON_ROUTINES.INC End =====>" )
+ DECLARE eso_format_dttm (input_dt_tm ,hl7_format ,time_zone ) = c60
+ DECLARE hl7_format_date (input_dt_tm ,method ) = c60
+ DECLARE hl7_format_time (input_dt_tm ,method ) = c60
+ DECLARE hl7_format_datetime (input_dt_tm ,method ) = c60
+ DECLARE eso_birth_date_format_specifier ((birth_prec_flag = i2 ) ) = i4
+ DECLARE format_dttm_custom ((s_dtinputdttm = dq8 ) ,(s_strformat = vc ) ,(s_strtzformat = vc ) ) =
+ vc
+ DECLARE format_date_of_record_custom ((s_dtinputdttm = dq8 ) ,(s_strformat = vc ) ,(s_strtzformat =
+  vc ) ,(s_idatetz = i4 ) ) = vc
+ DECLARE eso_format_nomen (n_field1 ,n_field2 ,n_field3 ,n_value1 ,n_value2 ) = c200
+ DECLARE eso_format_item (identifier ,value ,item ,index ) = c200
+ DECLARE eso_format_item_with_method (identifier ,value ,item ,index ,data_type ,field_name ) = c200
+ DECLARE eso_format_code (fvalue ) = c40
+ DECLARE eso_format_code_with_method (fvalue ,data_type ,field_name ) = c40
+ DECLARE eso_format_code_blank (fvalue ) = c40
+ DECLARE eso_format_code_ctx (fvalue ) = c40
+ DECLARE eso_format_code_blank_ctx (fvalue ) = c40
+ DECLARE eso_format_alias (field1 ,field2 ,type ,subtype ,pool ,alias ) = c200
+ DECLARE eso_format_alias_ctx (field1 ,field2 ,type ,subtype ,pool ,alias ) = c200
+ DECLARE eso_format_dbnull (dummy ) = c40
+ DECLARE eso_format_dbnull_ctx (dummy ) = c40
+ DECLARE eso_format_org (field_name ,msg_format ,datatype ,org_alias_type_cd ,repeat_ind ,future ,
+  future2 ,assign_auth_org_id ,fed_tax_id ,org_name ,org_id ) = c200
+ DECLARE eso_format_hlthplan (field_name ,msg_format ,datatype ,hlthplan_alias_type_cd ,repeat_ind ,
+  future ,future2 ,assign_auth_org_id ,hlthplan_plan_name ,hlthplan_id ,ins_org_id ) = c200
+ DECLARE eso_encode_timing (value ,unit ) = c20
+ DECLARE eso_encode_range (low ,high ) = c45
+ DECLARE eso_format_frequency ((freq_qual = i4 ) ) = c45
+ DECLARE eso_format_pharm_timing ((encoded = vc ) ,(noround = vc ) ,(type_meaning = vc ) ) = c200
+ DECLARE eso_encode_timing_noround (value ,unit ) = c20
+ DECLARE eso_format_previous_result (strverifydttm ,struser ,strresultval ,strresultunitcd ,
+  strnormalcycd ,strusername ,strtype ) = vc
+ DECLARE eso_format_short_result (strverifydttm ,struser ,strusername ,strtype ) = vc
+ DECLARE eso_format_code_for_cs (fvalue ,strcodingsys ,straliastypmeaning ) = vc
+ DECLARE eso_format_multum_identifiers (catalog_cd ,synonym_id ,item_id ,field_type ,format_string )
+ = vc
+ DECLARE eso_format_attachment (strattachmentname ,dstoragecd ,strblobhandle ,dformatcd ,
+  strcommentind ) = vc
+ DECLARE eso_format_code_with_event_id ((deventcd = f8 ) ,(deventid = f8 ) ,(dentitycd = f8 ) ,(
+  strsegmentname = vc ) ,(strfieldtype = vc ) ) = vc
+ DECLARE eso_format_code_with_event_id_and_vocab_type ((deventcd = f8 ) ,(deventid = f8 ) ,(
+  dentitycd = f8 ) ,(strsegmentname = vc ) ,(strfieldtype = vc ) ,(strvocabularytype = vc ) ) = vc
+ DECLARE eso_format_code_with_event_id_suscep_seq_nbr ((deventcd = f8 ) ,(deventid = f8 ) ,(
+  dentitycd = f8 ) ,(strsegmentname = vc ) ,(strfieldtype = vc ) ,(isuscepseqnbr = i4 ) ,(
+  strvocabularytype = vc ) ) = vc
+ DECLARE eso_format_code_with_event_id_micro_seq_nbr ((deventcd = f8 ) ,(deventid = f8 ) ,(dentitycd
+  = f8 ) ,(strsegmentname = vc ) ,(strfieldtype = vc ) ,(imicroseqnbr = i4 ) ,(strvocabularytype =
+  vc ) ) = vc
+ DECLARE eso_format_nomen_or_string ((strvalue = vc ) ,(deventid = f8 ) ,(dentitycd = f8 ) ,(
+  strsegmentname = vc ) ,(strfieldtype = vc ) ) = vc
+ DECLARE eso_format_phone_cd (dphonetypecd ,dcontactmethodcd ) = vc
+ DECLARE eso_nomen_concept ((dnomenid = f8 ) ) = i4
+ DECLARE populate_order_diagnoses ((dorderid = f8 ) ,(iobridx = i4 ) ) = i4
+ SET hl7_date_year = 1
+ SET hl7_date_mon = 2
+ SET hl7_date_day = 3
+ SET hl7_dt_tm_hour = 4
+ SET hl7_dt_tm_min = 5
+ SET hl7_dt_tm_sec = 6
+ SET hl7_dt_tm_hsec = 7
+ SET hl7_time_hour = 8
+ SET hl7_time_min = 9
+ SET hl7_time_sec = 10
+ SET hl7_time_hsec = 11
+ SET hl7_date = 3
+ SET hl7_dt_tm = 6
+ SET hl7_time = 10
+ SUBROUTINE  format_dttm_custom (s_dtinputdttm ,s_strformat ,s_strtzformat )
+  DECLARE strdttmcustformatstring = vc WITH noconstant (" " )
+  IF ((s_dtinputdttm > 0 ) AND (textlen (trim (s_strformat ,3 ) ) > 0 ) )
+   DECLARE strtzformatstring = vc WITH noconstant (", ," )
+   IF ((textlen (trim (s_strtzformat ,3 ) ) > 0 ) )
+    SET strtzformatstring = build2 ("," ,s_strtzformat ,"," )
+   ENDIF
+   SET strdttmcustformatstring = build2 ("##DTTMCUST##," ,s_strformat ,strtzformatstring ,format (
+     s_dtinputdttm ,"YYYYMMDD;;D" ) ,"," ,format (s_dtinputdttm ,"HHmmss.cc;3;M" ) ,"," )
+  ENDIF
+  RETURN (strdttmcustformatstring )
+ END ;Subroutine
+ SUBROUTINE  format_date_of_record_custom (s_dtinputdttm ,s_strformat ,s_strtzformat ,s_idatetz )
+  DECLARE strdttmcustformatstring = vc WITH noconstant (" " )
+  IF ((s_dtinputdttm > 0 ) AND (textlen (trim (s_strformat ,3 ) ) > 0 ) )
+   DECLARE strtzformatstring = vc WITH noconstant (", ," )
+   DECLARE strdatetz = vc WITH noconstant ("," )
+   IF ((textlen (trim (s_strtzformat ,3 ) ) > 0 ) )
+    SET strtzformatstring = build2 ("," ,s_strtzformat ,"," )
+   ENDIF
+   IF ((s_idatetz > 0 ) )
+    SET strdatetz = build2 ("," ,cnvtstring (s_idatetz ) )
+   ELSEIF ((curutc = 0 ) )
+    SET strdatetz = build2 ("," ,cnvtstring (curtimezonesys ) )
+   ENDIF
+   SET strdttmcustformatstring = build2 ("##DTTMCUST##," ,s_strformat ,strtzformatstring ,format (
+     s_dtinputdttm ,"YYYYMMDD;;D" ) ,"," ,format (s_dtinputdttm ,"HHmmss.cc;3;M" ) ,strdatetz )
+  ENDIF
+  RETURN (strdttmcustformatstring )
+ END ;Subroutine
+ SUBROUTINE  eso_format_dttm (input_dt_tm ,hl7_format ,time_zone )
+  IF ((input_dt_tm > 0 ) )
+   FREE
+   SET t_dt
+   FREE
+   SET t_dt_format
+   FREE
+   SET t_tm
+   FREE
+   SET t_tm_format
+   SET t_dt = format (input_dt_tm ,"YYYYMMDD;;D" )
+   SET t_tm = format (input_dt_tm ,"HHmmss.cc;3;M" )
+   CASE (hl7_format )
+    OF hl7_date_year :
+     SET t_dt_format = "YYYY"
+     SET t_tm_format = " "
+    OF hl7_date_mon :
+     SET t_dt_format = "YYYYMM"
+     SET t_tm_format = " "
+    OF hl7_date_day :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = " "
+    OF hl7_date :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = " "
+    OF hl7_dt_tm_hour :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HH"
+    OF hl7_dt_tm_min :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HHMM"
+    OF hl7_dt_tm_sec :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HHMMSS"
+    OF hl7_dt_tm :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HHMMSS"
+    OF hl7_dt_tm_hsec :
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HHMMSS.CC"
+    OF hl7_time_hour :
+     SET t_dt_format = " "
+     SET t_tm_format = "HH"
+    OF hl7_time_min :
+     SET t_dt_format = " "
+     SET t_tm_format = "HHMM"
+    OF hl7_time_sec :
+     SET t_dt_format = " "
+     SET t_tm_format = "HHMMSS"
+    OF hl7_time :
+     SET t_dt_format = " "
+     SET t_tm_format = "HHMMSS"
+    OF hl7_time_hsec :
+     SET t_dt_format = " "
+     SET t_tm_format = "HHMMSS.CC"
+    ELSE
+     SET t_dt_format = "YYYYMMDD"
+     SET t_tm_format = "HHMMSS"
+   ENDCASE
+   RETURN (concat ("##DTTM##" ,"," ,t_dt_format ,"," ,t_tm_format ,"," ,t_dt ,"," ,t_tm ,"," ,
+    time_zone ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  hl7_format_datetime (input_dt_tm ,method )
+  RETURN (eso_format_dttm (input_dt_tm ,method ,"" ) )
+ END ;Subroutine
+ SUBROUTINE  hl7_format_date (input_dt_tm ,method )
+  RETURN (eso_format_dttm (input_dt_tm ,method ,"" ) )
+ END ;Subroutine
+ SUBROUTINE  hl7_format_time (input_dt_tm ,method )
+  RETURN (eso_format_dttm (input_dt_tm ,method ,"" ) )
+ END ;Subroutine
+ SUBROUTINE  eso_birth_date_format_specifier (birth_prec_flag )
+  DECLARE precision = i4 WITH noconstant (0 )
+  CASE (birth_prec_flag )
+   OF 0 :
+    SET precision = hl7_date
+   OF 1 :
+    SET precision = hl7_dt_tm
+   OF 2 :
+    SET precision = hl7_date_mon
+   OF 3 :
+    SET precision = hl7_date_year
+   ELSE
+    SET precision = hl7_dt_tm
+  ENDCASE
+  RETURN (precision )
+ END ;Subroutine
+ SUBROUTINE  eso_format_nomen (n_field1 ,n_field2 ,n_field3 ,n_value1 ,n_value2 )
+  IF (n_value1 AND n_value2 )
+   RETURN (substring (1 ,200 ,concat ("##NOMEN##" ,"," ,trim (n_field1 ,3 ) ,"," ,trim (n_field2 ,3
+      ) ,"," ,trim (n_field3 ,3 ) ,"," ,trim (cnvtstring (n_value1 ) ,3 ) ,"," ,trim (cnvtstring (
+       n_value2 ) ,3 ) ) ) )
+  ELSE
+   RETURN (eso_format_dbnull (1 ) )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_item (identifier ,value ,item ,index )
+  IF ((item > 0 ) )
+   RETURN (substring (1 ,200 ,concat ("##ITEM##" ,"," ,trim (identifier ) ,"," ,trim (value ) ,"," ,
+     trim (cnvtstring (item ) ) ,"," ,trim (cnvtstring (index ) ) ) ) )
+  ELSE
+   RETURN (eso_format_dbnull (1 ) )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_item_with_method (identifier ,value ,item ,index ,data_type ,field_name )
+  IF ((item > 0 ) )
+   RETURN (substring (1 ,200 ,concat ("##ITEM##" ,"," ,trim (identifier ) ,"," ,trim (value ) ,"," ,
+     trim (cnvtstring (item ) ) ,"," ,trim (cnvtstring (index ) ) ,"," ,trim (data_type ) ,"," ,trim
+     (field_name ) ) ) )
+  ELSE
+   RETURN (eso_format_dbnull (1 ) )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_code (fvalue )
+  IF ((fvalue > 0 ) )
+   RETURN (substring (1 ,40 ,concat ("##CVA##" ,"," ,trim (cnvtstring (fvalue ) ) ) ) )
+  ELSE
+   RETURN (eso_format_dbnull (1 ) )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_with_method (fvalue ,data_type ,field_name )
+  IF ((fvalue > 0 ) )
+   IF ((trim (data_type ) = "ALIAS_TYPE_MEANING" ) )
+    RETURN (substring (1 ,40 ,concat ("##CVA##" ,"," ,trim (cnvtstring (fvalue ) ) ,"," ,trim (
+       field_name ) ) ) )
+   ELSE
+    RETURN (substring (1 ,40 ,concat ("##CVA##" ,"," ,trim (cnvtstring (fvalue ) ) ,"," ,trim (
+       data_type ) ,"," ,trim (field_name ) ) ) )
+   ENDIF
+  ELSE
+   RETURN (eso_format_dbnull (1 ) )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_blank (fvalue )
+  IF ((fvalue > 0 ) )
+   RETURN (substring (1 ,40 ,concat ("##CVA##" ,"," ,trim (cnvtstring (fvalue ) ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_ctx (fvalue )
+  RETURN (eso_format_code (fvalue ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_blank_ctx (fvalue )
+  RETURN (eso_format_code_blank (fvalue ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_alias (field1 ,field2 ,type ,subtype ,pool ,alias )
+  CALL echo (concat ("alias type " ,cnvtstring (type ) ) )
+  IF ((type > 0 ) )
+   CALL echo ("alias type > 0 " )
+   IF ((trim (alias ) = "" ) )
+    CALL echo ('alias <= ""' )
+    RETURN (substring (1 ,200 ,concat ("##ALIAS##" ,"," ,trim (field1 ) ,"," ,trim (field2 ) ,"," ,
+      trim (cnvtstring (type ) ) ,"," ,trim (cnvtstring (subtype ) ) ,"," ,trim (cnvtstring (pool )
+       ) ,"," ," " ,"," ," " ,"," ," " ) ) )
+   ELSE
+    CALL echo ('alias > ""' )
+    RETURN (substring (1 ,200 ,concat ("##ALIAS##" ,"," ,trim (field1 ) ,"," ,trim (field2 ) ,"," ,
+      trim (cnvtstring (type ) ) ,"," ,trim (cnvtstring (subtype ) ) ,"," ,trim (cnvtstring (pool )
+       ) ,"," ," " ,"," ," " ,"," ,trim (alias ) ) ) )
+   ENDIF
+  ELSE
+   CALL echo ("alias type <= 0 " )
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_alias_ctx (field1 ,field2 ,type ,subtype ,pool ,alias )
+  CALL echo (concat ("alias type " ,cnvtstring (type ) ) )
+  IF ((type > 0 ) )
+   CALL echo ("alias type > 0 " )
+   IF ((trim (alias ) = "" ) )
+    CALL echo ('alias <= ""' )
+    RETURN (substring (1 ,200 ,concat ("##ALIAS##" ,"," ,trim (field1 ) ,"," ,trim (field2 ) ,"," ,
+      trim (cnvtstring (type ) ) ,"," ,trim (cnvtstring (subtype ) ) ,"," ,trim (cnvtstring (pool )
+       ) ,"," ," " ,"," ," " ,"," ," " ) ) )
+   ELSE
+    CALL echo ('alias > ""' )
+    RETURN (substring (1 ,200 ,concat ("##ALIAS##" ,"," ,trim (field1 ) ,"," ,trim (field2 ) ,"," ,
+      trim (cnvtstring (type ) ) ,"," ,trim (cnvtstring (subtype ) ) ,"," ,trim (cnvtstring (pool )
+       ) ,"," ," " ,"," ," " ,"," ,trim (alias ) ) ) )
+   ENDIF
+  ELSE
+   CALL echo ("alias type <= 0 " )
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_dbnull (dummy )
+  RETURN (substring (1 ,40 ,"##NULL##" ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_dbnull_ctx (dummy )
+  RETURN (substring (1 ,40 ,"##NULL##" ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_org (msg_format ,field_name ,datatype ,org_id ,org_alias_type_cd ,repeat_ind
+  ,assign_auth_org_id ,fed_tax_id ,org_name ,future ,future2 )
+  CALL echo (concat ("org_id = " ,cnvtstring (org_id ) ) )
+  IF ((org_id > 0 ) )
+   CALL echo ("org_id > 0 " )
+   RETURN (substring (1 ,200 ,concat ("##ORG##" ,"," ,trim (msg_format ) ,"," ,trim (field_name ) ,
+     "," ,trim (datatype ) ,"," ,trim (cnvtstring (org_id ) ) ,"," ,trim (cnvtstring (
+       org_alias_type_cd ) ) ,"," ,trim (cnvtstring (repeat_ind ) ) ,"," ,trim (cnvtstring (
+       assign_auth_org_id ) ) ,"," ,trim (cnvtstring (fed_tax_id ) ) ,"," ,trim (org_name ) ,"," ,
+     "," ,"," ) ) )
+  ELSE
+   CALL echo ("org_id <= 0 " )
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_hlthplan (field_name ,msg_format ,datatype ,hlthplan_alias_type_cd ,
+  repeat_ind ,future ,future2 ,assign_auth_org_id ,hlthplan_plan_name ,hlthplan_id ,ins_org_id )
+  CALL echo (concat ("hlthplan_id =" ,cnvtstring (hlthplan_id ) ) )
+  IF ((hlthplan_id > 0 ) )
+   CALL echo ("hlthplan_id > 0 " )
+   RETURN (substring (1 ,200 ,concat ("##HLTHPLAN##" ,"," ,trim (field_name ) ,"," ,trim (msg_format
+      ) ,"," ,trim (datatype ) ,"," ,trim (cnvtstring (hlthplan_alias_type_cd ) ) ,"," ,trim (
+      cnvtstring (repeat_ind ) ) ,"," ,"," ,"," ,trim (cnvtstring (assign_auth_org_id ) ) ,"," ,trim
+     (hlthplan_plan_name ) ,"," ,trim (cnvtstring (hlthplan_id ) ) ,"," ,trim (cnvtstring (
+       ins_org_id ) ) ) ) )
+  ELSE
+   CALL echo ("hlthplan_id <= 0 " )
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_encode_timing (value ,unit )
+  CALL echo ("Entering eso_encode_timing subroutine" )
+  CALL echo (build ("    value=" ,value ) )
+  CALL echo (build ("    unit=" ,unit ) )
+  FREE
+  SET t_timing
+  FREE
+  SET t_meaning
+  IF ((unit > 0 ) )
+   SET t_meaning = trim (uar_get_code_meaning (unit ) )
+   CALL echo (build ("    t_meaning=" ,t_meaning ) )
+   IF ((t_meaning = "DOSES" ) )
+    SET t_timing = trim (build ("X" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "SECONDS" ) )
+    SET t_timing = trim (build ("S" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "MINUTES" ) )
+    SET t_timing = trim (build ("M" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "HOURS" ) )
+    SET t_timing = trim (build ("H" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "DAYS" ) )
+    SET t_timing = trim (build ("D" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "WEEKS" ) )
+    SET t_timing = trim (build ("W" ,cnvtstring (value ) ) )
+   ELSEIF ((t_meaning = "MONTHS" ) )
+    SET t_timing = trim (build ("L" ,cnvtstring (value ) ) )
+   ELSE
+    SET t_timing = ""
+   ENDIF
+  ELSE
+   SET t_timing = ""
+  ENDIF
+  CALL echo (build ("    t_timing=" ,t_timing ) )
+  CALL echo ("Exiting eso_encode_timing subroutine" )
+  RETURN (t_timing )
+ END ;Subroutine
+ SUBROUTINE  eso_encode_range (low ,high )
+  CALL echo ("Entering eso_encode_range subroutine" )
+  CALL echo (build ("    low=" ,low ) )
+  CALL echo (build ("    high=" ,high ) )
+  FREE
+  SET t_range
+  IF ((high > "" ) )
+   IF ((low > "" ) )
+    SET t_range = concat (low ,"-" ,high )
+   ELSE
+    IF ((((ichar (substring (1 ,1 ,high ) ) >= ichar ("0" ) ) AND (ichar (substring (1 ,1 ,high ) )
+    <= ichar ("9" ) ) ) OR ((substring (1 ,1 ,high ) = "-" ) )) )
+     SET t_range = concat ("<" ,high )
+    ELSE
+     SET t_range = high
+    ENDIF
+   ENDIF
+  ELSE
+   IF ((low > "" ) )
+    IF ((((ichar (substring (1 ,1 ,low ) ) >= ichar ("0" ) ) AND (ichar (substring (1 ,1 ,low ) ) <=
+    ichar ("9" ) ) ) OR ((substring (1 ,1 ,low ) = "-" ) )) )
+     SET t_range = concat (">" ,low )
+    ELSE
+     SET t_range = low
+    ENDIF
+   ELSE
+    SET t_range = ""
+   ENDIF
+  ENDIF
+  CALL echo (build ("    t_range=" ,t_range ) )
+  CALL echo ("Exiting eso_encode_range subroutine" )
+  RETURN (t_range )
+ END ;Subroutine
+ SUBROUTINE  eso_encode_timing_noround (value ,unit )
+  CALL echo ("Entering eso_encode_timing_noround subroutine" )
+  CALL echo (build ("    value=" ,value ) )
+  CALL echo (build ("    unit=" ,unit ) )
+  FREE
+  SET t_timing
+  FREE
+  SET t_meaning
+  IF ((unit > 0 ) )
+   SET t_meaning = trim (uar_get_code_meaning (unit ) )
+   CALL echo (build ("    t_meaning=" ,t_meaning ) )
+   IF ((t_meaning = "DOSES" ) )
+    SET t_timing = trim (build ("X" ,value ) )
+   ELSEIF ((t_meaning = "SECONDS" ) )
+    SET t_timing = trim (build ("S" ,value ) )
+   ELSEIF ((t_meaning = "MINUTES" ) )
+    SET t_timing = trim (build ("M" ,value ) )
+   ELSEIF ((t_meaning = "HOURS" ) )
+    SET t_timing = trim (build ("H" ,value ) )
+   ELSEIF ((t_meaning = "DAYS" ) )
+    SET t_timing = trim (build ("D" ,value ) )
+   ELSEIF ((t_meaning = "WEEKS" ) )
+    SET t_timing = trim (build ("W" ,value ) )
+   ELSEIF ((t_meaning = "MONTHS" ) )
+    SET t_timing = trim (build ("L" ,value ) )
+   ELSE
+    SET t_timing = ""
+   ENDIF
+  ELSE
+   SET t_timing = ""
+  ENDIF
+  CALL echo (build ("    t_timing=" ,t_timing ) )
+  CALL echo ("Exiting eso_encode_timing_noround subroutine" )
+  RETURN (t_timing )
+ END ;Subroutine
+ SUBROUTINE  eso_format_frequency (freq_qual )
+  CALL echo ("Entering eso_format_frequency subroutine" )
+  CALL echo (build ("freq_qual = " ,freq_qual ) )
+  IF ((freq_qual > 0 ) )
+   RETURN (substring (1 ,200 ,concat ("##TIMEINTSTR##" ,"," ,build (freq_qual ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_pharm_timing (encoded ,noround ,type_meaning )
+  CALL echo ("Entering eso_format_pharm_timing subroutine" )
+  CALL echo (build ("encoded = " ,encoded ) )
+  CALL echo (build ("noround = " ,noround ) )
+  CALL echo (build ("type_meaning = " ,type_meaning ) )
+  IF ((type_meaning > " " ) )
+   RETURN (substring (1 ,200 ,concat ("##PHARMTIMING##" ,"," ,trim (encoded ) ,"," ,trim (noround ) ,
+     "," ,trim (type_meaning ) ) ) )
+  ELSE
+   CALL echo ("Invalid Type" )
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_previous_result (strverifydttm ,struser ,strresultval ,strresultunitcd ,
+  strnormalcycd ,strusername ,strtype )
+  CALL echo ("Entering eso_format_previous_result subroutine" )
+  RETURN (concat ("##CORRECTRESULT##" ,";" ,trim (strverifydttm ) ,";" ,trim (struser ) ,";" ,trim (
+    strresultval ) ,";" ,trim (strresultunitcd ) ,";" ,trim (strnormalcycd ) ,";" ,trim (strusername
+    ) ,";" ,trim (strtype ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_short_result (strverifydttm ,struser ,strusername ,strtype )
+  CALL echo ("Entering eso_format_short_result subroutine" )
+  RETURN (concat ("##CORRECTRESULT##" ,";" ,trim (strverifydttm ) ,";" ,trim (struser ) ,";" ,trim (
+    strusername ) ,";" ,trim (strtype ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_for_cs (fvalue ,strcodingsys ,straliastypmeaning )
+  IF ((fvalue > 0 ) )
+   RETURN (trim (concat ("##CVA_W_CS##" ,"," ,trim (cnvtstring (fvalue ) ) ,"," ,trim (strcodingsys
+      ) ,"," ,trim (straliastypmeaning ) ) ) )
+  ELSE
+   RETURN ("" )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_multum_identifiers (catalog_cd ,synonym_id ,item_id ,field_type ,
+  format_string )
+  RETURN (concat ("##SEND_MULTUM_IDENT##" ,";" ,trim (cnvtstring (catalog_cd ) ) ,";" ,trim (
+    cnvtstring (synonym_id ) ) ,";" ,trim (cnvtstring (item_id ) ) ,";" ,trim (field_type ) ,";" ,
+   trim (format_string ) ,";" ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_attachment (strattachmentname ,dstoragecd ,strblobhandle ,dformatcd ,
+  strcommentind )
+  RETURN (concat ("##ATTACHMENT##" ,"," ,trim (strattachmentname ) ,"," ,trim (cnvtstring (
+     dstoragecd ) ) ,"," ,trim (strblobhandle ) ,"," ,trim (cnvtstring (dformatcd ) ) ,"," ,trim (
+    strcommentind ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_with_event_id (deventcd ,deventid ,dentitycd ,strsegmentname ,
+  strfieldtype )
+  RETURN (eso_format_code_with_event_id_and_vocab_type (deventcd ,deventid ,dentitycd ,
+   strsegmentname ,strfieldtype ,"TEST" ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_with_event_id_and_vocab_type (deventcd ,deventid ,dentitycd ,
+  strsegmentname ,strfieldtype ,strvocabularytype )
+  RETURN (trim (concat ("##CVA##" ,"," ,trim (cnvtstring (deventcd ) ) ,"," ," ," ," ," ,trim (
+     cnvtstring (deventid ) ) ,"," ,trim (cnvtstring (dentitycd ) ) ,"," ,trim (strsegmentname ) ,
+    "," ,trim (strfieldtype ) ,", ," ,trim (strvocabularytype ) ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_with_event_id_suscep_seq_nbr (deventcd ,deventid ,dentitycd ,
+  strsegmentname ,strfieldtype ,isuscepseqnbr ,strvocabularytype )
+  RETURN (trim (concat ("##CVA##" ,"," ,trim (cnvtstring (deventcd ) ) ,"," ," ," ," ," ,trim (
+     cnvtstring (deventid ) ) ,"," ,trim (cnvtstring (dentitycd ) ) ,"," ,trim (strsegmentname ) ,
+    "," ,trim (strfieldtype ) ,"," ,trim (cnvtstring (isuscepseqnbr ) ) ,"," ,trim (
+     strvocabularytype ) ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_code_with_event_id_micro_seq_nbr (deventcd ,deventid ,dentitycd ,
+  strsegmentname ,strfieldtype ,imicroseqnbr ,strvocabularytype )
+  RETURN (trim (concat ("##CVA##" ,"," ,trim (cnvtstring (deventcd ) ) ,"," ," ," ," ," ,trim (
+     cnvtstring (deventid ) ) ,"," ,trim (cnvtstring (dentitycd ) ) ,"," ,trim (strsegmentname ) ,
+    "," ,trim (strfieldtype ) ,"," ,trim (cnvtstring (imicroseqnbr ) ) ,"," ,trim (strvocabularytype
+     ) ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_nomen_or_string (strvalue ,deventid ,dentitycd ,strsegmentname ,strfieldtype
+  )
+  RETURN (trim (concat ("##NOS##" ,"," ,trim (strvalue ) ,"," ,trim (cnvtstring (deventid ) ) ,"," ,
+    trim (cnvtstring (dentitycd ) ) ,"," ,trim (strsegmentname ) ,"," ,trim (strfieldtype ) ) ) )
+ END ;Subroutine
+ SUBROUTINE  eso_nomen_concept (dnomenid )
+  DECLARE icnt = i4 WITH protect ,noconstant (1 )
+  DECLARE inomenidx = i4 WITH protect ,noconstant (0 )
+  DECLARE inomensize = i4 WITH protect ,noconstant (size (result_struct->nomenclatures ,5 ) )
+  SET inomenidx = locateval (icnt ,1 ,inomensize ,dnomenid ,result_struct->nomenclatures[icnt ].
+   nomen_id )
+  IF ((inomenidx = 0 ) )
+   SELECT INTO "nl:"
+    n.source_string ,
+    n.source_vocabulary_cd ,
+    cmt.concept_identifier ,
+    cmt.concept_name
+    FROM (cmt_concept cmt ),
+     (nomenclature n )
+    PLAN (n
+     WHERE (n.nomenclature_id = dnomenid ) )
+     JOIN (cmt
+     WHERE (cmt.concept_cki = n.concept_cki ) AND (cmt.active_ind = 1 ) )
+    DETAIL
+     IF ((size (trim (n.concept_cki ) ) > 0 ) ) inomenidx = (inomensize + 1 ) ,stat = alterlist (
+       result_struct->nomenclatures ,inomenidx ) ,result_struct->nomenclatures[inomenidx ].nomen_id
+      = dnomenid ,result_struct->nomenclatures[inomenidx ].concept_ident = cmt.concept_identifier ,
+      result_struct->nomenclatures[inomenidx ].concept_name = cmt.concept_name ,result_struct->
+      nomenclatures[inomenidx ].source_string = n.source_string ,result_struct->nomenclatures[
+      inomenidx ].source_vocab_cd = n.source_vocabulary_cd
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDIF
+  RETURN (inomenidx )
+ END ;Subroutine
+ SUBROUTINE  populate_order_diagnoses (dorderid ,iobridx )
+  DECLARE idiagsize = i4 WITH protect ,noconstant (0 )
+  DECLARE idiagidx = i4 WITH protect ,noconstant (0 )
+  DECLARE inomidx = i4 WITH protect ,noconstant (0 )
+  DECLARE dorderdiagcd = f8 WITH protect ,constant (eso_get_meaning_by_codeset (23549 ,"ORDERDIAG" )
+   )
+  DECLARE dordericd9cd = f8 WITH protect ,constant (eso_get_meaning_by_codeset (23549 ,"ORDERICD9" )
+   )
+  FREE
+  RECORD diaglist
+  RECORD diaglist (
+    1 item [* ]
+      2 nomen_id = f8
+      2 ft_desc = vc
+  )
+  SELECT INTO "nl:"
+   table_ind = decode (n.seq ,"n" ,d.seq ,"d" ,"x" ) ,
+   n.nomenclature_id ,
+   d.diag_ftdesc
+   FROM (nomen_entity_reltn er ),
+    (nomenclature n ),
+    (diagnosis d ),
+    (dummyt d1 WITH seq = 1 ),
+    (dummyt d2 WITH seq = 1 )
+   PLAN (er
+    WHERE (er.active_ind > 0 ) AND (er.parent_entity_name = "ORDERS" ) AND (er.parent_entity_id =
+    dorderid ) AND (((er.reltn_type_cd = dorderdiagcd ) ) OR ((er.reltn_type_cd = dordericd9cd ) ))
+    )
+    JOIN (d1 )
+    JOIN (n
+    WHERE (er.nomenclature_id > 0.0 ) AND (n.nomenclature_id = er.nomenclature_id ) )
+    ORJOIN (d2 )
+    JOIN (d
+    WHERE (er.nomenclature_id <= 0.0 ) AND (er.child_entity_name = "DIAGNOSIS" ) AND (d.diagnosis_id
+    = er.child_entity_id ) )
+   HEAD REPORT
+    i = 0
+   DETAIL
+    CASE (table_ind )
+     OF "n" :
+      i = (i + 1 ) ,
+      stat = alterlist (diaglist->item ,i ) ,
+      diaglist->item[i ].nomen_id = n.nomenclature_id
+     OF "d" :
+      i = (i + 1 ) ,
+      stat = alterlist (diaglist->item ,i ) ,
+      diaglist->item[i ].ft_desc = trim (d.diag_ftdesc ,3 )
+     OF "x" :
+      CALL echo (build (
+       "WARNING!! Did NOT join to either NOMENCLATURE or DIAGNOSIS tables for ORDER_ID = " ,dorderid
+       ) )
+    ENDCASE
+   WITH nocounter ,outerjoin = d1
+  ;end select
+  SET idiagsize = size (diaglist->item ,5 )
+  FOR (idiagidx = 1 TO idiagsize )
+   IF ((diaglist->item[idiagidx ].nomen_id > 0.0 ) )
+    SET ifoundidx = eso_nomen_concept (diaglist->item[idiagidx ].nomen_id )
+    IF (ifoundidx )
+     SET irealidx = (size (context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].
+      relevant_clin_info ,5 ) + 1 )
+     SET stat = alterlist (context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].
+      relevant_clin_info ,irealidx )
+     SET context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info[irealidx ].
+     identifier = result_struct->nomenclatures[ifoundidx ].concept_ident
+     SET context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info[irealidx ].text
+      = result_struct->nomenclatures[ifoundidx ].concept_name
+     SET context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info[irealidx ].
+     coding_system = eso_format_code (result_struct->nomenclatures[ifoundidx ].source_vocab_cd )
+     SET context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info[irealidx ].
+     original_text = result_struct->nomenclatures[ifoundidx ].source_string
+    ENDIF
+   ELSEIF ((size (trim (diaglist->item[idiagidx ].ft_desc ) ) > 0 ) )
+    SET irealidx = (size (context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].
+     relevant_clin_info ,5 ) + 1 )
+    SET stat = alterlist (context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].
+     relevant_clin_info ,irealidx )
+    SET context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info[irealidx ].text
+    = trim (diaglist->item[idiagidx ].ft_desc )
+   ENDIF
+  ENDFOR
+  RETURN (size (context->person_group[1 ].res_oru_group[iobridx ].obr[1 ].relevant_clin_info ,5 ) )
+ END ;Subroutine
+ SUBROUTINE  eso_format_phone_cd (dphonetypecd ,dcontactmethodcd )
+  IF ((validate (g_dpvdphtpalternate ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpalternate = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "ALTERNATE" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpbilling ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpbilling = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "BILLING" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpbusiness ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpbusiness = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "BUSINESS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpfaxalt ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpfaxalt = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAX ALT" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpfaxbill ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpfaxbill = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAX BILL" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpfaxbus ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpfaxbus = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAX BUS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpfaxpers ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpfaxpers = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAX PERS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpfaxtemp ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpfaxtemp = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAX TEMP" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtphome ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtphome = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "HOME" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpmobile ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpmobile = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "MOBILE" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtposafterhour ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtposafterhour = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43
+     ,"OS AFTERHOUR" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtposphone ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtposphone = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "OS PHONE" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpospager ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpospager = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "OS PAGER" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtposbkoffice ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtposbkoffice = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "OS BK OFFICE" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppageralt ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppageralt = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGER ALT" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppagerbill ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppagerbill = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGER BILL" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppagerbus ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppagerbus = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGER BUS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppagertemp ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppagertemp = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGER TEMP" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppagerpers ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppagerpers = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGER PERS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtppaging ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtppaging = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PAGING" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpportbus ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpportbus = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PORT BUS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpporttemp ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpporttemp = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PORT TEMP" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpsecbusiness ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpsecbusiness = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43
+     ,"SECBUSINESS" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtptechnical ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtptechnical = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "TECHNICAL" ) )
+  ENDIF
+  IF ((validate (g_dpvdphtpverify ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphtpverify = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "VERIFY" ) )
+  ENDIF
+  IF ((validate (g_deprescphone ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_deprescphone = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "PHONEEPRESCR" ) )
+  ENDIF
+  IF ((validate (g_deprescfax ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_deprescfax = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (43 ,
+     "FAXEPRESCR" ) )
+  ENDIF
+  IF ((validate (g_dpvdphfmtfax ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphfmtfax = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (23056 ,
+     "FAX" ) )
+  ENDIF
+  IF ((validate (g_dpvdphfmttel ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphfmttel = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (23056 ,
+     "TEL" ) )
+  ENDIF
+  IF ((validate (g_dpvdphfmtemail ,- (1 ) ) = - (1 ) ) )
+   DECLARE g_dpvdphfmtemail = f8 WITH public ,persist ,constant (eso_get_meaning_by_codeset (23056 ,
+     "MAILTO" ) )
+  ENDIF
+  IF ((((dcontactmethodcd = 0 ) ) OR ((dcontactmethodcd = g_dpvdphfmttel ) )) )
+   IF ((dphonetypecd IN (g_dpvdphtpalternate ,
+   g_dpvdphtpbilling ,
+   g_dpvdphtpbusiness ,
+   g_dpvdphtpfaxalt ,
+   g_dpvdphtpfaxbill ,
+   g_dpvdphtpfaxbus ,
+   g_dpvdphtpfaxpers ,
+   g_dpvdphtpfaxtemp ,
+   g_dpvdphtphome ,
+   g_dpvdphtpmobile ,
+   g_dpvdphtposafterhour ,
+   g_dpvdphtposphone ,
+   g_dpvdphtpospager ,
+   g_dpvdphtposbkoffice ,
+   g_dpvdphtppageralt ,
+   g_dpvdphtppagerbill ,
+   g_dpvdphtppagerbus ,
+   g_dpvdphtppagertemp ,
+   g_dpvdphtppagerpers ,
+   g_dpvdphtppaging ,
+   g_dpvdphtpportbus ,
+   g_dpvdphtpporttemp ,
+   g_dpvdphtpsecbusiness ,
+   g_dpvdphtptechnical ,
+   g_dpvdphtpverify ,
+   g_deprescphone ,
+   g_deprescfax ) ) )
+    RETURN (eso_format_code (dphonetypecd ) )
+   ELSE
+    RETURN (" " )
+   ENDIF
+  ELSE
+   RETURN (eso_format_code (dcontactmethodcd ) )
+  ENDIF
+ END ;Subroutine
+ CALL echo ("<===== ESO_HL7_FORMATTING.INC End =====>" )
+ CALL echo ("<===== ESO_EFFECTIVE_TIME_ADJUST.INC  START =====>" )
+ CALL echo ("MOD:000" )
+ IF (NOT (validate (g_desoefftmadj ) ) )
+  DECLARE desoefftmadjtmp = f8 WITH protect ,noconstant (0.0 )
+  DECLARE desoeffectivetimeadjustcd = f8 WITH protect ,constant (eso_get_meaning_by_codeset (14874 ,
+    "ESOEFFTMADJ" ) )
+  DECLARE desocontribdefault = f8 WITH protect ,constant (eso_get_meaning_by_codeset (89 ,
+    "ESODEFAULT" ) )
+  SELECT INTO "nl:"
+   op.contributor_system_cd ,
+   op.process_type_cd ,
+   op.null_string
+   FROM (outbound_field_processing op )
+   WHERE (op.contributor_system_cd = desocontribdefault ) AND (op.process_type_cd =
+   desoeffectivetimeadjustcd )
+   DETAIL
+    desoefftmadjtmp = (100 * cnvtreal (op.null_string ) )
+   WITH nocounter
+  ;end select
+  DECLARE g_desoefftmadj = f8 WITH persist ,constant (desoefftmadjtmp )
+ ENDIF
+ CALL echo ("<===== SI_ERROR_HEADER.INC Begin =====>" )
+ CALL echo ("MOD:009" )
+ DECLARE set_status_block ((operationname = i2 ) ,(operationstatus = i2 ) ,(targetobjectname = vc ) ,
+  (targetobjectvalue = vc ) ) = i2
+ DECLARE set_rep_doublelist ((dvalue = f8 ) ,(strmeaning = vc ) ) = i2
+ DECLARE get_rep_doublelist ((strmeaning = vc ) ) = f8
+ DECLARE set_rep_longlist ((lvalue = i4 ) ,(strmeaning = vc ) ) = i2
+ DECLARE get_rep_longlist ((strmeaning = vc ) ) = i4
+ DECLARE set_rep_stringlist ((strvalue = vc ) ,(strmeaning = vc ) ) = i2
+ DECLARE get_rep_stringlist ((strmeaning = vc ) ) = vc
+ DECLARE get_script_status (dummy ) = i2
+ DECLARE reset_reply ((rreply = vc (ref ) ) ) = null
+ DECLARE get_log_level (dummy ) = i2
+ DECLARE decode_errors (soperationname ) = null
+ DECLARE get_char_debuglog ((edebuglevel = i2 ) ) = vc
+ DECLARE get_char_status ((estatus = i2 ) ) = c1
+ DECLARE get_enum_status ((cstatus = c1 ) ) = i2
+ DECLARE get_status_prefix ((estatus = i2 ) ) = vc
+ IF ((validate (si_error_header_def ,999 ) = 999 ) AND (validate (efailure ,999 ) = 999 ) )
+  CALL echo ("Initializing global SI Error variables" )
+  DECLARE si_error_header_def = i2 WITH public ,constant (1 )
+  DECLARE egen_nbr = i2 WITH public ,noconstant (3 )
+  DECLARE einsert = i2 WITH public ,noconstant (4 )
+  DECLARE eupdate = i2 WITH public ,noconstant (5 )
+  DECLARE ereplace = i2 WITH public ,noconstant (6 )
+  DECLARE edelete = i2 WITH public ,noconstant (7 )
+  DECLARE eundelete = i2 WITH public ,noconstant (8 )
+  DECLARE eremove = i2 WITH public ,noconstant (9 )
+  DECLARE eattribute = i2 WITH public ,noconstant (10 )
+  DECLARE elock = i2 WITH public ,noconstant (11 )
+  DECLARE eselect = i2 WITH public ,noconstant (12 )
+  DECLARE ecustom = i2 WITH public ,noconstant (13 )
+  DECLARE einvalid = i2 WITH public ,noconstant (- (1 ) )
+  DECLARE einfo = i2 WITH public ,noconstant (0 )
+  DECLARE esuccessful = i2 WITH public ,noconstant (1 )
+  DECLARE ezero = i2 WITH public ,noconstant (2 )
+  DECLARE ewarning = i2 WITH public ,noconstant (3 )
+  DECLARE eerror = i2 WITH public ,noconstant (4 )
+  DECLARE efailure = i2 WITH public ,noconstant (5 )
+  DECLARE elogoff_level = i2 WITH public ,noconstant (- (1 ) )
+  DECLARE eerror_level = i2 WITH public ,noconstant (0 )
+  DECLARE ewarning_level = i2 WITH public ,noconstant (1 )
+  DECLARE eaudit_level = i2 WITH public ,noconstant (2 )
+  DECLARE einfo_level = i2 WITH public ,noconstant (3 )
+  DECLARE edebug_level = i2 WITH public ,noconstant (4 )
+  DECLARE gdebuglogging = i2 WITH public ,noconstant (get_log_level (0 ) )
+ ENDIF
+ DECLARE ehigheststatus = i2 WITH protect ,noconstant (einvalid )
+ DECLARE brequest = i2 WITH private ,noconstant (false )
+ DECLARE breply = i2 WITH private ,noconstant (false )
+ DECLARE bcontext = i2 WITH private ,noconstant (false )
+ CALL echo (build ("debuglogging = " ,get_char_debuglog (gdebuglogging ) ) )
+ CALL set_status_block (ecustom ,esuccessful ,curprog ,"System default to Successful" )
+ IF ((validate (request ,"!" ) != "!" ) )
+  SET brequest = 1
+ ELSE
+  CALL echo ("No incoming Request record detected" )
+ ENDIF
+ IF ((validate (reply ,"!" ) != "!" ) )
+  SET breply = 1
+ ELSE
+  CALL echo ("No incoming Reply record detected" )
+ ENDIF
+ IF ((validate (context ,"!" ) != "!" ) )
+  SET bcontext = 1
+ ELSE
+  CALL echo ("No incoming Context record detected" )
+ ENDIF
+ IF ((gdebuglogging > edebug_level ) )
+  IF (brequest )
+   CALL echorecord (request )
+  ENDIF
+  IF (breply )
+   CALL echorecord (reply )
+  ENDIF
+  IF (bcontext )
+   CALL echorecord (context )
+  ENDIF
+ ENDIF
+ SUBROUTINE  get_log_level (dummy )
+  CALL echo ("Entering Get_Log_Level() subroutine" )
+  FREE
+  SET t_i
+  DECLARE t_i = i4
+  FREE
+  SET t_size
+  DECLARE t_size = i4
+  FREE
+  SET elevel
+  DECLARE elevel = i2
+  SET t_i = 0
+  SET t_size = 0
+  SET elevel = elogoff_level
+  IF ((validate (request->debuglogging ,999 ) != 999 ) )
+   CALL echo ("Looking in trigger" )
+   SET elevel = request->debuglogging
+  ELSEIF ((validate (request->cerner ,"!" ) != "!" ) )
+   CALL echo ("Looking in cerner->longlist" )
+   SET t_size = size (request->cerner.longlist ,5 )
+   IF (t_size )
+    FOR (t_i = 1 TO t_size )
+     IF ((request->cerner.longlist[t_i ].strmeaning = "debuglogging" ) )
+      SET elevel = request->cerner.longlist[t_i ].lval
+      SET t_i = (t_size + 1 )
+     ENDIF
+    ENDFOR
+   ENDIF
+  ELSEIF ((validate (context->cerner ,"!" ) != "!" ) )
+   CALL echo ("Looking in UI Message" )
+   SET t_size = size (context->cerner.longlist ,5 )
+   IF (t_size )
+    FOR (t_i = 1 TO t_size )
+     IF ((context->cerner.longlist[t_i ].strmeaning = "debuglogging" ) )
+      SET elevel = context->cerner.longlist[t_i ].lval
+      SET t_i = (t_size + 1 )
+     ENDIF
+    ENDFOR
+   ENDIF
+  ELSE
+   CALL echo ("Couldn't find debuglogging flag" )
+  ENDIF
+  CALL echo (build ("eLevel = " ,elevel ) )
+  CALL echo ("Exiting Get_Log_Level() subroutine" )
+  RETURN (elevel )
+ END ;Subroutine
+ SUBROUTINE  get_script_status (dummy )
+  CALL echo ("Entering Get_Script_Status() subroutine" )
+  CALL echo ("Exiting Get_Script_Status() subroutine" )
+  RETURN (ehigheststatus )
+ END ;Subroutine
+ SUBROUTINE  set_status_block (operationname ,operationstatus ,targetobjectname ,targetobjectvalue )
+  CALL echo ("Entering Set_Status_Block() subroutine" )
+  FREE
+  SET t_x
+  DECLARE t_x = i4
+  SET t_x = (size (reply->status_data.subeventstatus ,5 ) + 1 )
+  SET stat = alterlist (reply->status_data.subeventstatus ,t_x )
+  SET reply->status_data.subeventstatus[t_x ].operationstatus = get_char_status (operationstatus )
+  IF ((trim (targetobjectname ,3 ) > "" ) )
+   SET reply->status_data.subeventstatus[t_x ].targetobjectname = trim (targetobjectname ,3 )
+  ENDIF
+  IF ((trim (targetobjectvalue ,3 ) > "" ) )
+   SET reply->status_data.subeventstatus[t_x ].targetobjectvalue = concat (get_status_prefix (
+     operationstatus ) ," " ,trim (targetobjectvalue ,3 ) )
+   IF ((gdebuglogging = edebug_level ) )
+    CALL echo (concat ("message = " ,reply->status_data.subeventstatus[t_x ].targetobjectvalue ) )
+   ENDIF
+  ENDIF
+  IF ((ehigheststatus < operationstatus ) )
+   SET ehigheststatus = operationstatus
+   SET reply->status_data.status = reply->status_data.subeventstatus[t_x ].operationstatus
+  ENDIF
+  CASE (operationname )
+   OF egen_nbr :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "GEN_NBR"
+   OF einsert :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "INSERT"
+   OF eupdate :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "UPDATE"
+   OF ereplace :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "REPLACE"
+   OF edelete :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "DELETE"
+   OF eundelete :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "UNDELETE"
+   OF eremove :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "REMOVE"
+   OF eattribute :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "ATTRIBUTE"
+   OF elock :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "LOCK"
+    SET reply->status_data.subeventstatus[t_x ].targetobjectvalue = concat (trim (reply->status_data.
+      subeventstatus[t_x ].targetobjectvalue ,3 ) ,
+     "- Since opening this record, modifications have been made by another user" )
+   OF eselect :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "SELECT"
+   OF ecustom :
+    SET reply->status_data.subeventstatus[t_x ].operationname = "CUSTOM"
+   ELSE
+    SET reply->status_data.subeventstatus[t_x ].operationname = "UNKNOWN"
+  ENDCASE
+  CALL decode_error (reply->status_data.subeventstatus[t_x ].operationname )
+  CALL echo ("Exiting Set_Status_Block() subroutine" )
+  RETURN (1 )
+ END ;Subroutine
+ SUBROUTINE  decode_error (soperationname )
+  CALL echo ("Entering Decode_Error() subroutine" )
+  FREE
+  SET error_code
+  DECLARE error_code = i4
+  FREE
+  SET error_msg
+  DECLARE error_msg = c132
+  SET error_code = 1
+  SET error_msg = fillstring (132 ," " )
+  SET x_idx = size (reply->status_data.subeventstatus ,5 )
+  WHILE (error_code )
+   SET error_code = error (error_msg ,0 )
+   IF (error_code )
+    SET x_idx = (x_idx + 1 )
+    CALL echo (concat ("error_code = " ,build (error_code ) ) )
+    SET minus_pos = findstring ("-" ,error_msg )
+    SET error_type = substring ((minus_pos + 1 ) ,1 ,error_msg )
+    CALL echo (concat ("error_type = " ,error_type ) )
+    SET stat = alterlist (reply->status_data.subeventstatus ,x_idx )
+    SET reply->status_data.subeventstatus[x_idx ].operationname = soperationname
+    SET reply->status_data.subeventstatus[x_idx ].operationstatus = error_type
+    IF ((ehigheststatus < get_enum_status (error_type ) ) )
+     SET ehigheststatus = get_enum_status (error_type )
+     SET reply->status_data.status = reply->status_data.subeventstatus[x_idx ].operationstatus
+    ENDIF
+    IF ((error_code = 288 ) )
+     SET soi = findstring ("(V500." ,error_msg )
+     IF ((soi > 0 ) )
+      SET soi = (soi + 6 )
+      SET eoi = findstring (")" ,error_msg ,soi )
+      SET eoi = (eoi - 1 )
+      IF ((eoi > soi ) )
+       SET x_ind_name = substring (soi ,((eoi - soi ) + 1 ) ,error_msg )
+       SET reply->status_data.subeventstatus[x_idx ].targetobjectvalue = concat (
+        "- Unique index already exists for column(s):" ,char (13 ) ,char (10 ) )
+       SET col_cnt = 1
+       SELECT INTO "nl:"
+        a.table_name ,
+        a.table_owner ,
+        a.index_name ,
+        c.column_name ,
+        c.column_position
+        FROM (sys.all_indexes a ),
+         (sys.all_ind_columns c )
+        WHERE (a.table_name = trim (reply->status_data.subeventstatus[x_idx ].targetobjectname ,3 )
+        ) AND (a.table_owner = "V500" ) AND (a.index_name = trim (x_ind_name ,3 ) ) AND (a
+        .index_name = c.index_name ) AND (a.table_name = c.table_name ) AND (c.table_owner = "V500"
+        )
+        ORDER BY c.column_position
+        DETAIL
+         reply->status_data.subeventstatus[x_idx ].targetobjectvalue = concat (reply->status_data.
+          subeventstatus[x_idx ].targetobjectvalue ,char (13 ) ,char (10 ) ,trim (c.column_name ,3 )
+          )
+        WITH nocounter
+       ;end select
+      ENDIF
+     ENDIF
+    ELSEIF ((error_code > 0 ) )
+     SET reply->status_data.subeventstatus[x_idx ].targetobjectvalue = trim (error_msg ,3 )
+    ENDIF
+   ENDIF
+  ENDWHILE
+  CALL echo ("Exiting Decode_Error() subroutine" )
+  RETURN
+ END ;Subroutine
+ SUBROUTINE  set_rep_doublelist (dvalue ,strmeaning )
+  CALL echo ("Entering Set_Rep_DoubleList() subroutine..." )
+  FREE
+  SET t_x
+  DECLARE t_x = i4
+  FREE
+  SET iretstat
+  DECLARE iresstat = i2
+  SET t_x = 0
+  SET iretstat = 0
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   SET t_x = (size (reply->si_info.doublelist ,5 ) + 1 )
+   SET stat = alterlist (reply->si_info.doublelist ,t_x )
+   SET reply->si_info.doublelist[t_x ].dval = dvalue
+   SET reply->si_info.doublelist[t_x ].strmeaning = trim (strmeaning ,3 )
+   SET iretstat = 1
+  ENDIF
+  CALL echo ("Exiting Set_Rep_DoubleList() subroutine..." )
+  RETURN (iretstat )
+ END ;Subroutine
+ SUBROUTINE  set_rep_longlist (lvalue ,strmeaning )
+  CALL echo ("Entering Set_Rep_LongList() subroutine..." )
+  FREE
+  SET t_x
+  DECLARE t_x = i4
+  FREE
+  SET iretstat
+  DECLARE iresstat = i2
+  SET t_x = 0
+  SET iretstat = 0
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   SET t_x = (size (reply->si_info.longlist ,5 ) + 1 )
+   SET stat = alterlist (reply->si_info.longlist ,t_x )
+   SET reply->si_info.longlist[t_x ].lval = lvalue
+   SET reply->si_info.longlist[t_x ].strmeaning = trim (strmeaning ,3 )
+   SET iretstat = 1
+  ENDIF
+  CALL echo ("Exiting Set_Rep_LongList() subroutine..." )
+  RETURN (iretstat )
+ END ;Subroutine
+ SUBROUTINE  set_rep_stringlist (strvalue ,strmeaning )
+  CALL echo ("Entering Set_Rep_StringList() subroutine..." )
+  FREE
+  SET t_x
+  DECLARE t_x = i4
+  FREE
+  SET iretstat
+  DECLARE iresstat = i2
+  SET t_x = 0
+  SET iretstat = 0
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   SET t_x = (size (reply->si_info.stringlist ,5 ) + 1 )
+   SET stat = alterlist (reply->si_info.stringlist ,t_x )
+   SET reply->si_info.stringlist[t_x ].strval = strvalue
+   SET reply->si_info.stringlist[t_x ].strmeaning = trim (strmeaning ,3 )
+   SET iretstat = 1
+  ENDIF
+  CALL echo ("Exiting Set_Rep_StringList() subroutine..." )
+  RETURN (iretstat )
+ END ;Subroutine
+ SUBROUTINE  get_rep_doublelist (strmeaning )
+  CALL echo ("Entering Get_Rep_DoubleList() subroutine..." )
+  DECLARE i = i4 WITH private ,noconstant (0 )
+  DECLARE llistsize = i4 WITH private ,constant (size (reply->si_info.doublelist ,5 ) )
+  DECLARE dretval = f8 WITH private ,noconstant (0 )
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   FOR (i = 1 TO llistsize )
+    IF ((reply->si_info.doublelist[i ].strmeaning = trim (strmeaning ,3 ) ) )
+     SET dretval = reply->si_info.doublelist[i ].dval
+     SET i = llistsize
+    ENDIF
+   ENDFOR
+  ENDIF
+  CALL echo ("Exiting Get_Rep_DoubleList() subroutine..." )
+  RETURN (dretval )
+ END ;Subroutine
+ SUBROUTINE  get_rep_longlist (strmeaning )
+  CALL echo ("Entering Get_Rep_LongList() subroutine..." )
+  DECLARE i = i4 WITH private ,noconstant (0 )
+  DECLARE llistsize = i4 WITH private ,constant (size (reply->si_info.longlist ,5 ) )
+  DECLARE lretval = i4 WITH private ,noconstant (0 )
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   FOR (i = 1 TO llistsize )
+    IF ((reply->si_info.longlist[i ].strmeaning = trim (strmeaning ,3 ) ) )
+     SET lretval = reply->si_info.longlist[i ].lval
+     SET i = llistsize
+    ENDIF
+   ENDFOR
+  ENDIF
+  CALL echo ("Exiting Get_Rep_LongList() subroutine..." )
+  RETURN (lretval )
+ END ;Subroutine
+ SUBROUTINE  get_rep_stringlist (strmeaning )
+  CALL echo ("Entering Get_Rep_StringList() subroutine..." )
+  DECLARE i = i4 WITH private ,noconstant (0 )
+  DECLARE llistsize = i4 WITH private ,constant (size (reply->si_info.stringlist ,5 ) )
+  DECLARE strretval = vc WITH private ,noconstant (0 )
+  IF ((trim (strmeaning ,3 ) <= "" ) )
+   CALL echo ("ERROR!! No incoming StrMeaning" )
+  ELSE
+   FOR (i = 1 TO llistsize )
+    IF ((reply->si_info.stringlist[i ].strmeaning = trim (strmeaning ,3 ) ) )
+     SET strretval = reply->si_info.stringlist[i ].strval
+     SET i = llistsize
+    ENDIF
+   ENDFOR
+  ENDIF
+  CALL echo ("Exiting Get_Rep_StringList() subroutine..." )
+  RETURN (strretval )
+ END ;Subroutine
+ SUBROUTINE  get_char_debuglog (edebuglevel )
+  FREE
+  SET slevel
+  DECLARE slevel = vc
+  CASE (edebuglevel )
+   OF elogoff_level :
+    SET slevel = "OFF"
+   OF eerror_level :
+    SET slevel = "ERROR"
+   OF ewarning_level :
+    SET slevel = "WARNING"
+   OF eaudit_level :
+    SET slevel = "AUDIT"
+   OF einfo_level :
+    SET slevel = "INFO"
+   OF edebug_level :
+    SET slevel = "DEBUG"
+   ELSE
+    CALL echo (build ("UNKNOWN debuglogging level = " ,edebuglevel ) )
+  ENDCASE
+  RETURN (slevel )
+ END ;Subroutine
+ SUBROUTINE  get_char_status (estatus )
+  FREE
+  SET cchar
+  DECLARE cchar = c1
+  SET cchar = "Z"
+  CASE (estatus )
+   OF einfo :
+    SET cchar = "I"
+   OF esuccessful :
+    SET cchar = "S"
+   OF ezero :
+    SET cchar = "Z"
+   OF ewarning :
+    SET cchar = "W"
+   OF eerror :
+    SET cchar = "E"
+   OF efailure :
+    SET cchar = "F"
+   ELSE
+    CALL echo (build ("UNKNOWN OperationStatus = " ,estatus ) )
+  ENDCASE
+  RETURN (cchar )
+ END ;Subroutine
+ SUBROUTINE  get_enum_status (cstatus )
+  FREE
+  SET estatus
+  DECLARE estatus = i2
+  SET estatus = einvalid
+  CASE (cnvtupper (trim (cstatus ,3 ) ) )
+   OF "I" :
+    SET estatus = einfo
+   OF "S" :
+    SET estatus = esuccessful
+   OF "Z" :
+    SET estatus = ezero
+   OF "W" :
+    SET estatus = ewarning
+   OF "E" :
+    SET estatus = eerror
+   OF "F" :
+    SET estatus = efailure
+   ELSE
+    CALL echo (build ("UNKNOWN OperationStatus = " ,estatus ) )
+  ENDCASE
+  RETURN (estatus )
+ END ;Subroutine
+ SUBROUTINE  get_status_prefix (estatus )
+  FREE
+  SET sprefix
+  DECLARE sprefix = vc
+  CASE (estatus )
+   OF einfo :
+    SET sprefix = "INFO"
+   OF esuccessful :
+    SET sprefix = "SUCCESSFUL"
+   OF ezero :
+    SET sprefix = "ZERO"
+   OF ewarning :
+    SET sprefix = "WARNING!!"
+   OF eerror :
+    SET sprefix = "ERROR!!"
+   OF efailure :
+    SET sprefix = "FAILURE!!"
+   ELSE
+    CALL echo (build ("UNKNOWN OperationStatus = " ,estatus ) )
+  ENDCASE
+  RETURN (sprefix )
+ END ;Subroutine
+ SUBROUTINE  reset_reply (rreply )
+  CALL echo ("Reset_Reply() begin" )
+  IF (rreply )
+   IF ((validate (rreply->qual ,"!" ) != "!" ) )
+    SET stat = alterlist (rreply->qual ,0 )
+   ENDIF
+   IF ((validate (rreply->status_data ,"!" ) != "!" ) )
+    SET rreply->status_data.status = ""
+    SET stat = alterlist (rreply->status_data.subeventstatus ,0 )
+   ENDIF
+  ELSE
+   CALL echo ("Invalid reply passed in." )
+  ENDIF
+  CALL echo ("Reset_Reply() end" )
+  RETURN
+ END ;Subroutine
+ CALL echo ("<===== SI_ERROR_HEADER.INC End =====>" )
+ DECLARE get_encntr_prsnl_info_idx (encntr_id1 ,reln_type_cdf1 ) = i4
+ DECLARE fetch_encntr_prsnl_info (encntr_id2 ,reln_type_cdf2 ,mode2 ) = i4
+ DECLARE fetch_encntr_prsnl_from_db (encntr_id3 ,reln_type_cdf3 ,mode3 ,eidx3 ) = i4
+ DECLARE get_prsnl_info_idx (person_id4 ) = i4
+ DECLARE fetch_prsnl_info (person_id5 ,mode5 ) = i4
+ DECLARE fetch_prsnl_from_db (person_id6 ,mode6 ,pidx6 ) = i4
+ DECLARE get_person_info_idx (person_id7 ,encntr_id7 ,mode7 ) = i4
+ DECLARE fetch_person_info (person_id8 ,encntr_id8 ,mode8 ) = i4
+ DECLARE fetch_person_from_db (person_id9 ,encntr_id9 ,mode9 ,pidx9 ) = i4
+ DECLARE eso_format_prsnl_enctr (field1 ,field2 ,encntr_id ,reln_type_cdf ,mode ,hl7_struct ,
+  repeat_ind ) = c100
+ DECLARE eso_format_prsnl_enctr_ctx (field1 ,field2 ,encntr_id ,reln_type_cdf ,mode ,hl7_struct ,
+  repeat_ind ) = c100
+ DECLARE get_encntr_prsnl_id_info_idx (encntr_id10 ,reln_type_cdf10 ,person_id10 ) = i4
+ DECLARE fetch_encntr_prsnl_id_info (encntr_id11 ,reln_type_cdf11 ,person_id11 ,mode11 ) = i4
+ DECLARE fetch_encntr_prsnl_id_from_db (encntr_id12 ,reln_type_cdf12 ,mode12 ,eidx12 ,person_id12 )
+ = i4
+ DECLARE eso_format_prsnl_id_enctr (field1 ,field2 ,encntr_id ,reln_type_cdf ,person_id ,mode ,
+  hl7_struct ,repeat_ind ) = c100
+ DECLARE eso_format_prsnl_id_enctr_ctx (field1 ,field2 ,encntr_id ,reln_type_cdf ,person_id ,mode ,
+  hl7_struct ,repeat_ind ) = c100
+ DECLARE eso_format_prsnl_id (field_cdf ,group_cdf ,xx_name ,xx_id ,xx_cdf ,x_person_id ,ui_struct ,
+  instance ) = c100
+ SUBROUTINE  get_encntr_prsnl_info_idx (encntr_id1 ,reln_type_cdf1 )
+  SET list_size = 0
+  SET list_size = size (context->cerner.encntr_prsnl_info.encntr ,5 )
+  IF ((list_size > 0 ) AND (encntr_id1 > 0 ) )
+   SET ieso1 = 1
+   FOR (ieso1 = ieso1 TO list_size )
+    IF ((context->cerner.encntr_prsnl_info.encntr[ieso1 ].encntr_id = encntr_id1 ) )
+     IF ((trim (reln_type_cdf1 ) > "" ) )
+      IF ((context->cerner.encntr_prsnl_info.encntr[ieso1 ].reln_type_cdf = reln_type_cdf1 ) )
+       RETURN (ieso1 )
+      ENDIF
+     ELSE
+      RETURN (ieso1 )
+     ENDIF
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  fetch_encntr_prsnl_info (encntr_id2 ,reln_type_cdf2 ,mode2 )
+  IF ((encntr_id2 = 0 ) )
+   RETURN (0 )
+  ENDIF
+  SET eidx = 0
+  SET eidx = get_encntr_prsnl_info_idx (encntr_id2 ,reln_type_cdf2 )
+  IF ((eidx > 0 ) )
+   RETURN (eidx )
+  ENDIF
+  SET eidx = (size (context->cerner.encntr_prsnl_info.encntr ,5 ) + 1 )
+  SET stat = 0
+  SET stat = alterlist (context->cerner.encntr_prsnl_info.encntr ,eidx )
+  SET context->cerner.encntr_prsnl_info.encntr_count = eidx
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].encntr_id = encntr_id2
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].reln_type_cdf = reln_type_cdf2
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].prsnl_r_count = 0
+  SET stat = 0
+  SET stat = fetch_encntr_prsnl_from_db (encntr_id2 ,reln_type_cdf2 ,mode2 ,eidx )
+  IF ((stat = 0 ) )
+   SET stat = alterlist (context->cerner.encntr_prsnl_info.encntr ,(eidx - 1 ) )
+   SET context->cerner.encntr_prsnl_info.encntr_count = (eidx - 1 )
+   RETURN (0 )
+  ENDIF
+  RETURN (stat )
+ END ;Subroutine
+ SUBROUTINE  fetch_encntr_prsnl_from_db (encntr_id3 ,reln_type_cdf3 ,mode3 ,eidx3 )
+  SET reln_type_cd = 0
+  SELECT INTO "nl:"
+   c.code_value
+   FROM (code_value c )
+   WHERE (c.code_set = 333 ) AND (c.cdf_meaning = trim (reln_type_cdf3 ) ) AND (c.active_ind = 1 )
+   AND (c.begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 ) ) AND (((c.end_effective_dt_tm >
+   cnvtdatetime (curdate ,curtime3 ) ) ) OR ((c.end_effective_dt_tm = null ) ))
+   DETAIL
+    reln_type_cd = c.code_value
+   WITH nocounter
+  ;end select
+  SET count = 0
+  SELECT INTO "nl:"
+   e.prsnl_person_id ,
+   e.ft_prsnl_name ,
+   e.free_text_cd ,
+   e.encntr_prsnl_r_cd
+   FROM (encntr_prsnl_reltn e )
+   WHERE (e.encntr_id = encntr_id3 ) AND (e.encntr_id > 0 ) AND (e.encntr_prsnl_r_cd = reln_type_cd
+   ) AND (e.active_ind = 1 ) AND (e.beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 +
+    g_desoefftmadj ) ) ) AND (((e.end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 +
+    g_desoefftmadj ) ) ) ) OR ((e.end_effective_dt_tm = null ) ))
+   DETAIL
+    count = (count + 1 ) ,
+    stat = alterlist (context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r ,count ) ,
+    context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[count ].prsnl_person_id = e
+    .prsnl_person_id ,
+    context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[count ].ft_prsnl_name = trim (e
+     .ft_prsnl_name ,3 ) ,
+    context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[count ].free_text_cd = e.free_text_cd ,
+    context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[count ].encntr_prsnl_r_cd = e
+    .encntr_prsnl_r_cd
+   WITH nocounter
+  ;end select
+  SET context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r_count = count
+  IF ((curqual > 0 ) )
+   SET ieso3 = 1
+   FOR (ieso3 = ieso3 TO count )
+    SET context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[ieso3 ].idx = fetch_prsnl_info (
+     context->cerner.encntr_prsnl_info.encntr[eidx3 ].prsnl_r[ieso3 ].prsnl_person_id ,mode3 )
+   ENDFOR
+  ELSE
+   RETURN (0 )
+  ENDIF
+  RETURN (eidx3 )
+ END ;Subroutine
+ SUBROUTINE  get_encntr_prsnl_id_info_idx (encntr_id10 ,reln_type_cdf10 ,person_id10 )
+  SET list_size = 0
+  SET list_size = size (context->cerner.encntr_prsnl_info.encntr ,5 )
+  SET p_size = 0
+  IF ((list_size > 0 ) AND (encntr_id10 > 0 ) AND (person_id10 > 0 ) )
+   SET ieso10 = 1
+   FOR (ieso10 = ieso10 TO list_size )
+    IF ((context->cerner.encntr_prsnl_info.encntr[ieso10 ].encntr_id = encntr_id10 ) )
+     IF ((trim (reln_type_cdf10 ) > "" ) )
+      IF ((context->cerner.encntr_prsnl_info.encntr[ieso10 ].reln_type_cdf = reln_type_cdf10 ) )
+       SET p_size = size (context->cerner.encntr_prsnl_info.encntr[ieso10 ].prsnl_r ,5 )
+       IF ((p_size > 0 ) )
+        SET jeso10 = 1
+        FOR (jeso10 = jeso10 TO p_size )
+         IF ((context->cerner.encntr_prsnl_info.encntr[ieso10 ].prsnl_r[jeso10 ].prsnl_person_id =
+         person_id10 ) )
+          RETURN (ieso10 )
+         ENDIF
+        ENDFOR
+       ENDIF
+      ENDIF
+     ELSE
+      SET p_size = size (context->cerner.encntr_prsnl_info.encntr[ieso10 ].prsnl_r ,5 )
+      IF ((p_size > 0 ) )
+       SET jeso10 = 1
+       FOR (jeso10 = jeso10 TO p_size )
+        IF ((context->cerner.encntr_prsnl_info.encntr[ieso10 ].prsnl_r[jeso10 ].prsnl_person_id =
+        person_id10 ) )
+         RETURN (ieso10 )
+        ENDIF
+       ENDFOR
+      ENDIF
+     ENDIF
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  fetch_encntr_prsnl_id_info (encntr_id11 ,reln_type_cdf11 ,person_id11 ,mode11 )
+  SET stat = 0
+  IF ((((encntr_id11 = 0 ) ) OR ((person_id11 = 0 ) )) )
+   RETURN (0 )
+  ENDIF
+  SET eidx = 0
+  SET eidx = get_encntr_prsnl_id_info_idx (encntr_id11 ,reln_type_cdf11 ,person_id11 )
+  IF ((eidx > 0 ) )
+   RETURN (eidx )
+  ENDIF
+  SET eidx = get_encntr_prsnl_info_idx (encntr_id11 ,reln_type_cdf11 )
+  IF ((eidx > 0 ) )
+   SET stat = fetch_encntr_prsnl_id_from_db (encntr_id11 ,reln_type_cdf11 ,mode11 ,eidx ,person_id11
+    )
+   RETURN (stat )
+  ENDIF
+  SET eidx = (size (context->cerner.encntr_prsnl_info.encntr ,5 ) + 1 )
+  SET stat = 0
+  SET stat = alterlist (context->cerner.encntr_prsnl_info.encntr ,eidx )
+  SET context->cerner.encntr_prsnl_info.encntr_count = eidx
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].encntr_id = encntr_id11
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].reln_type_cdf = reln_type_cdf11
+  SET context->cerner.encntr_prsnl_info.encntr[eidx ].prsnl_r_count = 0
+  SET stat = fetch_encntr_prsnl_id_from_db (encntr_id11 ,reln_type_cdf11 ,mode11 ,eidx ,person_id11
+   )
+  IF ((stat = 0 ) )
+   SET stat = alterlist (context->cerner.encntr_prsnl_info.encntr ,(eidx - 1 ) )
+   SET context->cerner.encntr_prsnl_info.encntr_count = (eidx - 1 )
+   RETURN (0 )
+  ENDIF
+  RETURN (stat )
+ END ;Subroutine
+ SUBROUTINE  fetch_encntr_prsnl_id_from_db (encntr_id12 ,reln_type_cdf12 ,mode12 ,eidx12 ,
+  person_id12 )
+  IF ((person_id12 = 0 ) )
+   RETURN (0 )
+  ENDIF
+  SET stat = 0
+  SET count = (size (context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r ,5 ) + 1 )
+  SET stat = alterlist (context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r ,count )
+  SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[count ].prsnl_person_id =
+  person_id12
+  SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[count ].ft_prsnl_name = ""
+  SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[count ].free_text_cd = 0
+  SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[count ].encntr_prsnl_r_cd = 0
+  SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r_count = count
+  SET ieso12 = 1
+  FOR (ieso12 = ieso12 TO count )
+   SET context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[ieso12 ].idx = fetch_prsnl_info (
+    context->cerner.encntr_prsnl_info.encntr[eidx12 ].prsnl_r[ieso12 ].prsnl_person_id ,mode12 )
+  ENDFOR
+  RETURN (eidx12 )
+ END ;Subroutine
+ SUBROUTINE  get_prsnl_info_idx (person_id4 )
+  SET list_size = 0
+  SET list_size = size (context->cerner.prsnl_info.prsnl ,5 )
+  IF ((list_size > 0 ) AND (person_id4 > 0 ) )
+   SET ieso4 = 1
+   FOR (ieso4 = ieso4 TO list_size )
+    IF ((context->cerner.prsnl_info.prsnl[ieso4 ].person_id = person_id4 ) )
+     RETURN (ieso4 )
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  fetch_prsnl_info (person_id5 ,mode5 )
+  IF ((person_id5 = 0 ) )
+   RETURN (0 )
+  ENDIF
+  SET pidx = 0
+  SET pidx = get_prsnl_info_idx (person_id5 )
+  IF ((pidx > 0 ) )
+   RETURN (pidx )
+  ENDIF
+  SET pidx = (size (context->cerner.prsnl_info.prsnl ,5 ) + 1 )
+  SET stat = 0
+  SET stat = alterlist (context->cerner.prsnl_info.prsnl ,pidx )
+  SET context->cerner.prsnl_info.prsnl_count = pidx
+  SET context->cerner.prsnl_info.prsnl[pidx ].person_id = person_id5
+  SET context->cerner.prsnl_info.prsnl[pidx ].alias_count = 0
+  SET context->cerner.prsnl_info.prsnl[pidx ].name_count = 0
+  SET stat = fetch_prsnl_from_db (person_id5 ,mode5 ,pidx )
+  IF ((stat = 0 ) )
+   SET stat = alterlist (context->cerner.prsnl_info.prsnl ,(pidx - 1 ) )
+  ENDIF
+  RETURN (stat )
+ END ;Subroutine
+ SUBROUTINE  fetch_prsnl_from_db (person_id6 ,mode6 ,pidx6 )
+  SET aidx = 0
+  SET nidx = 0
+  SET stat = 0
+  SET prsnl_name_cd = 0
+  SELECT INTO "nl:"
+   c.code_value
+   FROM (code_value c )
+   WHERE (c.code_set = 213 ) AND (c.cdf_meaning = "PRSNL" ) AND (c.active_ind = 1 ) AND (c
+   .begin_effective_dt_tm < cnvtdatetime (curdate ,curtime3 ) ) AND (((c.end_effective_dt_tm >
+   cnvtdatetime (curdate ,curtime3 ) ) ) OR ((c.end_effective_dt_tm = null ) ))
+   DETAIL
+    prsnl_name_cd = c.code_value
+   WITH nocounter
+  ;end select
+  SELECT INTO "nl:"
+   p.name_last ,
+   p.name_first ,
+   p.name_middle ,
+   p.name_suffix ,
+   p.name_prefix ,
+   p.name_degree ,
+   p.name_full ,
+   p.name_type_cd ,
+   p.name_title
+   FROM (person_name p )
+   WHERE (p.person_id = person_id6 ) AND (p.person_id > 0 ) AND (p.name_type_cd = prsnl_name_cd )
+   AND (p.active_ind = 1 ) AND (p.beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 +
+    g_desoefftmadj ) ) ) AND (((p.end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 +
+    g_desoefftmadj ) ) ) ) OR ((p.end_effective_dt_tm = null ) ))
+   DETAIL
+    nidx = (nidx + 1 ) ,
+    stat = alterlist (context->cerner.prsnl_info.prsnl[pidx6 ].name ,nidx ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_last = trim (p.name_last ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_first = trim (p.name_first ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_middle = trim (p.name_middle ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_suffix = trim (p.name_suffix ,3 ) ,
+    IF ((size (trim (p.name_prefix ,3 ) ) > 0 ) ) context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx
+     ].name_prefix = trim (p.name_prefix ,3 )
+    ELSE context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_prefix = trim (p.name_title ,3 )
+    ENDIF
+    ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_degree = trim (p.name_degree ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full = trim (p.name_full ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_type_cd = p.name_type_cd
+   WITH nocounter
+  ;end select
+  IF ((curqual <= 0 ) )
+   SELECT INTO "nl:"
+    p.name_last_key ,
+    p.name_first_key ,
+    p.name_full_formatted ,
+    p.name_last ,
+    p.name_first
+    FROM (prsnl p )
+    WHERE (p.person_id = person_id6 ) AND (p.person_id > 0 ) AND (p.active_ind = 1 ) AND (p
+    .beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((p
+    .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((p
+    .end_effective_dt_tm = null ) ))
+    DETAIL
+     nidx = (nidx + 1 ) ,
+     stat = alterlist (context->cerner.prsnl_info.prsnl[pidx6 ].name ,nidx ) ,
+     context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_last = trim (p.name_last ,3 ) ,
+     context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_first = trim (p.name_first ,3 ) ,
+     context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full = trim (p.name_full_formatted ,3
+      ) ,
+     IF ((trim (context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_last ) = "" ) )
+      IF ((trim (context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full ) > "" ) ) nlen = 0 ,
+       nlen = size (context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full ) ,lpos = 0 ,llen
+       = 0 ,lpos = findstring (" -" ,context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full
+        ) ,
+       IF ((lpos > 0 ) ) lpos = (lpos + 2 )
+       ELSE lpos = 1
+       ENDIF
+       ,fpos = 0 ,flen = 0 ,mpos = 0 ,mlen = 0 ,fpos = findstring (", " ,context->cerner.prsnl_info.
+        prsnl[pidx6 ].name[nidx ].name_full ,lpos ) ,
+       IF ((fpos > 0 ) ) llen = (fpos - lpos ) ,fpos = (fpos + 2 ) ,mpos = findstring (" " ,context->
+         cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full ,fpos ) ,
+        IF ((mpos > 0 ) ) flen = (mpos - fpos ) ,mpos = (mpos + 1 ) ,mlen = ((nlen - mpos ) + 1 )
+        ELSE flen = ((nlen - fpos ) + 1 )
+        ENDIF
+       ELSE llen = ((nlen - fpos ) + 1 )
+       ENDIF
+       ,
+       IF ((llen > 0 ) ) context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_last = substring (
+         lpos ,llen ,context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full )
+       ENDIF
+       ,
+       IF ((flen > 0 ) ) context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_first = substring
+        (fpos ,flen ,context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full )
+       ENDIF
+       ,
+       IF ((mlen > 0 ) ) context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_middle =
+        substring (mpos ,mlen ,context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_full )
+       ENDIF
+      ELSE context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_last = trim (p.name_last_key ,3
+        ) ,context->cerner.prsnl_info.prsnl[pidx6 ].name[nidx ].name_first = trim (p.name_first_key ,
+        3 )
+      ENDIF
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDIF
+  SET context->cerner.prsnl_info.prsnl[pidx6 ].name_count = nidx
+  SELECT INTO "nl:"
+   p.alias ,
+   p.prsnl_alias_type_cd ,
+   p.prsnl_alias_sub_type_cd ,
+   p.alias_pool_cd ,
+   p.check_digit ,
+   p.check_digit_method_cd ,
+   p.contributor_system_cd
+   FROM (prsnl_alias p )
+   WHERE (p.person_id = person_id6 ) AND (p.person_id > 0 ) AND (p.active_ind = 1 ) AND (p
+   .beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((p
+   .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((p
+   .end_effective_dt_tm = null ) ))
+   DETAIL
+    aidx = (aidx + 1 ) ,
+    stat = alterlist (context->cerner.prsnl_info.prsnl[pidx6 ].alias ,aidx ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].alias = trim (p.alias ,3 ) ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].alias_type_cd = p.prsnl_alias_type_cd ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].alias_subtype_cd = p
+    .prsnl_alias_sub_type_cd ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].alias_pool_cd = p.alias_pool_cd ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].check_digit = p.check_digit ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].check_digit_method_cd = p
+    .check_digit_method_cd ,
+    context->cerner.prsnl_info.prsnl[pidx6 ].alias[aidx ].contributor_system_cd = p
+    .contributor_system_cd
+   WITH nocounter
+  ;end select
+  SET context->cerner.prsnl_info.prsnl[pidx6 ].alias_count = aidx
+  RETURN (pidx6 )
+ END ;Subroutine
+ SUBROUTINE  get_person_info_idx (person_id7 ,encntr_id7 )
+  SET list_size = 0
+  SET list_size = size (context->cerner.person_info.person ,5 )
+  IF ((list_size > 0 ) AND (person_id7 > 0 ) )
+   SET ieso7 = 1
+   FOR (ieso7 = ieso7 TO list_size )
+    IF ((context->cerner.person_info.person[ieso7 ].person_id = person_id7 ) )
+     IF ((encntr_id7 > 0 ) )
+      IF ((context->cerner.person_info.person[ieso7 ].encntr_id = encntr_id7 ) )
+       RETURN (ieso7 )
+      ENDIF
+     ELSE
+      RETURN (ieso7 )
+     ENDIF
+    ENDIF
+   ENDFOR
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  fetch_person_info (person_id8 ,encntr_id8 ,mode8 )
+  IF ((person_id8 = 0 ) )
+   RETURN (0 )
+  ENDIF
+  SET pidx = 0
+  SET pidx = get_person_info_idx (person_id8 ,encntr_id8 )
+  IF ((pidx > 0 ) )
+   RETURN (pidx )
+  ENDIF
+  SET pidx = (size (context->cerner.person_info.person ,5 ) + 1 )
+  SET stat = 0
+  SET stat = alterlist (context->cerner.person_info.person ,pidx )
+  SET context->cerner.person_info.person_count = pidx
+  SET context->cerner.person_info.person[pidx ].person_id = person_id8
+  SET context->cerner.person_info.person[pidx ].encntr_id = encntr_id8
+  SET context->cerner.person_info.person[pidx ].alias_count = 0
+  SET context->cerner.person_info.person[pidx ].encntr_count = 0
+  SET context->cerner.person_info.person[pidx ].name_count = 0
+  SET stat = fetch_person_from_db (person_id8 ,encntr_id8 ,mode8 ,pidx )
+  IF ((stat = 0 ) )
+   SET stat = alterlist (context->cerner.person_info.person ,(pidx - 1 ) )
+  ENDIF
+  RETURN (stat )
+ END ;Subroutine
+ SUBROUTINE  fetch_person_from_db (person_id9 ,encntr_id9 ,mode9 ,pidx9 )
+  SET aidx = 0
+  SET nidx = 0
+  SET current_name_cd = 0
+  SET stat = 0
+  SELECT INTO "nl:"
+   p.name_last ,
+   p.name_first ,
+   p.name_middle ,
+   p.name_suffix ,
+   p.name_prefix ,
+   p.name_degree ,
+   p.name_full ,
+   p.name_type_cd
+   FROM (person_name p )
+   WHERE (p.person_id = person_id9 ) AND (p.person_id > 0 ) AND (p.active_ind = 1 ) AND (p
+   .beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((p
+   .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((p
+   .end_effective_dt_tm = null ) ))
+   DETAIL
+    nidx = (nidx + 1 ) ,
+    stat = alterlist (context->cerner.person_info.person[pidx9 ].name ,nidx ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_last = trim (p.name_last ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_first = trim (p.name_first ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_middle = trim (p.name_middle ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_suffix = trim (p.name_suffix ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_prefix = trim (p.name_prefix ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_degree = trim (p.name_degree ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_full = trim (p.name_full ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].name[nidx ].name_type_cd = p.name_type_cd
+   WITH nocounter
+  ;end select
+  IF ((curqual <= 0 ) )
+   SELECT INTO "nl:"
+    p.name_last_key ,
+    p.name_first_key ,
+    p.name_full_formatted ,
+    p.name_last ,
+    p.name_first ,
+    p.name_middle
+    FROM (person p )
+    WHERE (p.person_id = person_id9 ) AND (p.person_id > 0 ) AND (p.active_ind = 1 ) AND (p
+    .beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((p
+    .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((p
+    .end_effective_dt_tm = null ) ))
+    DETAIL
+     nidx = (nidx + 1 ) ,
+     stat = alterlist (context->cerner.person_info.person[pidx9 ].name ,nidx ) ,
+     context->cerner.person_info.person[pidx9 ].name[nidx ].name_last = trim (p.name_last ,3 ) ,
+     context->cerner.person_info.person[pidx9 ].name[nidx ].name_first = trim (p.name_first ,3 ) ,
+     context->cerner.person_info.person[pidx9 ].name[nidx ].name_middle = trim (p.name_middle ,3 ) ,
+     context->cerner.person_info.person[pidx9 ].name[nidx ].name_full = trim (p.name_full_formatted ,
+      3 ) ,
+     IF ((trim (context->cerner.person_info.person[pidx9 ].name[nidx ].name_last ) = "" ) ) context->
+      cerner.person_info.person[pidx9 ].name[nidx ].name_last = trim (p.name_last_key ,3 ) ,context->
+      cerner.person_info.person[pidx9 ].name[nidx ].name_first = trim (p.name_first_key ,3 )
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDIF
+  SET context->cerner.person_info.person[pidx9 ].name_count = nidx
+  SELECT INTO "nl:"
+   p.alias ,
+   p.person_alias_type_cd ,
+   p.person_alias_sub_type_cd ,
+   p.alias_pool_cd ,
+   p.check_digit ,
+   p.check_digit_method_cd ,
+   p.contributor_system_cd
+   FROM (person_alias p )
+   WHERE (p.person_id = person_id9 ) AND (p.person_id > 0 ) AND (p.active_ind = 1 ) AND (p
+   .beg_effective_dt_tm <= cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((p
+   .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((p
+   .end_effective_dt_tm = null ) ))
+   DETAIL
+    aidx = (aidx + 1 ) ,
+    stat = alterlist (context->cerner.person_info.person[pidx9 ].alias ,aidx ) ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].alias = trim (p.alias ,3 ) ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_type_cd = p.person_alias_type_cd ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_subtype_cd = p
+    .person_alias_sub_type_cd ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_pool_cd = p.alias_pool_cd ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].check_digit = p.check_digit ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].check_digit_method_cd = p
+    .check_digit_method_cd ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].contributor_system_cd = p
+    .contributor_system_cd ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].encntr_ind = 0 ,
+    context->cerner.person_info.person[pidx9 ].alias[aidx ].org_id = 0
+   WITH nocounter
+  ;end select
+  IF ((encntr_id9 > 0 ) )
+   SELECT INTO "nl:"
+    e.organization_id ,
+    ea.alias ,
+    ea.encntr_alias_type_cd ,
+    ea.encntr_alias_sub_type_cd ,
+    ea.alias_pool_cd ,
+    ea.check_digit ,
+    ea.check_digit_method_cd ,
+    ea.contributor_system_cd
+    FROM (encounter e ),
+     (encntr_alias ea )
+    PLAN (e
+     WHERE (e.encntr_id = encntr_id9 ) AND (e.encntr_id > 0 ) )
+     JOIN (ea
+     WHERE (e.encntr_id = ea.encntr_id ) AND (ea.active_ind = 1 ) AND (ea.beg_effective_dt_tm <=
+     cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) AND (((ea.end_effective_dt_tm >
+     cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) ) ) OR ((ea.end_effective_dt_tm = null )
+     )) )
+    DETAIL
+     aidx = (aidx + 1 ) ,
+     stat = alterlist (context->cerner.person_info.person[pidx9 ].alias ,aidx ) ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].alias = trim (ea.alias ,3 ) ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_type_cd = ea.encntr_alias_type_cd
+     ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_subtype_cd = ea
+     .encntr_alias_sub_type_cd ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].alias_pool_cd = ea.alias_pool_cd ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].check_digit = ea.check_digit ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].check_digit_method_cd = ea
+     .check_digit_method_cd ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].contributor_system_cd = ea
+     .contributor_system_cd ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].encntr_ind = 1 ,
+     context->cerner.person_info.person[pidx9 ].alias[aidx ].org_id = e.organization_id
+    WITH nocounter
+   ;end select
+  ENDIF
+  SET context->cerner.person_info.person[pidx9 ].alias_count = aidx
+  RETURN (pidx9 )
+ END ;Subroutine
+ SUBROUTINE  eso_format_prsnl_enctr (field1 ,field2 ,encntr_id ,reln_type_cdf ,mode ,hl7_struct ,
+  repeat_ind )
+  IF ((encntr_id > 0 ) AND (trim (reln_type_cdf ) > "" ) )
+   SET t_encntr_id = encntr_id
+   SET t_reln_type_cdf = reln_type_cdf
+   SET t_mode = mode
+   RETURN (substring (1 ,100 ,concat (trim (request->esoinfo.eprsnlprefix ) ,"," ,trim (field1 ) ,
+     "," ,trim (field2 ) ,"," ,trim (cnvtstring (fetch_encntr_prsnl_info (t_encntr_id ,
+        t_reln_type_cdf ,t_mode ) ) ) ,"," ,trim (hl7_struct ) ,"," ,trim (cnvtstring (repeat_ind )
+      ) ,"," ,trim (cnvtstring (encntr_id ) ) ,"," ,trim (reln_type_cdf ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_prsnl_enctr_ctx (field1 ,field2 ,encntr_id ,reln_type_cdf ,mode ,hl7_struct ,
+  repeat_ind )
+  IF ((encntr_id > 0 ) AND (trim (reln_type_cdf ) > "" ) )
+   SET t_encntr_id = encntr_id
+   SET t_reln_type_cdf = reln_type_cdf
+   SET t_mode = mode
+   RETURN (substring (1 ,100 ,concat (trim (get_esoinfo_string ("eprsnlprefix" ) ) ,"," ,trim (
+      field1 ) ,"," ,trim (field2 ) ,"," ,trim (cnvtstring (fetch_encntr_prsnl_info (t_encntr_id ,
+        t_reln_type_cdf ,t_mode ) ) ) ,"," ,trim (hl7_struct ) ,"," ,trim (cnvtstring (repeat_ind )
+      ) ,"," ,trim (cnvtstring (encntr_id ) ) ,"," ,trim (reln_type_cdf ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_prsnl_id_enctr (field1 ,field2 ,encntr_id ,reln_type_cdf ,person_id ,mode ,
+  hl7_struct ,repeat_ind )
+  IF ((encntr_id > 0 ) AND (trim (reln_type_cdf ) > "" ) AND (person_id > 0 ) )
+   SET t_encntr_id = encntr_id
+   SET t_reln_type_cdf = reln_type_cdf
+   SET t_mode = mode
+   SET t_person_id = person_id
+   RETURN (substring (1 ,100 ,concat (trim (request->esoinfo.eprsnlprefix ) ,"," ,trim (field1 ) ,
+     "," ,trim (field2 ) ,"," ,trim (cnvtstring (fetch_encntr_prsnl_id_info (t_encntr_id ,
+        t_reln_type_cdf ,t_person_id ,t_mode ) ) ) ,"," ,trim (hl7_struct ) ,"," ,trim (cnvtstring (
+       repeat_ind ) ) ,"," ,trim (cnvtstring (encntr_id ) ) ,"," ,trim (reln_type_cdf ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_prsnl_id_enctr_ctx (field1 ,field2 ,encntr_id ,reln_type_cdf ,person_id ,
+  mode ,hl7_struct ,repeat_ind )
+  IF ((encntr_id > 0 ) AND (trim (reln_type_cdf ) > "" ) AND (person_id > 0 ) )
+   SET t_encntr_id = encntr_id
+   SET t_reln_type_cdf = reln_type_cdf
+   SET t_mode = mode
+   SET t_person_id = person_id
+   RETURN (substring (1 ,100 ,concat (trim (get_esoinfo_string ("eprsnlprefix" ) ) ,"," ,trim (
+      field1 ) ,"," ,trim (field2 ) ,"," ,trim (cnvtstring (fetch_encntr_prsnl_id_info (t_encntr_id ,
+        t_reln_type_cdf ,t_person_id ,t_mode ) ) ) ,"," ,trim (hl7_struct ) ,"," ,trim (cnvtstring (
+       repeat_ind ) ) ,"," ,trim (cnvtstring (encntr_id ) ) ,"," ,trim (reln_type_cdf ) ) ) )
+  ELSE
+   RETURN (" " )
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  eso_format_prsnl_id (field_cdf ,group_cdf ,xx_name ,xx_id ,xx_cdf ,x_person_id ,
+  ui_struct ,instance )
+  CALL echo ("Calling eso_format_prsnl_id()" )
+  RETURN (eso_format_prsnl_id_enctr_ctx (field_cdf ,"ALL_PRSNL" ,xx_id ,trim (concat (trim (xx_cdf ,
+      3 ) ,"_" ,trim (instance ,3 ) ) ,3 ) ,x_person_id ,0 ,ui_struct ,0 ) )
+ END ;Subroutine
+ SET prsnl_cnt = size (request->triginfo.prsnl.prsnl ,5 )
+ IF ((prsnl_cnt <= 0 ) )
+  SELECT INTO "nl:"
+   p.active_status_cd ,
+   p.physician_ind ,
+   p.position_cd ,
+   p.beg_effective_dt_tm ,
+   p.end_effective_dt_tm ,
+   p.active_ind
+   FROM (prsnl p )
+   WHERE (p.person_id = request->triginfo.person_id )
+   HEAD REPORT
+    prsnl_idx = 0
+   DETAIL
+    prsnl_idx = (prsnl_idx + 1 ) ,
+    stat = alterlist (reply->prsnl.prsnl ,prsnl_idx ) ,
+    reply->prsnl.prsnl[prsnl_idx ].active_status_cd = p.active_status_cd ,
+    reply->prsnl.prsnl[prsnl_idx ].physician_ind = p.physician_ind ,
+    reply->prsnl.prsnl[prsnl_idx ].position_cd = p.position_cd ,
+    reply->prsnl.prsnl[prsnl_idx ].beg_effective_dt_tm = p.beg_effective_dt_tm ,
+    reply->prsnl.prsnl[prsnl_idx ].end_effective_dt_tm = p.end_effective_dt_tm ,
+    reply->prsnl.prsnl[prsnl_idx ].active_ind = p.active_ind
+   WITH nocounter
+  ;end select
+ ELSE
+  SET stat = alterlist (reply->prsnl.prsnl ,prsnl_cnt )
+  FOR (prsnl_idx = 1 TO prsnl_cnt )
+   SET reply->prsnl.prsnl[prsnl_idx ].active_status_cd = request->triginfo.prsnl.prsnl[prsnl_idx ].
+   active_status_cd
+   SET reply->prsnl.prsnl[prsnl_idx ].physician_ind = request->triginfo.prsnl.prsnl[prsnl_idx ].
+   physician_ind
+   SET reply->prsnl.prsnl[prsnl_idx ].position_cd = request->triginfo.prsnl.prsnl[prsnl_idx ].
+   position_cd
+   SET reply->prsnl.prsnl[prsnl_idx ].beg_effective_dt_tm = request->triginfo.prsnl.prsnl[prsnl_idx ]
+   .beg_effective_dt_tm
+   SET reply->prsnl.prsnl[prsnl_idx ].end_effective_dt_tm = request->triginfo.prsnl.prsnl[prsnl_idx ]
+   .end_effective_dt_tm
+   SET reply->prsnl.prsnl[prsnl_idx ].active_ind = request->triginfo.prsnl.prsnl[prsnl_idx ].
+   active_ind
+  ENDFOR
+ ENDIF
+ SET person_name_cnt = size (request->triginfo.prsnl.person_name ,5 )
+ IF ((person_name_cnt <= 0 ) )
+  SELECT INTO "nl:"
+   p.name_type_cd ,
+   p.name_first ,
+   p.name_last ,
+   p.name_middle ,
+   p.name_suffix ,
+   p.name_prefix ,
+   p.name_degree
+   FROM (person_name p )
+   WHERE (p.person_id = request->triginfo.person_id )
+   HEAD REPORT
+    person_name_idx = 0
+   DETAIL
+    person_name_idx = (person_name_idx + 1 ) ,
+    stat = alterlist (reply->prsnl.person_name ,person_name_idx ) ,
+    reply->prsnl.person_name[person_name_idx ].name_type_cd = p.name_type_cd ,
+    reply->prsnl.person_name[person_name_idx ].name_first = p.name_first ,
+    reply->prsnl.person_name[person_name_idx ].name_last = p.name_last ,
+    reply->prsnl.person_name[person_name_idx ].name_middle = p.name_middle ,
+    reply->prsnl.person_name[person_name_idx ].name_suffix = p.name_suffix ,
+    reply->prsnl.person_name[person_name_idx ].name_prefix = p.name_prefix ,
+    reply->prsnl.person_name[person_name_idx ].name_degree = p.name_degree
+   WITH nocounter
+  ;end select
+ ELSE
+  SET stat = alterlist (reply->prsnl.person_name ,person_name_cnt )
+  FOR (person_name_idx = 1 TO person_name_cnt )
+   SET reply->prsnl.person_name[person_name_idx ].name_type_cd = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_type_cd
+   SET reply->prsnl.person_name[person_name_idx ].name_first = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_first
+   SET reply->prsnl.person_name[person_name_idx ].name_last = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_last
+   SET reply->prsnl.person_name[person_name_idx ].name_middle = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_middle
+   SET reply->prsnl.person_name[person_name_idx ].name_suffix = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_suffix
+   SET reply->prsnl.person_name[person_name_idx ].name_prefix = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_prefix
+   SET reply->prsnl.person_name[person_name_idx ].name_degree = request->triginfo.prsnl.person_name[
+   person_name_idx ].name_degree
+  ENDFOR
+ ENDIF
+ SET person_demog_cnt = size (request->triginfo.prsnl.person_demog ,5 )
+ IF ((person_demog_cnt <= 0 ) )
+  SELECT INTO "nl:"
+   p.sex_cd ,
+   p.birth_dt_tm ,
+   p.birth_tz ,
+   p.birth_prec_flag
+   FROM (person p )
+   WHERE (p.person_id = request->triginfo.person_id )
+   HEAD REPORT
+    person_demog_idx = 0
+   DETAIL
+    person_demog_idx = (person_demog_idx + 1 ) ,
+    stat = alterlist (reply->prsnl.person_demog ,person_demog_idx ) ,
+    reply->prsnl.person_demog[person_demog_idx ].sex = p.sex_cd ,
+    reply->prsnl.person_demog[person_demog_idx ].birth_dt_tm = p.birth_dt_tm ,
+    reply->prsnl.person_demog[person_demog_idx ].birth_tz = p.birth_tz ,
+    reply->prsnl.person_demog[person_demog_idx ].birth_prec_flag = p.birth_prec_flag
+   WITH nocounter
+  ;end select
+ ELSE
+  SET stat = alterlist (reply->prsnl.person_demog ,person_demog_cnt )
+  FOR (person_demog_idx = 1 TO person_demog_cnt )
+   SET reply->prsnl.person_demog[person_demog_idx ].sex = request->triginfo.prsnl.person_demog[
+   person_demog_idx ].sex
+   SET reply->prsnl.person_demog[person_demog_idx ].birth_dt_tm = request->triginfo.prsnl.
+   person_demog[person_demog_idx ].birth_dt_tm
+   SET reply->prsnl.person_demog[person_demog_idx ].birth_tz = request->triginfo.prsnl.person_demog[
+   person_demog_idx ].birth_tz
+   SET reply->prsnl.person_demog[person_demog_idx ].birth_prec_flag = request->triginfo.prsnl.
+   person_demog[person_demog_idx ].birth_prec_flag
+  ENDFOR
+ ENDIF
+ SET routine_args = trim (request->esoinfo.scriptcontrolargs ,3 )
+ CALL echo (build ("routine_args = " ,routine_args ) )
+ SET snapshot = findstring ("SNAPSHOT" ,routine_args )
+ CALL echo (build ("snapshot = " ,snapshot ) )
+ SET event_class = 0
+ IF ((((request->triginfo.event = "MAD" ) ) OR ((((request->triginfo.event = "MUP" ) ) OR ((((request
+ ->triginfo.event = "MDC" ) ) OR ((((request->triginfo.event = "MDL" ) ) OR ((((request->triginfo.
+ event = "MAC" ) ) OR ((((request->triginfo.event = "MSU" ) ) OR ((request->triginfo.event = "MRW" )
+ )) )) )) )) )) )) )
+  SET event_class = 1
+  CALL echo ("Event class 1" )
+ ELSEIF ((((request->triginfo.event = "MAO" ) ) OR ((request->triginfo.event = "MRO" ) )) )
+  SET event_class = 2
+  CALL echo ("Event class 2" )
+ ELSEIF ((((request->triginfo.event = "MAA" ) ) OR ((((request->triginfo.event = "MRA" ) ) OR ((
+ request->triginfo.event = "MEA" ) )) )) )
+  SET event_class = 3
+  CALL echo ("Event class 3" )
+ ENDIF
+ SET stat = set_esoinfo_double ("person_id" ,request->triginfo.person_id )
+ SET stat = alterlist (context->mfnm02_group ,1 )
+ SET stat = alterlist (context->mfnm02_group[1 ].mfe ,1 )
+ IF ((((event_class = 2 ) ) OR ((event_class = 3 ) )) AND snapshot )
+  SET context->mfnm02_group[1 ].mfe[1 ].record_lev_event_cd = "MUP"
+ ELSE
+  SET context->mfnm02_group[1 ].mfe[1 ].record_lev_event_cd = request->triginfo.event
+ ENDIF
+ SET stat = alterlist (context->mfnm02_group[1 ].mfe[1 ].prim_key_val ,1 )
+ SET context->mfnm02_group[1 ].mfe[1 ].prim_key_val[1 ].identifier = eso_format_prsnl_id_enctr_ctx (
+  "MFE_4_PRIKEY" ,"ALL_PRSNL" ,request->triginfo.person_id ,"_1.1" ,request->triginfo.person_id ,0 ,
+  "CE" ,1 )
+ SET stat = alterlist (context->mfnm02_group[1 ].stf ,1 )
+ IF ((((event_class = 1 ) ) OR ((((event_class = 2 ) ) OR ((event_class = 3 ) )) AND snapshot )) )
+  SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].primary_key_val ,1 )
+  SET context->mfnm02_group[1 ].stf[1 ].primary_key_val[1 ].identifier =
+  eso_format_prsnl_id_enctr_ctx ("STF_1_PRIKEY" ,"ALL_PRSNL" ,request->triginfo.person_id ,"_1.1" ,
+   request->triginfo.person_id ,0 ,"CE" ,1 )
+ ENDIF
+ IF ((event_class = 3 ) AND (snapshot = 0 ) )
+  SET alias_size = size (request->triginfo.prsnl.prsnl_alias[1 ] ,5 )
+  SET aidx = 0
+  FOR (idx = 1 TO alias_size )
+   SELECT INTO "nl:"
+    p.alias ,
+    p.prsnl_alias_type_cd ,
+    p.alias_pool_cd ,
+    p.check_digit ,
+    p.check_digit_method_cd ,
+    p.contributor_system_cd
+    FROM (prsnl_alias p )
+    WHERE (p.alias = request->triginfo.prsnl.prsnl_alias[idx ].alias ) AND (p.alias_pool_cd = request
+    ->triginfo.prsnl.prsnl_alias[idx ].alias_pool_cd ) AND (p.prsnl_alias_type_cd = request->triginfo
+    .prsnl.prsnl_alias[idx ].prsnl_alias_type_cd )
+    DETAIL
+     aidx = (aidx + 1 ) ,
+     stat = alterlist (context->mfnm02_group[1 ].stf[1 ].staff_id ,aidx ) ,
+     context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].id = trim (p.alias ,3 ) ,
+     IF ((p.check_digit > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].check_digit =
+      cnvtstring (p.check_digit )
+     ENDIF
+     ,
+     IF ((p.check_digit_method_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].
+      check_digit_scheme = eso_format_code (p.check_digit_method_cd )
+     ENDIF
+     ,
+     IF (p.alias_pool_cd ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].assign_auth.name_id =
+      eso_format_code (p.alias_pool_cd )
+     ENDIF
+     ,
+     IF ((p.prsnl_alias_type_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].type_cd =
+      eso_format_code (p.prsnl_alias_type_cd )
+     ENDIF
+     ,
+     IF ((p.contributor_system_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].
+      assign_fac_id.name_id = eso_format_code (p.contributor_system_cd )
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDFOR
+  SET alias_size = size (request->triginfo.prsnl.person_alias[1 ] ,5 )
+  FOR (idx = 1 TO alias_size )
+   SELECT INTO "nl:"
+    p.alias ,
+    p.person_alias_type_cd ,
+    p.alias_pool_cd ,
+    p.check_digit ,
+    p.check_digit_method_cd ,
+    p.contributor_system_cd
+    FROM (person_alias p )
+    WHERE (p.alias = request->triginfo.prsnl.person_alias[idx ].alias ) AND (p.alias_pool_cd =
+    request->triginfo.prsnl.person_alias[idx ].alias_pool_cd ) AND (p.person_alias_type_cd = request
+    ->triginfo.prsnl.person_alias[idx ].prsnl_alias_type_cd )
+    DETAIL
+     aidx = (aidx + 1 ) ,
+     stat = alterlist (context->mfnm02_group[1 ].stf[1 ].staff_id ,aidx ) ,
+     context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].id = trim (p.alias ,3 ) ,
+     IF ((p.check_digit > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].check_digit =
+      cnvtstring (p.check_digit )
+     ENDIF
+     ,
+     IF ((p.check_digit_method_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].
+      check_digit_scheme = eso_format_code (p.check_digit_method_cd )
+     ENDIF
+     ,
+     IF (p.alias_pool_cd ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].assign_auth.name_id =
+      eso_format_code (p.alias_pool_cd )
+     ENDIF
+     ,
+     IF ((p.person_alias_type_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].type_cd =
+      eso_format_code (p.person_alias_type_cd )
+     ENDIF
+     ,
+     IF ((p.contributor_system_cd > 0 ) ) context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].
+      assign_fac_id.name_id = eso_format_code (p.contributor_system_cd )
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDFOR
+ ELSE
+  SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].staff_id ,1 )
+  SET context->mfnm02_group[1 ].stf[1 ].staff_id[1 ].id = eso_format_prsnl_id_enctr_ctx (
+   "STF_2_STAFID" ,"ALL_PRSNL" ,request->triginfo.person_id ,"_1.1" ,request->triginfo.person_id ,0 ,
+   "CX" ,1 )
+ ENDIF
+ SET name_idx = 1
+ SET name_max = size (reply->prsnl.person_name ,5 )
+ SET name_cnt = 0
+ FOR (name_idx = 1 TO name_max )
+  IF ((eso_get_code_meaning (reply->prsnl.person_name[name_idx ].name_type_cd ) = "PRSNL" ) )
+   SET name_cnt = (name_cnt + 1 )
+   SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].staff_name ,name_cnt )
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].name_type_cd = eso_format_code (reply
+    ->prsnl.person_name[name_idx ].name_type_cd )
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].last_name = reply->prsnl.person_name[
+   name_idx ].name_last
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].first_name = reply->prsnl.person_name[
+   name_idx ].name_first
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].middle_name = reply->prsnl.
+   person_name[name_idx ].name_middle
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].suffix = reply->prsnl.person_name[
+   name_idx ].name_suffix
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].prefix = reply->prsnl.person_name[
+   name_idx ].name_prefix
+   SET context->mfnm02_group[1 ].stf[1 ].staff_name[name_cnt ].degree = reply->prsnl.person_name[
+   name_idx ].name_degree
+  ENDIF
+ ENDFOR
+ SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].staff_type ,1 )
+ SET context->mfnm02_group[1 ].stf[1 ].staff_type.identifier = eso_format_code (reply->prsnl.prsnl[1
+  ].position_cd )
+ SET context->mfnm02_group[1 ].stf[1 ].sex = eso_format_code (reply->prsnl.person_demog[1 ].sex )
+ SET context->mfnm02_group[1 ].stf[1 ].birth_dt = eso_format_dttm (reply->prsnl.person_demog[1 ].
+  birth_dt_tm ,hl7_dt_tm ,"" )
+ SET context->mfnm02_group[1 ].stf[1 ].active_cd = eso_format_code (reply->prsnl.prsnl[1 ].
+  active_status_cd )
+ IF ((((event_class = 1 ) ) OR ((((event_class = 2 ) ) OR ((event_class = 3 ) )) AND snapshot )) )
+  SET prsnl_idx = 1
+  SET prsnl_max = size (request->triginfo.prsnl.prsnl_group ,5 )
+  SET dept_idx = 0
+  SET serv_idx = 0
+  FOR (prsnl_idx = 1 TO prsnl_max )
+   IF ((eso_get_code_meaning (request->triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_class_cd )
+   = "DEPARTMENT" ) )
+    SET dept_idx = (dept_idx + 1 )
+    SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].department ,dept_idx )
+    SET context->mfnm02_group[1 ].stf[1 ].department[dept_idx ].identifier = eso_format_code (request
+     ->triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_type_cd )
+   ENDIF
+   IF ((((eso_get_code_meaning (request->triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_class_cd
+    ) = "SERVICE" ) ) OR ((eso_get_code_meaning (request->triginfo.prsnl.prsnl_group[prsnl_idx ].
+    prsnl_group_type_cd ) = "MEDSERVICE" ) )) )
+    SET serv_idx = (serv_idx + 1 )
+    SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].service ,serv_idx )
+    SET context->mfnm02_group[1 ].stf[1 ].service[serv_idx ].identifier = eso_format_code (request->
+     triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_type_cd )
+   ENDIF
+  ENDFOR
+  SET phone_idx = 1
+  SET phone_max = size (request->triginfo.prsnl.phone ,5 )
+  SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].phone ,phone_max )
+  FOR (phone_idx = 1 TO phone_max )
+   SET context->mfnm02_group[1 ].stf[1 ].phone[phone_idx ].phone_nbr = request->triginfo.prsnl.phone[
+   phone_idx ].phone_num
+   SET context->mfnm02_group[1 ].stf[1 ].phone[phone_idx ].equip_type_cd = eso_format_code (request->
+    triginfo.prsnl.phone[phone_idx ].phone_type_cd )
+   IF ((findstring ("PAGER" ,eso_get_code_meaning (request->triginfo.prsnl.phone[phone_idx ].
+     phone_type_cd ) ) > 0 ) )
+    SET context->mfnm02_group[1 ].stf[1 ].phone[phone_idx ].extension = request->triginfo.prsnl.
+    phone[phone_idx ].paging_code
+   ELSE
+    SET context->mfnm02_group[1 ].stf[1 ].phone[phone_idx ].extension = request->triginfo.prsnl.
+    phone[phone_idx ].extension
+   ENDIF
+  ENDFOR
+  SET address_idx = 1
+  SET address_max = size (request->triginfo.prsnl.address ,5 )
+  SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].address ,address_max )
+  FOR (address_idx = 1 TO address_max )
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].street = request->triginfo.prsnl.
+   address[address_idx ].street_addr
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].other_desig = request->triginfo.prsnl.
+   address[address_idx ].street_addr2
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].city = request->triginfo.prsnl.
+   address[address_idx ].city
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].state_prov = eso_format_code (request
+    ->triginfo.prsnl.address[address_idx ].state_cd )
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].zip_code = request->triginfo.prsnl.
+   address[address_idx ].zipcode
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].country = eso_format_code (request->
+    triginfo.prsnl.address[address_idx ].country_cd )
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].types = eso_format_code (request->
+    triginfo.prsnl.address[address_idx ].address_type_cd )
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].county = eso_format_code (request->
+    triginfo.prsnl.address[address_idx ].county_cd )
+   SET context->mfnm02_group[1 ].stf[1 ].address[address_idx ].other_geo_desig = request->triginfo.
+   prsnl.address[address_idx ].street_addr3
+  ENDFOR
+ ENDIF
+ IF ((event_class = 2 ) )
+  IF (snapshot )
+   SELECT INTO "nl:"
+    p.organization_id
+    FROM (prsnl_org_reltn p )
+    WHERE (p.person_id = request->triginfo.person_id ) AND (p.active_ind = 1 ) AND (p
+    .end_effective_dt_tm > cnvtdatetime (curdate ,(curtime3 + g_desoefftmadj ) ) )
+    HEAD REPORT
+     prsnl_org_reltn_idx = 0
+    DETAIL
+     prsnl_org_reltn_idx = (prsnl_org_reltn_idx + 1 ) ,
+     stat = alterlist (context->mfnm02_group[1 ].stf[1 ].activation_dt ,prsnl_org_reltn_idx ) ,
+     context->mfnm02_group[1 ].stf[1 ].activation_dt[prsnl_org_reltn_idx ].institution_name.
+     identifier = eso_format_org ("HL7" ,"identifier" ,"string" ,p.organization_id ,"" ,0 ,0 ,0 ,"" ,
+      "" ,"" )
+    WITH nocounter
+   ;end select
+  ELSE
+   SET prsnl_org_reltn_cnt = size (request->triginfo.prsnl.prsnl_org_reltn ,5 )
+   SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].activation_dt ,prsnl_org_reltn_cnt )
+   FOR (prsnl_org_reltn_idx = 1 TO prsnl_org_reltn_cnt )
+    SET context->mfnm02_group[1 ].stf[1 ].activation_dt[prsnl_org_reltn_idx ].institution_name.
+    identifier = eso_format_org ("HL7" ,"identifier" ,"string" ,request->triginfo.prsnl.
+     prsnl_org_reltn[prsnl_org_reltn_idx ].organization_id ,"" ,0 ,0 ,0 ,"" ,"" ,"" )
+   ENDFOR
+  ENDIF
+ ELSE
+  SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].activation_dt ,1 )
+  SET context->mfnm02_group[1 ].stf[1 ].activation_dt[1 ].date_time = eso_format_dttm (request->
+   triginfo.prsnl.prsnl[1 ].beg_effective_dt_tm ,hl7_dt_tm ,"" )
+ ENDIF
+ SET stat = alterlist (context->mfnm02_group[1 ].stf[1 ].inactivation_dt ,1 )
+ SET context->mfnm02_group[1 ].stf[1 ].inactivation_dt[1 ].date_time = eso_format_dttm (request->
+  triginfo.prsnl.prsnl[1 ].end_effective_dt_tm ,hl7_dt_tm ,"" )
+ IF ((((event_class = 1 ) ) OR ((((event_class = 2 ) ) OR ((event_class = 3 ) )) AND snapshot )) )
+  SET stat = alterlist (context->mfnm02_group[1 ].pra ,1 )
+  SET prsnl_idx = 1
+  SET prac_idx = 0
+  FOR (prsnl_idx = 1 TO prsnl_max )
+   IF ((eso_get_code_meaning (request->triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_class_cd )
+   != "DEPARTMENT" ) AND (eso_get_code_meaning (request->triginfo.prsnl.prsnl_group[prsnl_idx ].
+    prsnl_group_class_cd ) != "SERVICE" ) )
+    SET prac_idx = (prac_idx + 1 )
+    SET stat = alterlist (context->mfnm02_group[1 ].pra[1 ].practitioner_grp ,prac_idx )
+    SET context->mfnm02_group[1 ].pra[1 ].practitioner_grp[prac_idx ].identifier = eso_format_code (
+     request->triginfo.prsnl.prsnl_group[prsnl_idx ].prsnl_group_type_cd )
+   ENDIF
+  ENDFOR
+  SET prsnl_reltn_idx = 1
+  SET prsnl_reltn_max = size (request->triginfo.prsnl.prsnl_prsnl_reltn ,5 )
+  SET stat = alterlist (context->mfnm02_group[1 ].zrn ,prsnl_reltn_max )
+  FOR (prsnl_reltn_idx = 1 TO prsnl_reltn_max )
+   SET context->mfnm02_group[1 ].zrn[prsnl_reltn_idx ].action_type.identifier = request->triginfo.
+   event
+   SET context->mfnm02_group[1 ].zrn[prsnl_reltn_idx ].related_prsnl.id_nbr =
+   eso_format_prsnl_id_enctr_ctx ("ZRN_2_RPID" ,"ALL_PRSNL" ,request->triginfo.prsnl.
+    prsnl_prsnl_reltn[prsnl_reltn_idx ].related_person_id ,"_1.1" ,request->triginfo.prsnl.
+    prsnl_prsnl_reltn[prsnl_reltn_idx ].related_person_id ,0 ,"CE" ,1 )
+   SET context->mfnm02_group[1 ].zrn[prsnl_reltn_idx ].prsnl_relationship.identifier =
+   eso_format_code (request->triginfo.prsnl.prsnl_prsnl_reltn[prsnl_reltn_idx ].prsnl_prsnl_reltn_cd
+    )
+   SET context->mfnm02_group[1 ].zrn[prsnl_reltn_idx ].beg_effective_dt_tm = eso_format_dttm (request
+    ->triginfo.prsnl.prsnl_prsnl_reltn[prsnl_reltn_idx ].beg_effective_dt_tm ,hl7_dt_tm ,"" )
+   SET context->mfnm02_group[1 ].zrn[prsnl_reltn_idx ].end_effective_dt_tm = eso_format_dttm (request
+    ->triginfo.prsnl.prsnl_prsnl_reltn[prsnl_reltn_idx ].end_effective_dt_tm ,hl7_dt_tm ,"" )
+  ENDFOR
+ ENDIF
+ IF (NOT ((((event_class = 1 ) ) OR ((((event_class = 2 ) ) OR ((event_class = 3 ) )) )) ) )
+  CALL echo ("ERROR: No MFN event class identified." )
+ ENDIF
+#exit_script
+ SET reply->status_data.status = "S"
+ CALL echo ("<===== SI_ERROR_TRAILER.INC Begin =====>" )
+ CALL echo ("MOD:008" )
+ CALL echo (build ("debuglogging = " ,get_char_debuglog (gdebuglogging ) ) )
+ CALL decode_error ("SI_ERROR_TRAILER" )
+ IF ((get_script_status (0 ) < efailure ) )
+  SET reqinfo->commit_ind = 1
+ ELSE
+  SET reqinfo->commit_ind = 0
+ ENDIF
+ IF ((gdebuglogging > edebug_level ) )
+  IF ((validate (request ,"!" ) != "!" ) )
+   CALL echorecord (request )
+  ELSE
+   CALL echo ("No outgoing request record detected" )
+  ENDIF
+  IF ((validate (context ,"!" ) != "!" ) )
+   CALL echorecord (context )
+  ELSE
+   CALL echo ("No outgoing Context record detected" )
+  ENDIF
+ ENDIF
+ IF ((((gdebuglogging > edebug_level ) ) OR ((get_script_status (0 ) >= efailure ) )) )
+  IF ((validate (reply ,"!" ) != "!" ) )
+   CALL echorecord (reply )
+  ELSE
+   CALL echo ("No outgoing Reply record detected" )
+  ENDIF
+ ENDIF
+ CALL echo ("<===== SI_ERROR_TRAILER.INC End =====>" )
+ CALL echo ("<===== FSI_MFN_M02 End =====>" )
+END GO
+1)
+
+170201:074431 AJAMISON_DVD8               Cost 0.00 Cpu 0.02 Ela 0.04 Bio   0 Dio   0 O0M0R0 P1R0
