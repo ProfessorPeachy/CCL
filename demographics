@@ -1,0 +1,222 @@
+drop program ed_demographic go
+create program ed_demographic
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Begin Date" = "CURDATE"
+	, "End Date" = "CURDATE"
+	, "Tracking Grop" = 0
+ 
+with OUTDEV, BEGINDATE, ENDDATE, TRACKING_GROUP_CD
+ 
+ 
+/**********************************************************************************************************************************
+              Purpose:	Basic Patient Demographics and Tracking Events for APMD
+          Application:	FirstNet
+  Exectuion Locations:	Operations
+            Request #:  NA
+      Translated From:	Not Translated
+        Special Notes:
+/**********************************************************************************************************************************
+ 
+                                           MODIFICATION CONTROL LOG
+ 
+***********************************************************************************************************************************
+   Mod #    Date           Engineer             Description
+   -----    -------------  ------------------   -----------------------------------------------------------------------------------
+   1        10/05/2013     Paul Kruger          Initial Release
+ 
+**********************************************************************************************************************************/
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                         DECLARATIONS
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+declare Section_Start_Dt_Tm = dq8 with protect, noconstant(cnvtdatetime(curdate, curtime3))
+call echo(concat("DECLARATIONS...", format(cnvtdatetime(curdate, curtime3), "@SHORTDATETIME")))
+/*=================================================================================================================================
+ 
+                                                           CONSTANTS
+ 
+=================================================================================================================================*/
+/*%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       Programming Constants     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%*/
+DECLARE FILE_DIRECTORY = VC WITH PROTECT, CONSTANT(build2(trim(logical("CCLUSERDIR")), "/"))  ;Must be full path with / at end
+DECLARE APMD_ED_DEMOGRAPHIC_FILE = VC WITH PROTECT, CONSTANT(CONCAT(FILE_DIRECTORY, 'apmd_ed_demographic.dat'))
+ 
+ 
+;Medical Record Number and Chart Number Constants
+DECLARE MRN_319_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 319, "MRN"))
+DECLARE FIN_NBR_319_CV = F8 WITH PROTECT, CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 319, "FINNBR"))
+ 
+;Delimiters
+DECLARE SEPARATOR = VC WITH PROTECT, CONSTANT('"|"')
+DECLARE ROW_START = VC WITH PROTECT, CONSTANT('"')
+DECLARE ROW_TERMINATE = VC WITH PROTECT, CONSTANT('"')
+ 
+/*=================================================================================================================================
+ 
+                                                            VARIABLES
+ 
+=================================================================================================================================*/
+DECLARE Begin_Date = DQ8 WITH PROTECT    ;The start date for the report
+DECLARE End_Date = DQ8 WITH PROTECT      ;The final date for the report
+DECLARE Temp_Date_DQ8 = DQ8 WITH PUBLIC     ;Temporary date for processing funtions
+DECLARE Display_Line = VC WITH PROTECT, NOCONSTANT('') ;Report Display
+ 
+/*=================================================================================================================================
+ 
+                                                           INITIALIZATION
+ 
+=================================================================================================================================*/
+CALL ECHO(CONCAT("INITIALIZATION...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+/*----------------------------------------------------  Begin_Date and End_Date -------------------------------------------------*/
+execute thc1_apmd_date_conversion $BEGINDATE, "BOD" ;Date, Beginning of Day
+SET Begin_Date = Temp_Date_DQ8
+execute thc1_apmd_date_conversion $ENDDATE, "EOD" ;Date parameter, End of Day
+SET End_Date = Temp_Date_DQ8
+ 
+CALL ECHO(CONCAT("VARIABLE AND CONSTANTS Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                      DEMOGRAPHIC SECTION
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+CALL ECHO(CONCAT("DEMOGRAPHIC SECTION...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+/*=================================================================================================================================
+ 
+                                                       DEMOGRAPHIC QUERY
+ 
+=================================================================================================================================*/
+SET Section_Start_Dt_Tm = CNVTDATETIME(CURDATE, CURTIME3)
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY...", FORMAT(CNVTDATETIME(CURDATE, CURTIME3), "@SHORTDATETIME")))
+ 
+;SELECT INTO $outdev
+SELECT INTO VALUE(APMD_ED_DEMOGRAPHIC_FILE)
+   TC.CHECKIN_ID,
+   TC.CHECKIN_DT_TM,
+   TC.CHECKOUT_DT_TM,
+   TC.CHECKOUT_DISPOSITION_CD,
+   CHECKOUT_DISPOSITION_DISPLAY = UAR_GET_CODE_DISPLAY(TC.CHECKOUT_DISPOSITION_CD),
+   E.ENCNTR_ID,
+   E.REG_DT_TM,
+   E.REASON_FOR_VISIT,
+   E.TRIAGE_DT_TM,
+   P.PERSON_ID,
+   MRN = CNVTALIAS(MRN.ALIAS, MRN.ALIAS_POOL_CD),
+   FIN = CNVTALIAS(FIN.ALIAS, FIN.ALIAS_POOL_CD)
+ 
+FROM
+   TRACKING_CHECKIN TC,
+   TRACKING_ITEM TI,
+   ENCOUNTER E,
+   PERSON P,
+   PRSNL PR,
+   TRACK_REFERENCE TR,
+   ENCNTR_ALIAS MRN,
+   ENCNTR_ALIAS FIN
+ 
+PLAN TC WHERE
+   TC.CHECKIN_DT_TM >= CNVTDATETIME(Begin_Date)
+   AND TC.CHECKIN_DT_TM <= CNVTDATETIME(End_Date)
+   AND TC.TRACKING_GROUP_CD = $TRACKING_GROUP_CD
+   AND TC.ACTIVE_IND = 1
+ 
+JOIN TI WHERE
+   TI.TRACKING_ID = TC.TRACKING_ID
+;   AND TI.ENCNTR_ID IN(199538611.00,  199537797.00, 199538595.00, 199537456.00)
+   AND TI.ACTIVE_IND = 1
+ 
+JOIN E WHERE
+   E.ENCNTR_ID = TI.ENCNTR_ID
+   AND E.ACTIVE_IND = 1
+   AND E.BEG_EFFECTIVE_DT_TM <= CNVTDATETIME(CURDATE, CURTIME)
+   AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME)
+ 
+JOIN P WHERE
+   P.PERSON_ID = E.PERSON_ID
+   AND P.ACTIVE_IND = 1
+   AND P.BEG_EFFECTIVE_DT_TM <= CNVTDATETIME(CURDATE, CURTIME)
+   AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME)
+ 
+JOIN PR WHERE
+   PR.PERSON_ID = OUTERJOIN(E.REG_PRSNL_ID)
+   AND PR.BEG_EFFECTIVE_DT_TM <= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+   AND PR.END_EFFECTIVE_DT_TM >= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+ 
+JOIN TR WHERE
+   TR.TRACKING_REF_ID = OUTERJOIN(TC.ACUITY_LEVEL_ID)
+   AND TR.ACTIVE_IND = OUTERJOIN(1)
+ 
+JOIN MRN WHERE
+   MRN.ENCNTR_ID = OUTERJOIN(E.ENCNTR_ID)
+   AND MRN.ENCNTR_ALIAS_TYPE_CD = OUTERJOIN(MRN_319_CV)
+   AND MRN.ACTIVE_IND = OUTERJOIN(1)
+   AND MRN.BEG_EFFECTIVE_DT_TM <= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+   AND MRN.END_EFFECTIVE_DT_TM >= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+ 
+JOIN FIN WHERE
+   FIN.ENCNTR_ID = OUTERJOIN(E.ENCNTR_ID)
+   AND FIN.ENCNTR_ALIAS_TYPE_CD = OUTERJOIN(FIN_NBR_319_CV)
+   AND FIN.ACTIVE_IND = OUTERJOIN(1)
+   AND FIN.BEG_EFFECTIVE_DT_TM <= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+   AND FIN.END_EFFECTIVE_DT_TM >= OUTERJOIN(CNVTDATETIME(CURDATE, CURTIME))
+ 
+ORDER BY TI.ENCNTR_ID, TC.CHECKIN_DT_TM
+ 
+HEAD REPORT
+ Display_Line = CONCAT(ROW_START, "PATIENT_CHART_NUMBER",
+                       SEPARATOR, "PATIENT_MEDICAL_RECORD_NUMBER",
+                       SEPARATOR, "TRIAGE_ACUITY",
+                       SEPARATOR, "PATIENT_COMPLAINT",
+                       SEPARATOR, "PATIENT_BDATE",
+                       SEPARATOR, "PATIENT_GENDER",
+                       SEPARATOR, "ARRIVAL_DATE_OF_SER",
+                       SEPARATOR, "TRIAGE_DATE_TIME",
+                       SEPARATOR, "REGISTRATION_DATE_TIME",
+                       SEPARATOR, "REGISTRARS_NAME",
+                       SEPARATOR, "DPRT_DATE_TIME",
+                       SEPARATOR, "FINALDISPOSITION_VALUE",
+                       SEPARATOR, "DISCHARGE_TO_LOCATION",
+                       ROW_TERMINATE)
+ COL 0  Display_Line
+ ROW +1
+ 
+HEAD TI.ENCNTR_ID
+ Display_Line = BUILD(ROW_START, CNVTALIAS(FIN.ALIAS, FIN.ALIAS_POOL_CD),
+                      SEPARATOR, CNVTALIAS(MRN.ALIAS, MRN.ALIAS_POOL_CD),
+                      SEPARATOR, TRIM(TR.DISPLAY, 3),
+                      SEPARATOR, E.REASON_FOR_VISIT,
+                      SEPARATOR, FORMAT(P.BIRTH_DT_TM, "MM/DD/YYYY;;Q"),
+                      SEPARATOR, SUBSTRING(1, 1, UAR_GET_CODE_DISPLAY(P.SEX_CD)),
+                      SEPARATOR, FORMAT(TC.CHECKIN_DT_TM, "@SHORTDATETIMENOSEC"),
+                      SEPARATOR, FORMAT(E.TRIAGE_DT_TM, "@SHORTDATETIMENOSEC"),
+                      SEPARATOR, FORMAT(E.REG_DT_TM, "@SHORTDATETIMENOSEC"),
+                      SEPARATOR, PR.NAME_FULL_FORMATTED,
+                      SEPARATOR, FORMAT(TC.CHECKOUT_DT_TM, "@SHORTDATETIMENOSEC"),
+                      SEPARATOR, UAR_GET_CODE_DISPLAY(TC.CHECKOUT_DISPOSITION_CD),
+                      SEPARATOR, UAR_GET_CODE_DISPLAY(E.DISCH_TO_LOCTN_CD),
+                      ROW_TERMINATE)
+ COL 0  Display_Line
+ ROW +1
+WITH MAXROW = 1, MAXCOL = 32000, NOFORMFEED, FORMAT = UNDEFINED, NULLREPORT
+ 
+CALL ECHO(CONCAT("DEMOGRAPHIC QUERY Runtime: ",
+                 TRIM(CNVTSTRING(DATETIMEDIFF(CNVTDATETIME(CURDATE, CURTIME3), Section_Start_Dt_Tm, 5)), 3),
+                 " seconds"))
+ 
+/*@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+ 
+                                                 END
+ 
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@*/
+IF (VALIDATE(REPLY->OPS_EVENT) AND VALIDATE(REQUEST->OUTPUT_DIST) AND VALIDATE (REPLY->STATUS_DATA->STATUS))
+ ;This code executes inside operations
+ ;Declares a successful run
+ SET REPLY->STATUS_DATA->STATUS = "S"
+ENDIF
+ 
+END GO
