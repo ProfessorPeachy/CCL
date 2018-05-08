@@ -1,0 +1,306 @@
+drop program 1pn_ap_trans_rxn_rpt go
+
+create program 1pn_ap_trans_rxn_rpt
+
+/*
+This generates a report of the Clinical Review 
+The CCL was written because Pathology Case Review was not able to separate by facility.
+*/
+
+prompt
+
+"Output to File/Printer/MINE" = "albtrr"       ;* Enter or select the printer or file name to send this report to.
+
+, "Beginning Verification Date:" = "CURDATE"
+
+, "Ending Verification Date:" = "CURDATE"
+
+
+
+with OUTDEV, startdate, enddate
+
+/**************************************************************
+
+; DVDev DECLARED SUBROUTINES
+
+**************************************************************/
+
+%i rtf_utilities.inc ;used to extract text
+
+/**************************************************************
+
+; DVDev DECLARED VARIABLES
+
+**************************************************************/
+
+SET  MAXSECS  =  60
+
+SET LINE       = FILLSTRING (130,"-")
+
+set nocomp_cd = 0.0 ;used to extract text
+
+set code_set = 120 ;used to extract text
+
+set code_value = 0.0 ;used to extract text
+
+set cdf_meaning = "NOCOMP" ;used to extract text
+
+execute cpm_get_cd_for_cdf ;used to extract text
+
+set nocomp_cd = code_value ;used to extract text
+
+
+
+DECLARE  CASETYPE  =  F8
+
+SET  CASETYPE  =  UAR_GET_CODE_BY ( "displaykey" ,  1301 ,  "OTHER" )
+
+DECLARE  VERIFIED  =  F8
+
+SET  VERIFIED  =  UAR_GET_CODE_BY ( "displaykey" ,  1305 ,  "VERIFIED" )
+
+DECLARE  TRANSRXNRPT  =  F8
+
+SET  TRANSRXNRPT  =  UAR_GET_CODE_BY ( "displaykey" ,  1306 ,  "TRANSRXNRPT" )
+
+DECLARE  CLIN_REVIEW  =  F8
+
+SET  CLIN_REVIEW  =  UAR_GET_CODE_BY ( "displaykey" ,  14003 ,  "CLIN REVIEW" )
+
+/**************************************************************
+
+; DVDev Start Coding
+
+**************************************************************/
+
+select into $outdev
+
+ACCESSION = cnvtacc(PC.ACCESSION_NBR),
+
+COLLECT_DT_TM = pc.case_collect_dt_tm,
+
+REPORT_DT_TM = pc.main_report_cmplete_dt_tm,
+
+PATH = substring(1,23,prv.name_full_formatted),
+
+PT = substring(1,23,p.name_full_formatted),
+
+DOC = substring(1,23,doc.name_full_formatted),
+
+FACILITY = substring(1,3,uar_get_code_display(el.loc_facility_cd))
+
+
+
+FROM
+
+PATHOLOGY_CASE  PC,
+
+case_specimen cs,
+
+case_report  cr,
+
+clinical_event  ce,
+
+ce_blob  ceb,
+
+person p,
+
+prsnl prv,
+
+prsnl doc,
+
+encntr_loc_hist el
+
+
+
+plan pc
+
+where pc.main_report_cmplete_dt_tm >= cnvtdatetime($startdate)
+
+and pc.main_report_cmplete_dt_tm <= cnvtdatetime(concat($enddate,char(32), "23:59:59"))
+
+and pc.case_type_cd = CASETYPE ;1389 ; cs 1301
+
+join cs where pc.case_id=cs.case_id
+
+and cs.specimen_cd+0=TRANSRXNRPT ;32543709 ;cs1306
+
+join cr where pc.case_id=cr.case_id
+
+and cr.status_cd=VERIFIED ;1412 cs1305
+
+join ce where cr.event_id = ce.parent_event_id
+
+and ce.task_assay_cd+0=CLIN_REVIEW ;692069 cs14003 CLIN REVIEW
+
+and ce.authentic_flag = 1
+
+and ce.valid_until_dt_tm > cnvtdatetime(curdate,curtime)
+
+join ceb where ce.event_id = ceb.event_id
+
+and ceb.valid_until_dt_tm > cnvtdatetime(curdate,curtime)
+
+join prv where pc.responsible_pathologist_id=prv.person_id
+
+join p where pc.person_id=p.person_id
+
+join doc where pc.requesting_physician_id=doc.person_id
+
+join el where pc.encntr_id=el.encntr_id
+
+and el.beg_effective_dt_tm<=pc.case_collect_dt_tm
+
+and el.end_effective_dt_tm>=pc.case_collect_dt_tm
+
+and el.active_ind=1
+
+
+
+order by facility,
+
+accession
+
+
+
+head report
+
+TITLE = concat($startdate ," through ",$enddate)
+
+FAC = FACILITY
+
+ACC = ACCESSION
+
+BLOB_CNTR = 0
+
+
+
+head page
+
+col 0 "Report: 1pn_ap_trans_rxn_rpt"
+
+call center(build("Palomar Pomerado Health Laboratory Services"),1,130)
+
+col 110 "Date: ",curdate
+
+row +1
+
+
+
+col 0   "PAGE: ",curpage "########"
+
+call center(build("Transfusion Reaction Report"),1,130)
+
+col 110 "TIME: ",curtime "##:##"
+
+row +1
+
+
+
+call center(title,1,130)
+
+row +2 ;line row +1
+
+
+
+COL 0 "Fac"
+
+col 5 "Accession"
+
+COL 20 "Patient"
+
+COL 45 "Requested By"
+
+COL 70 "Collected"
+
+COL 85 "Verified"
+
+col 100 "By"
+
+row +1 line row +1
+
+
+
+head accession
+
+if (ACC != ACCESSION) break endif
+
+col 0 FACILITY
+
+col 5 ACCESSION
+
+COL 20 PT
+
+COL 45 DOC
+
+COL 70 COLLECT_DT_TM "mm/dd/yyyy;;d"
+
+COL 85 REPORT_DT_TM "mm/dd/yyyy;;d"
+
+col 100 PATH
+
+row +1 ;line row +1
+
+
+
+head ceb.event_id
+
+blob_cntr = 0
+
+
+
+detail
+
+if (ceb.compression_cd = nocomp_cd)
+
+  tBlobOut = ceb.blob_contents
+
+else
+
+  tBlobIn = ceb.blob_contents
+
+     call decompress_text(tBlobIn)
+
+    endif
+
+call rtf_to_text(tBlobOut,1,90)
+
+for (z = 1 to size(tmptext->qual,5))
+
+  blob_cntr = blob_cntr + 1
+
+  col 10, tmptext->qual[z].text
+
+     row + 1
+
+endfor
+
+
+
+foot report
+
+row 55
+
+call center(build("*** End of Report ***"),1,130)
+
+
+
+with
+
+/*nocounter,  maxcol = 32500, */
+
+TIME = VALUE ( MAXSECS ),
+
+memsort,
+
+format,
+
+separator = " ",
+
+nullreport,
+
+skipreport = 0
+
+end
+
+go
