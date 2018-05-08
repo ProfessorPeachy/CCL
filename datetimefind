@@ -1,0 +1,19 @@
+;Set a variable to the first day in the month last month at 00:00
+declare start_date 	= dq8 with constant (datetimefind(cnvtlookbehind("1,M"),"M","B","B"))
+
+;Set a variable to the last day of the last month at 23:59
+declare end_date 	= dq8 with constant (datetimefind(cnvtlookbehind("1,M"),"M","E","E"))
+
+
+
+;Sample Query Usage
+
+select into $outdev
+	  dfa.*
+from
+	dcp_forms_activity dfa
+
+plan dfa
+	where	dfa.updt_dt_tm between cnvtdatetime(start_date)
+	and		cnvtdatetime(end_date)
+	and 	dfa.active_ind = 1
