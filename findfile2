@@ -1,0 +1,42 @@
+declare filename = vc
+declare status = i2
+declare syscmd = vc
+declare len = i4
+declare lpath = vc
+set lpath = logical("CCLUSERDIR")
+call echo(lpath)
+declare chmodCmd = vc
+ 
+;declare mednbr = vc
+ 
+ 
+ 
+set filename = build2(lpath,"/amj_34.dat")
+call echo(filename)
+set stat = findfile(filename)
+call echo(stat)
+IF ( findfile(filename) )
+	call echo(build2("found file: ", filename))
+	;call remove(filename)
+ 
+;	set chmodCmd = build2("chmod 777 ", filename)
+;	call echo(chmodCmd)
+;	SET LEN = SIZE(TRIM(chmodCmd))
+;	SET STATUS = 0
+;	CALL DCL(chmodCmd,LEN,STATUS)
+;	call echo(build2("chomod status: ", status))
+ 
+	SET SYSCMD = build2("rm ", filename)
+	call echo(syscmd)
+	SET LEN = SIZE(TRIM(SYSCMD))
+	SET STATUS = 0
+	CALL DCL(SYSCMD,LEN,STATUS)
+	call echo(build2("remove status: ", status))
+ 
+	SET SYSCMD = build2("rm ", lpath, "/amj*dat")
+	call echo(syscmd)
+	SET LEN = SIZE(TRIM(SYSCMD))
+	SET STATUS = 0
+	CALL DCL(SYSCMD,LEN,STATUS)
+	call echo(build2("remove status: ", status))
+endif
