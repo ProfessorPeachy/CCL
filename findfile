@@ -1,0 +1,18 @@
+select into $outdev
+from dual d
+plan d
+head report
+    FNAME = logical("file_output")
+    if ( ( findfile ( trim ( file_output , 3 ))=1 ) )
+        COL 0 "SUCCESS: FILE WAS CREATED: ",  FNAME
+        ROW+1
+        col 0 "Current Node is ", cur_node
+        ROW+1
+    else
+                COL 0 "ERROR: FILE WAS NOT CREATED: ",  FNAME
+        ROW+1
+    endif
+with nocounter
+ 
+call echo(fname)
+call echo(cur_node)
