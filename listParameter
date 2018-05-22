@@ -1,0 +1,224 @@
+declare OCNT = i4
+declare UCNT = I4
+declare lcnt = i4
+
+;create record to store the orders that were selected at the prompt $PLIST
+free record order_rec
+record ORDER_REC (
+	1 ORDER_CNT = i4
+	1 facility  = f8
+	1 parser_str = vc
+	1 ORDERS[*]
+	 2 CATALOG_CD = f8
+	 2 DISPLAY = VC
+)
+
+;create record to store the units that were selected at the prompt $PLIST
+free record unit_rec
+record unit_REC (
+	1 unit_cnt = i4
+	1 facility  = f8
+	1 parser_str_units = vc
+	1 units[*]
+	 2 LOCATION_CD = f8
+	 2 DISPLAY = VC
+)
+
+declare lcheck=vc
+declare ucheck=vc
+declare parser_str = vc
+set 	parser_str = "1=1"
+declare parser_str_units = vc
+set     parser_str_units = "1=1"
+
+set lcheck = substring(1,1,reflect(parameter(4,0)))
+set ucheck = substring(1,1,reflect(parameter(3,0)))
+;THIS IS IF THE PERSON SELECTS ALL OF THEM 
+
+if ( substring(1,1,cnvtstring(parameter(4,1))) = "1" )
+		SELECT
+		    oc.catalog_cd
+		    , oc.DESCRIPTION
+		FROM
+		    code_value   cv
+		    , order_catalog   oc		
+		plan cv
+		where cv.code_set = 200
+			and cv.display_key in ("AZITHROMYCIN","CIPROFLOXACIN","ESOMEPRAZOLE","FAMOTIDINE","LEVOFLOXACIN","PANTOPRAZOLE","RANITIDINE")
+			and cv.active_ind = 1
+		join oc
+			where oc.catalog_cd = cv.code_value
+			and oc.active_ind = 1
+		head report
+			ocnt = 0
+		detail
+			ocnt = ocnt+1 ;order_rec->ORDER_CNT = order_rec->ORDER_CNT+1; = ORDER_REC->ORDER_CNT +1
+			stat = alterlist(ORDER_REC->ORDERS, ocnt ) 
+			ORDER_REC->ORDERS[ocnt].CATALOG_CD = oc.catalog_cd
+			ORDER_REC->ORDERS[ocnt].DISPLAY = UAR_GET_CODE_DISPLAY(OC.catalog_cd)
+		foot report
+			order_rec->ORDER_CNT =  ocnt
+		WITH NOCOUNTER
+elseif(lcheck = "L");if multiple selections were made at the $OLIST prompt
+	;get the multiple values one at a time
+		while(lcheck > " ")
+		      set OCNT = OCNT +1
+		      set lcheck = substring(1,1,reflect(parameter(4,OCNT)))
+		      call echo(lcheck)
+		      if(lcheck > " ")  ;lcheck will equal " " when there are no more values in the list
+				if(mod(OCNT,5) = 1)
+					set stat = alterlist(ORDER_REC->ORDERS, OCNT +4)
+				endif
+				set ORDER_REC->ORDERS[OCNT].CATALOG_CD = cnvtint(parameter(4,OCNT)) ;store the code value in the record
+				
+				SELECT INTO "NL:"
+				FROM CODE_VALUE CV
+				PLAN CV
+				WHERE CV.code_value = ORDER_REC->ORDERS[OCNT].CATALOG_CD
+				DETAIL
+				ORDER_REC->ORDERS[OCNT].DISPLAY = CV.display
+				WITH NOCOUNTER
+				;SET ORDER_REC->ORDERS[ocnt].DISPLAY = UAR_GET_CODE_DISPLAY(CNVTREAL(parameter(4,OCNT)))
+		      endif
+		endwhile
+		set OCNT = OCNT -1
+		set stat = alterlist(ORDER_REC->ORDERS, OCNT)
+else
+	;A single value was selected at PLIST prompt
+	set stat = alterlist(ORDER_REC->ORDERS, 1)
+	set OCNT = 1
+	set ORDER_REC->ORDERS[1].CATALOG_CD = $OLIST
+	
+					SELECT INTO "NL:"
+				FROM CODE_VALUE CV
+				PLAN CV
+				WHERE CV.code_value = ORDER_REC->ORDERS[OCNT].CATALOG_CD
+				DETAIL
+				ORDER_REC->ORDERS[OCNT].DISPLAY = CV.display
+				WITH NOCOUNTER
+endif
+
+call echo(BUILD2("OLIST:", VALUE($OLIST)))
+SET ORDER_REC->ORDER_CNT = OCNT
+
+
+SELECT INTO "NL:"
+	code = ORDER_REC->ORDERS[d1.seq].CATALOG_CD
+FROM 
+	(DUMMYT D1 WITH SEQ=ORDER_REC->ORDER_CNT)
+PLAN D1
+	WHERE ORDER_REC->ORDERS[D1.seq].CATALOG_CD > 0
+HEAD REPORT
+	parser_str = "O.CATALOG_CD+0  IN ("
+HEAD CODE
+	parser_str = build2(parser_str, ORDER_REC->ORDERS[d1.seq].CATALOG_CD, ",")
+FOOT REPORT
+	parser_str = replace(parser_str, ",", "",2)
+	parser_str = build2(parser_str, ")")
+with nocounter
+	
+	
+set order_rec->parser_str = parser_str	
+set order_rec->facility = $fac_loc	
+;call echojson(ORDER_REC, $OUTDEV)
+call echorecord(ORDER_REC)
+
+
+
+
+if ( substring(1,1,cnvtstring(parameter(3,1))) = "1" )
+		SELECT
+			UAR_GET_CODE_DISPLAY(L2.location_cd)
+			, L2.location_cd
+		
+		FROM
+			LOCATION   L
+			, LOCATION   L2
+			, CODE_VALUE   CV
+		
+		PLAN L
+		WHERE L.location_cd = $FAC_LOC
+			AND L.active_ind = 1
+		JOIN L2
+		WHERE L2.organization_id = L.organization_id
+			AND L2.active_ind = 1
+		JOIN CV
+		WHERE CV.CODE_VALUE = L2.location_type_cd
+			AND CV.DISPLAY_KEY = "NURSEUNITS"
+			AND CV.CODE_SET = 222
+			AND CV.ACTIVE_IND = 1
+		head report
+			UCNT = 0
+		detail
+			UCNT = UCNT+1 ;UNIT_REC->UNIT_CNT = UNIT_REC->UNIT_CNT+1; = UNIT_REC->UNIT_CNT +1
+			stat = alterlist(UNIT_REC->UNITS, UCNT ) 
+			UNIT_REC->UNITS[UCNT].LOCATION_CD = l2.location_cd
+			UNIT_REC->UNITS[UCNT].DISPLAY = UAR_GET_CODE_DISPLAY(L2.location_cd)
+		foot report
+			UNIT_REC->UNIT_CNT =  UCNT
+		WITH NOCOUNTER
+		
+elseif(ucheck = "L");if multiple selections were made at the $OLIST prompt
+	;get the multiple values one at a time
+		while(ucheck > " ")
+		      set UCNT = UCNT +1
+		      set ucheck = substring(1,1,reflect(parameter(3,UCNT)))
+		      call echo(ucheck)
+		      if(ucheck > " ")  ;ucheck will equal " " when there are no more values in the list
+				if(mod(UCNT,5) = 1)
+					set stat = alterlist(UNIT_REC->UNITS, UCNT +4)
+				endif
+				set UNIT_REC->UNITS[UCNT].LOCATION_CD = cnvtint(parameter(3,UCNT)) ;store the code value in the record
+				
+				SELECT INTO "NL:"
+				FROM CODE_VALUE CV
+				PLAN CV
+				WHERE CV.code_value = UNIT_REC->UNITS[UCNT].LOCATION_CD
+				DETAIL
+				CALL ECHO("TEST")
+				UNIT_REC->UNITS[UCNT].DISPLAY = CV.display
+				WITH NOCOUNTER
+				;SET  = UAR_GET_CODE_DISPLAY(CNVTREAL(parameter(3,UCNT)))
+		      endif
+		endwhile
+		set UCNT = UCNT -1
+		set stat = alterlist(UNIT_REC->UNITS, UCNT)
+else
+	;A single value was selected at PLIST prompt
+	set stat = alterlist(UNIT_REC->UNITS, 1)
+	set UCNT = 1
+	set UNIT_REC->UNITS[1].LOCATION_CD = $ULIST
+	
+					SELECT INTO "NL:"
+				FROM CODE_VALUE CV
+				PLAN CV
+				WHERE CV.code_value = $ULIST
+				DETAIL
+					UNIT_REC->UNITS[UCNT].DISPLAY = CV.display
+				WITH NOCOUNTER
+endif
+
+call echo(BUILD2("ULIST:", VALUE($ULIST)))
+SET UNIT_REC->UNIT_CNT = UCNT
+
+
+SELECT INTO "NL:"
+	code = UNIT_REC->UNITS[d1.seq].LOCATION_CD
+FROM 
+	(DUMMYT D1 WITH SEQ=UNIT_REC->UNIT_CNT)
+PLAN D1
+	WHERE UNIT_REC->UNITS[D1.seq].LOCATION_CD > 0
+HEAD REPORT
+	parser_str_units = " E.loc_nurse_unit_cd IN ("
+HEAD CODE
+	parser_str_units = build2(parser_str_units, UNIT_REC->UNITS[d1.seq].LOCATION_CD, ",")
+FOOT REPORT
+	parser_str_units = replace(parser_str_units, ",", "",2)
+	parser_str_units = build2(parser_str_units, ")")
+with nocounter
+	
+	
+set UNIT_REC->parser_str_units = parser_str_units	
+
+CALL ECHORECORD(UNIT_REC)
+call echojson(UNIT_REC, "AMJ_TEST_UNITS")
