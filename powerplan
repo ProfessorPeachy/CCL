@@ -1,0 +1,639 @@
+;drop   program ggw_powerplans_audit:dba  go
+;create program ggw_powerplans_audit:dba
+drop   program THC1_POWERPLANS_AUDIT:dba  go
+create program THC1_POWERPLANS_AUDIT:dba
+ 
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Plan Status" = ""
+	, "Component Status" = ""
+	, "Synonym Status" = ""
+	, "Plan Types" = 0
+	, "Filter Type" = 0
+	, "Powerplan Description" = "A*" 
+
+with OUTDEV, PLANSTAT, COMPSTAT, SYNSTAT, ptype, ftype, desc
+
+/************************************************************************
+STANDARD POWERPLAN ORDERS AUDIT
+CR-9466 /OPAS # 13008040
+Requestor: Dawnelle Payne
+Developer: Vicke Cahill
+
+000	10/06/13	- Created from ccl provided by Dawnelle Payne.
+001 02/05/14    - Modified to capture facilities at the Mulitphase Plan Level (IM:38973063)
+**************************************************************************/ 
+
+DECLARE PLANWHERE1		= VC
+DECLARE PLANWHERE2		= VC
+DECLARE COMPWHERE		= VC
+DECLARE SYNWHERE		= VC
+DECLARE CNT1			= I4
+DECLARE FACIL_LIST		= VC
+DECLARE HOLDSEQ			= I4
+DECLARE SELECTIONS1		= VC
+DECLARE SELECTIONS2		= VC
+DECLARE SELECTIONS3		= VC
+DECLARE SELECTIONS4		= VC
+DECLARE SELECTIONS5		= VC
+DECLARE SELECTIONS6		= VC
+DECLARE OUTDEV_HOLD		= C1 
+
+
+SET OUTDEV_HOLD = "Y"
+
+
+
+RECORD PP (
+ 1  CNT 			= I4
+ 1	PP_GRP [*]
+	 2  PCP_ID      = F8 ;001VC
+	 2	PC_ID		= F8
+	 2  PC_TYPMN    = vc   ;VC000
+	 2	PC_PSTAT	= I4	 
+	 2	PC_NM		= VC
+	 2  PC_PNM	    = VC  ;VC000
+	 2  PC_FACLST  = VC
+;	 2	PC_SUBNM	= VC
+	; 2	OB_BEGDT	= DQ8
+	; 2	OB_ENDDT	= DQ8
+	 2	OB_UPDDT	= DQ8	
+	 
+	 2  CCNT		= I4
+	 2  COMP[*]
+		 3	OB_ID		= F8
+		 3	OB_PEID		= F8	  
+		 3	OB_PENAM	= vc
+;	 	 3	OB_STAT		= vc	 	 
+	 	 3	OB_STAT		= I4
+;		 3	OB_CAT		= vc
+		 3	OB_CAT		= F8
+		 3	OB_SCAT		= vc
+		 3	OB_ORDER	= I4
+
+	 	 3	PC_SUBNM	= VC
+
+	     3  OB_OSEN_ID  = F8
+		 3	OB_SEQ		= I4
+;		 3	OB_OSEN		= VC
+		 3	OB_REQIND	= I4
+		 3	OB_INCLIND	= I4
+;		 3	OB_OCOMM	= VC	;000
+
+		 3	OB_CTLGCD	= F8
+	 	 3	OB_SYNHIDE	= I4
+;	 	 3	OB_SYNSTAT	= C8
+	     3 	ob_synstat  = i4 ;000
+		 3	OB_OSYN		= VC
+;		 3	OB_PSYN		= VC
+		 3  OB_NOTES    = VC
+;
+		3   OB_EVLOC	= VC
+		3	OB_TYPMN	= VC
+		3	OB_FACLST	= VC
+
+)
+
+
+ 
+
+IF ($PLANSTAT = "A")
+	SET PLANWHERE1 = 'PC.ACTIVE_IND IN (1)'
+	SET PLANWHERE2 = 'PCP.ACTIVE_IND IN (1)'
+	SET SELECTIONS2 = "PLAN STATUS = ACTIVE"
+ELSEIF ($PLANSTAT = "B")
+	SET PLANWHERE1 = 'PC.ACTIVE_IND IN (0)'
+	SET PLANWHERE2 = 'PCP.ACTIVE_IND IN (0)'
+	SET SELECTIONS2 = "PLAN STATUS = INACTIVE"
+ELSE
+	SET PLANWHERE1 = 'PC.ACTIVE_IND IN (0,1)'
+	SET PLANWHERE2 = 'PCP.ACTIVE_IND IN (0,1)'
+	SET SELECTIONS2 = "PLAN STATUS = ALL"
+ENDIF
+
+ 
+
+IF ($COMPSTAT = "A")
+	SET COMPWHERE = 'P.ACTIVE_IND IN (1)'
+	SET SELECTIONS3 = "COMPONENT STATUS = ACTIVE"
+ELSEIF ($COMPSTAT = "B")
+	SET COMPWHERE = 'P.ACTIVE_IND IN (0)'
+	SET SELECTIONS3 = "COMPONENT STATUS = INACTIVE"
+ELSE
+	SET COMPWHERE = 'P.ACTIVE_IND IN (0,1)'
+	SET SELECTIONS3 = "COMPONENT STATUS = ALL"
+ENDIF
+ 
+
+IF ($SYNSTAT = "A")
+	SET SYNWHERE = 'O.ACTIVE_IND IN (1)'
+	SET SELECTIONS4 = "SYNONYM STATUS = ACTIVE"
+ELSEIF ($SYNSTAT = "B")
+	SET SYNWHERE = 'O.ACTIVE_IND IN (0)'
+	SET SELECTIONS4 = "SYNONYM STATUS = INACTIVE"
+ELSE
+	SET SYNWHERE = 'O.ACTIVE_IND IN (0,1)'
+	SET SELECTIONS4 = "SYNONYM STATUS = ALL"
+ENDIF
+
+;000vc
+declare WhichPlans = vc
+SET desc_name = trim($desc)
+case($ftype)
+	of 1 : set WhichPlans = concat("pc.description_key = '",desc_name,"'")
+		   set SELECTIONS5 = concat("FILTER TYPE = POWERPLAN DESCRIPTION :",desc_name)
+	of 2 : set WhichPlans = 'operator(pc.description_key,"REGEXPLIKE","^[0-9a-dA-D]")'
+	       set SELECTIONS5 = "FILTER TYPE = Plans Starting 0 - 9, A - D"
+	of 3 : set WhichPlans = 'operator(pc.description_key,"REGEXPLIKE","^[e-mE-M]")'
+	       set SELECTIONS5 = "FILTER TYPE = Plans Starting E - M"
+	of 4 : set WhichPlans = 'operator(pc.description_key,"REGEXPLIKE","^[n-zN-Z]")'		
+	       set SELECTIONS5 = "FILTER TYPE = Plans Starting N - Z"
+endcase
+
+
+
+
+
+CALL ECHO("#1")
+
+
+IF($PTYPE = 1) ;000VC
+	SET SELECTIONS1 = 'PLAN TYPES = SINGLE PHASE'
+	SELECT INTO "NL:"
+	
+		CATALOG_ID = PC.PATHWAY_CATALOG_ID,
+		PLAN_STATUS = EVALUATE(PC.ACTIVE_IND,0,"INACTIVE","ACTIVE"),
+		PLAN_DESCRIPTION = SUBSTRING(1,100,PC.DESCRIPTION),
+		COMPONENT_STATUS = EVALUATE(P.ACTIVE_IND,0,"INACTIVE","ACTIVE"),
+		COMPONENT_ID = P.PATHWAY_COMP_ID,
+		P_DCP_CLIN_CAT_CD = P.DCP_CLIN_CAT_CD,
+		P_DCP_CLIN_CAT_DISP = SUBSTRING(1,40,UAR_GET_CODE_DISPLAY( P.DCP_CLIN_CAT_CD )),
+		P_DCP_CLIN_SUB_CAT_DISP = SUBSTRING(1,40,UAR_GET_CODE_DISPLAY( P.DCP_CLIN_SUB_CAT_CD )),
+		SEQUENCE = P.SEQUENCE,
+		PARENT_ENTITY_NAME = P.PARENT_ENTITY_NAME,
+		PARENT_ENTITY_ID = P.PARENT_ENTITY_ID,
+		BEG_EFF_DT = PC.BEG_EFFECTIVE_DT_TM,
+		END_EFF_DT = PC.END_EFFECTIVE_DT_TM,
+		UPDT_DT = PC.UPDT_DT_TM,
+		INCLUDE_IND = P.INCLUDE_IND,
+		REQUIRED_IND = P.REQUIRED_IND
+	 
+	
+	FROM
+		PATHWAY_CATALOG  PC,
+		PATHWAY_COMP  P,
+		PW_COMP_OS_RELTN  PCR
+	
+	 
+	
+	PLAN PC  WHERE  PARSER(PLANWHERE1)
+	       and parser(WhichPlans) ;000vc
+	
+	
+	JOIN P   WHERE  P.PATHWAY_CATALOG_ID = PC.PATHWAY_CATALOG_ID
+			 AND	PARSER(COMPWHERE)
+	JOIN PCR WHERE  PCR.PATHWAY_COMP_ID = OUTERJOIN(P.PATHWAY_COMP_ID)
+	
+	
+	ORDER BY
+		PLAN_DESCRIPTION,
+		pc.pathway_catalog_id,
+		COMPONENT_ID 
+	
+	HEAD REPORT
+		PP->CNT = 1
+		STAT = ALTERLIST(PP->PP_GRP,1)
+		PP->PP_GRP[1]->PC_NM			= $OUTDEV
+		pp->PP_GRP[1].CCNT = 1
+		stat = alterlist(pp->pp_grp[1].COMP,1)
+		pp->pp_grp[1].COMP[1].OB_SCAT	=  SELECTIONS2	
+	
+	head pc.pathway_catalog_id
+		PP->CNT = PP->CNT + 1
+		STAT = ALTERLIST(PP->PP_GRP,PP->CNT)
+		PP->PP_GRP[PP->CNT]->PC_ID			= CATALOG_ID,
+		PP->PP_GRP[PP->CNT]->PC_NM			= PLAN_DESCRIPTION
+		IF(PC.ACTIVE_IND =0)
+			PP->PP_GRP[PP->CNT]->PC_PSTAT = 2 ;INACTIVE
+		ELSE
+			PP->PP_GRP[PP->CNT]->PC_PSTAT = PC.ACTIVE_IND
+		ENDIF
+		PP->PP_GRP[PP->CNT]->PC_TYPMN      = PC.type_mean 	
+		PP->PP_GRP[PP->CNT]->OB_UPDDT		= UPDT_DT
+		pp->pp_grp[pp->cnt].ccnt 			= 1
+		stat = alterlist(pp->pp_grp[pp->cnt].COMP,1)
+		pp->pp_grp[pp->cnt].COMP[1].OB_CAT		= 999999
+	detail
+		pp->pp_grp[pp->cnt].ccnt = 	pp->pp_grp[pp->cnt].ccnt + 1	
+		stat = alterlist(pp->pp_grp[pp->cnt].COMP,pp->pp_grp[pp->cnt].ccnt)
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_ID 		= COMPONENT_ID
+		IF(P.active_ind = 0)
+			pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_STAT = 2 ;INACTIVE
+		ELSE
+			pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_STAT = P.active_ind ; ACTIVE
+		ENDIF
+	 	pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_CAT		= P.DCP_CLIN_CAT_CD
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_SCAT		= P_DCP_CLIN_SUB_CAT_DISP	
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_PENAM		= PARENT_ENTITY_NAME
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_PEID		= PARENT_ENTITY_ID
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].ob_order		= uar_get_collation_seq(p.dcp_clin_cat_cd)
+	
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_SEQ		= SEQUENCE,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_OSEN_ID	= PCR.ORDER_SENTENCE_ID,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_REQIND	= REQUIRED_IND,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_INCLIND	= INCLUDE_IND		
+	
+	with nocounter
+ELSEIF($PTYPE = 2)
+	SET SELECTIONS1 = 'PLAN TYPES = MULTI PHASE'
+	set WhichPlans = replace(WhichPlans,"pc.description_key","pcp.description_key")
+	
+	SELECT INTO "NL:"	
+		CATALOG_ID = PC.PATHWAY_CATALOG_ID,
+		PLAN_STATUS = EVALUATE(PC.ACTIVE_IND,0,"INACTIVE","ACTIVE"),
+		PLAN_DESCRIPTION = SUBSTRING(1,100,PC.DESCRIPTION),
+		COMPONENT_STATUS = EVALUATE(P.ACTIVE_IND,0,"INACTIVE","ACTIVE"),
+		COMPONENT_ID = P.PATHWAY_COMP_ID,
+		P_DCP_CLIN_CAT_CD = P.DCP_CLIN_CAT_CD,
+		P_DCP_CLIN_CAT_DISP = SUBSTRING(1,40,UAR_GET_CODE_DISPLAY( P.DCP_CLIN_CAT_CD )),
+		P_DCP_CLIN_SUB_CAT_DISP = SUBSTRING(1,40,UAR_GET_CODE_DISPLAY( P.DCP_CLIN_SUB_CAT_CD )),
+		SEQUENCE = P.SEQUENCE,
+		PARENT_ENTITY_NAME = P.PARENT_ENTITY_NAME,
+		PARENT_ENTITY_ID = P.PARENT_ENTITY_ID,
+		BEG_EFF_DT = PC.BEG_EFFECTIVE_DT_TM,
+		END_EFF_DT = PC.END_EFFECTIVE_DT_TM,
+		UPDT_DT = PC.UPDT_DT_TM,
+		INCLUDE_IND = P.INCLUDE_IND,
+		REQUIRED_IND = P.REQUIRED_IND
+	 
+	
+	FROM
+		pathway_catalog   pcp,
+		pw_cat_reltn   pwr,
+		PATHWAY_CATALOG  PC,
+		PATHWAY_COMP  P,
+		PW_COMP_OS_RELTN  PCR
+	
+	plan pcp where pcp.type_mean = 'PATHWAY'
+	   and PARSER(PLANWHERE2) 
+       and parser(WhichPlans) ;000vc
+	
+	join pwr where pwr.pw_cat_s_id = pcp.pathway_catalog_id
+		and pwr.type_mean = 'GROUP'
+		
+	join pc where pc.pathway_catalog_id = pwr.pw_cat_t_id
+		and pc.type_mean = 'PHASE'
+		and PARSER(PLANWHERE1)	 	
+	
+	JOIN P   WHERE  P.PATHWAY_CATALOG_ID = PC.PATHWAY_CATALOG_ID
+			 AND	PARSER(COMPWHERE)
+	JOIN PCR WHERE  PCR.PATHWAY_COMP_ID = OUTERJOIN(P.PATHWAY_COMP_ID)
+	
+	
+	ORDER BY
+		PLAN_DESCRIPTION,
+		pc.pathway_catalog_id,
+		COMPONENT_ID 
+	
+	HEAD REPORT
+		PP->CNT = 1
+		STAT = ALTERLIST(PP->PP_GRP,1)
+		PP->PP_GRP[1]->PC_NM			= $OUTDEV
+		pp->PP_GRP[1].CCNT = 1
+		stat = alterlist(pp->pp_grp[1].COMP,1)
+		pp->pp_grp[1].COMP[1].OB_SCAT	=  SELECTIONS2	
+	
+	head pc.pathway_catalog_id
+		PP->CNT = PP->CNT + 1
+		STAT = ALTERLIST(PP->PP_GRP,PP->CNT)
+		PP->PP_GRP[PP->CNT]->PCP_ID			= PCP.pathway_catalog_id ;001VC
+		PP->PP_GRP[PP->CNT]->PC_ID			= CATALOG_ID,
+		PP->PP_GRP[PP->CNT]->PC_NM			= PLAN_DESCRIPTION
+		pp->PP_GRP[PP->CNT].PC_PNM			= pcp.description
+		IF(PC.ACTIVE_IND =0)
+			PP->PP_GRP[PP->CNT]->PC_PSTAT = 2 ;INACTIVE
+		ELSE
+			PP->PP_GRP[PP->CNT]->PC_PSTAT = PC.ACTIVE_IND
+		ENDIF
+		PP->PP_GRP[PP->CNT]->PC_TYPMN      = PC.type_mean 	
+		PP->PP_GRP[PP->CNT]->OB_UPDDT		= UPDT_DT
+		pp->pp_grp[pp->cnt].ccnt 			= 1
+		stat = alterlist(pp->pp_grp[pp->cnt].COMP,1)
+		pp->pp_grp[pp->cnt].COMP[1].OB_CAT		= 999999
+	detail
+		pp->pp_grp[pp->cnt].ccnt = 	pp->pp_grp[pp->cnt].ccnt + 1	
+		stat = alterlist(pp->pp_grp[pp->cnt].COMP,pp->pp_grp[pp->cnt].ccnt)
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_ID 		= COMPONENT_ID
+		IF(P.active_ind = 0)
+			pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_STAT = 2 ;INACTIVE
+		ELSE
+			pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_STAT = P.active_ind ; ACTIVE
+		ENDIF
+	 	pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_CAT		= P.DCP_CLIN_CAT_CD
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_SCAT		= P_DCP_CLIN_SUB_CAT_DISP	
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_PENAM		= PARENT_ENTITY_NAME
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_PEID		= PARENT_ENTITY_ID
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].ob_order		= uar_get_collation_seq(p.dcp_clin_cat_cd)
+	
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_SEQ		= SEQUENCE,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_OSEN_ID	= PCR.ORDER_SENTENCE_ID,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_REQIND	= REQUIRED_IND,
+		pp->pp_grp[pp->cnt].COMP[pp->pp_grp[pp->cnt].ccnt].OB_INCLIND	= INCLUDE_IND	
+		
+		WITH NOCOUNTER
+
+ENDIF
+
+
+;;Get the synonyms
+SELECT INTO "NL:"
+	SYNONYM_STATUS = EVALUATE(O.ACTIVE_IND,0,"INACTIVE","ACTIVE")
+	, ORDER_MNEMONIC = O.MNEMONIC
+	, CATALOG_CD = O.CATALOG_CD
+	, HIDE_FLAG = O.HIDE_FLAG
+	, PRIMARY_MNEMONIC = OC.PRIMARY_MNEMONIC
+
+FROM
+	(DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,(dummyt u with seq = 1)
+	, ORDER_CATALOG_SYNONYM   O
+	, ORDER_CATALOG   OC
+
+PLAN D1 WHERE maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+join u where pp->PP_GRP[d1.seq].COMP[u.seq].ob_penam = "ORDER_CATALOG_SYNONYM"
+	;PP->PP_GRP[D1.SEQ]->OB_PENAM = "ORDER_CATALOG_SYNONYM"
+;JOIN O	WHERE	O.SYNONYM_ID = PP->PP_GRP[D1.SEQ]->OB_PEID
+join o where o.synonym_id = pp->PP_GRP[d1.seq].COMP[u.seq].ob_peid
+	AND		PARSER(SYNWHERE)
+JOIN OC WHERE OC.CATALOG_CD = O.CATALOG_CD
+
+DETAIL
+
+
+	if(o.active_ind = 0) 
+		pp->PP_GRP[d1.seq].COMP[u.seq].OB_SYNSTAT	= 2 ;;inactive
+	else
+		pp->PP_GRP[d1.seq].COMP[u.seq].OB_SYNSTAT	= o.active_ind		
+	endif
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_OSYN		= SUBSTRING(1,100,ORDER_MNEMONIC),
+;	pp->PP_GRP[d1.seq].COMP[u.seq].OB_PSYN		= SUBSTRING(1,100,PRIMARY_MNEMONIC),
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_CTLGCD	= CATALOG_CD,
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_SYNHIDE	= HIDE_FLAG
+
+
+WITH FORMAT
+
+CALL ECHO("#3") 
+
+;
+;Get the notes
+SELECT INTO "NL:"
+	NOTES = SUBSTRING(1,255,TRIM(L.LONG_TEXT))
+
+FROM
+	(DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,(dummyt u with seq = 1)
+	,LONG_TEXT L
+
+PLAN D1 WHERE maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+join u where pp->PP_GRP[d1.seq].COMP[u.seq].ob_penam = "LONG_TEXT"
+JOIN L	WHERE	L.LONG_TEXT_ID =  pp->PP_GRP[d1.seq].COMP[u.seq].OB_PEID 
+
+DETAIL 
+	;PP->PP_GRP[D1.SEQ]->OB_NOTES	= NOTE
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_NOTES	= REPLACE(NOTES,CHAR(13),"; ")
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_NOTES = REPLACE(pp->PP_GRP[d1.seq].COMP[u.seq].OB_NOTES,CHAR(10),"; ")
+
+WITH  FORMAT 
+
+CALL ECHO("#4")
+ 
+
+;Get Evidence Locator
+SELECT INTO "NL:"
+	EVIDENCE_LOCATOR = SUBSTRING(1,255,PER.EVIDENCE_LOCATOR),
+	EVIDENCE_TYPE_MEAN = PER.TYPE_MEAN 
+
+FROM
+	(DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,(dummyt u with seq = 1)
+	,PW_EVIDENCE_RELTN PER 
+
+PLAN D1 WHERE maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+JOIN U where u.seq > 1
+JOIN PER WHERE PER.PATHWAY_COMP_ID = pp->PP_GRP[d1.seq].COMP[u.seq].OB_ID 
+
+DETAIL
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_EVLOC		= EVIDENCE_LOCATOR,
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_TYPMN		= EVIDENCE_TYPE_MEAN 
+
+WITH  FORMAT
+
+CALL ECHO("#5")
+
+
+;Get subplans
+SELECT INTO "NL:"
+	SUBPLAN_DESCRIPTION = SUBSTRING(1,100,PC.DESCRIPTION) 
+
+FROM
+	(DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,(dummyt u with seq = 1)
+	,PATHWAY_CATALOG PC 
+
+PLAN D1 WHERE maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+join u where pp->PP_GRP[d1.seq].COMP[u.seq].ob_penam = "PATHWAY_CATALOG"
+JOIN PC	WHERE	PC.PATHWAY_CATALOG_ID =  pp->PP_GRP[d1.seq].COMP[u.seq].OB_PEID 
+DETAIL
+	pp->PP_GRP[d1.seq].COMP[u.seq].PC_SUBNM	= SUBPLAN_DESCRIPTION 
+
+WITH  FORMAT
+
+
+CALL ECHO("#6")
+;
+;Get facilities that the order is flexed into
+;
+
+SELECT DISTINCT INTO "NL:"
+
+	COMPONENT_ID = pp->PP_GRP[d1.seq].COMP[u.seq].OB_ID,
+	SYNONYM_ID = pp->PP_GRP[d1.seq].COMP[u.seq].OB_PEID,
+	FACILITY = EVALUATE(OCSF.FACILITY_CD,0.00,"ALL",UAR_GET_CODE_DISPLAY(OCSF.FACILITY_CD))
+ 
+
+FROM
+	(DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,(dummyt u with seq = 1)
+	,OCS_FACILITY_R OCSF
+ 
+
+PLAN D1 WHERE maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+join u where pp->PP_GRP[d1.seq].COMP[u.seq].ob_penam = "ORDER_CATALOG_SYNONYM"
+JOIN OCSF WHERE OCSF.SYNONYM_ID = pp->PP_GRP[d1.seq].COMP[u.seq].OB_PEID 
+
+ORDER BY
+	COMPONENT_ID,
+	FACILITY
+ 
+
+HEAD COMPONENT_ID
+	FACIL_LIST = ""
+
+ 
+DETAIL
+	IF (FACIL_LIST = "")
+		FACIL_LIST = FACILITY
+	ELSE
+		FACIL_LIST = CONCAT(FACIL_LIST,", ",FACILITY)
+	ENDIF
+
+FOOT COMPONENT_ID
+	pp->PP_GRP[d1.seq].COMP[u.seq].OB_FACLST = FACIL_LIST 
+
+WITH FORMAT,filesort
+
+ 
+CALL ECHO("#7")
+
+
+
+;
+;Get facilities that plan is flexed into
+;
+
+SELECT INTO "NL:"
+	PW_CATID = PP->PP_GRP[D1.SEQ]->PC_ID,
+	FACILITY = EVALUATE(P.PARENT_ENTITY_ID,0.00,"ALL",UAR_GET_CODE_DISPLAY(P.PARENT_ENTITY_ID))
+ 
+
+FROM (DUMMYT   D1  WITH SEQ =  value(pp->cnt))
+	,PW_CAT_FLEX  P
+ 
+
+PLAN D1 ; WHERE	TRIM(PP->PP_GRP[D1.SEQ]->OB_CAT) = "PLAN LEVEL INFORMATION"
+JOIN P	WHERE	
+	;;001VC - BEGIN
+	;P.PATHWAY_CATALOG_ID = PP->PP_GRP[D1.SEQ]->PC_ID
+				P.PATHWAY_CATALOG_ID = IF($PTYPE = 1) PP->PP_GRP[D1.SEQ]->PC_ID
+				                       ELSE PP->PP_GRP[D1.SEQ]->PCP_ID ENDIF
+	;;001VC - END
+		AND		P.PARENT_ENTITY_NAME = "CODE_VALUE" 
+
+ORDER BY
+	PW_CATID
+
+HEAD PW_CATID
+	FACIL_LIST = ""
+
+DETAIL
+	ROW + 0
+	IF (FACIL_LIST = "")
+		FACIL_LIST = FACILITY
+	ELSE
+		FACIL_LIST = CONCAT(FACIL_LIST,", ",FACILITY)
+	ENDIF
+
+FOOT PW_CATID
+	PP->PP_GRP[D1.SEQ]->PC_FACLST = FACIL_LIST 
+
+WITH  FORMAT 
+
+ 
+
+CALL ECHO("#8")
+
+ 
+CALL ECHO("#9")
+
+
+
+
+;Dump the record
+call echorecord(pp)
+
+
+SELECT INTO $OUTDEV
+	MULTIPHASE_PP_NAME = SUBSTRING(1,100,PP->PP_GRP[D1.SEQ]->PC_PNM)
+	,SINGLE_PHASE_PP_NAME = SUBSTRING(1,100,PP->PP_GRP[D1.SEQ]->PC_NM)
+	,TYPE_MEAN = SUBSTRING(1,20,PP->PP_GRP[D1.SEQ]->PC_TYPMN)
+	,Clinical_category =evaluate(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_CAT,999999,"PLAN LEVEL INFORMATION",
+						TRIM(UAR_GET_CODE_DISPLAY(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_CAT)))						
+	,CLINICAL_SUBCATEGORY = TRIM(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_SCAT)
+	,NOTES = IF(D1.SEQ = 1) SELECTIONS3 
+			 ELSE SUBSTRING(1,250,pp->PP_GRP[d1.seq].COMP[u.seq].OB_NOTES)ENDIF
+	,SUBPLAN_NAME = IF(D1.SEQ = 1) SELECTIONS4
+					ELSE SUBSTRING(1,100,pp->PP_GRP[d1.seq].COMP[u.seq].PC_SUBNM)ENDIF
+	,SYNONYM = IF(D1.SEQ = 1) SELECTIONS1
+			   ELSE SUBSTRING(1,100,PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_OSYN) ENDIF
+	,ORDER_SENTENCE = IF(D1.SEQ = 1) SELECTIONS5
+			   		  ELSE SUBSTRING(1,250,OS.ORDER_SENTENCE_DISPLAY_LINE)ENDIF
+	,ORDER_COMMENTS = SUBSTRING(1,250,replace(replace(trim(lt.long_text),CHAR(13),"; "),CHAR(10),"; "))
+	,EVIDENCE_LOCATOR = SUBSTRING(1,250,pp->PP_GRP[d1.seq].COMP[u.seq].OB_EVLOC)
+	,EVIDENCE_TYPE_MEAN = TRIM(pp->PP_GRP[d1.seq].COMP[u.seq].OB_TYPMN)
+;; 	,PLAN_OWNER = TRIM(PP->PP_GRP[D1.SEQ]->OB_OWNR) 
+	,SYNONYM_HIDE_FLAG = EVALUATE(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_SYNHIDE,1,"HIDE","SHOW")
+ 	,FACILITY_LIST = IF(U.SEQ = 1) SUBSTRING(1,250,PP->PP_GRP[D1.SEQ].PC_FACLST)
+ 					 ELSE 
+ 					 	IF(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_FACLST > " ")				 
+ 					 		SUBSTRING(1,250,PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_FACLST)
+ 					 	ELSEIF((PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_FACLST = " ") AND
+ 					 		  (PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_CTLGCD > 0))
+ 					 		 SUBSTRING(1,250,PP->PP_GRP[D1.SEQ].COMP[u.seq-1].OB_FACLST) 
+ 					 	ENDIF 					 
+ 					 ENDIF
+;;	,CATALOG_CD = PP->PP_GRP[D1.SEQ]->OB_CTLGCD  ;---
+;;	,PARENT_ENTITY_NAME = TRIM(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_PENAM)
+	,synonym_status = evaluate(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_SYNSTAT,2,"INACTIVE",1,"ACTIVE"," ")
+	,PLAN_STATUS = IF(PP->PP_GRP[D1.SEQ]->PC_PSTAT = 2) "INACTIVE"
+				   elseif(PP->PP_GRP[D1.SEQ]->PC_PSTAT = 1) "ACTIVE"
+				   ELSE " " ENDIF
+	,PRIMARY = substring(1,100,trim(uar_get_code_display(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_CTLGCD)))
+	,COMPONENT_STATUS = EVALUATE(PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_STAT,2,"INACTIVE",1,"ACTIVE"," ")
+	,REQUIRED_IND = PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_REQIND
+	,INCLUDE_IND	= PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_INCLIND
+;	,CATALOG_ID = PP->PP_GRP[D1.SEQ]->PC_ID ;;;;---comment out later
+;	,COMPONENT_ID = PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_ID ;---
+	,P_DCP_CLIN_ORDER = PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_ORDER
+	,SEQUENCE = PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_SEQ
+;;	,PARENT_ENTITY_ID = PP->PP_GRP[D1.SEQ].COMP[u.seq].OB_PEID
+;;	,BEG_EFF_DT = FORMAT(CNVTDATETIME(PP->PP_GRP[D1.SEQ]->OB_BEGDT),"@SHORTDATETIME")
+;;	,END_EFF_DT = FORMAT(CNVTDATETIME(PP->PP_GRP[D1.SEQ]->OB_ENDDT),"@SHORTDATETIME")
+	,UPDT_DT = FORMAT(CNVTDATETIME(PP->PP_GRP[D1.SEQ]->OB_UPDDT),"@SHORTDATETIME") 
+
+FROM	( DUMMYT  D1 WITH SEQ = value(pp->cnt)),
+		(dummyt u with seq = 1),
+		ORDER_SENTENCE OS,
+		long_text lt
+plan d1 where maxrec(u,pp->PP_GRP[d1.seq].CCNT)
+join u
+JOIN OS WHERE OS.order_sentence_id = outerjoin(PP->PP_GRP[D1.SEQ].COMP[U.SEQ].OB_OSEN_ID)
+JOIN LT WHERE LT.LONG_TEXT_ID = OUTERJOIN(os.ord_comment_long_text_id);000vc
+	AND LT.parent_entity_name = OUTERJOIN('ORDER_SENTENCE')
+	AND LT.parent_entity_id = OUTERJOIN(PP->PP_GRP[D1.SEQ].COMP[U.SEQ].OB_OSEN_ID)
+	AND LT.active_ind = OUTERJOIN(1)
+ORDER BY
+	MULTIPHASE_PP_NAME
+	,SINGLE_PHASE_PP_NAME
+	,PP->PP_GRP[D1.SEQ].PC_ID
+	,P_DCP_CLIN_ORDER
+	,SEQUENCE 
+
+
+
+WITH  NOCOUNTER, SEPARATOR=" ", FORMAT,filesort 
+
+# ENDPROGRAM
+
+
+END
+
+GO 
+
+ 
+
+ 
+
+
+
