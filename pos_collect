@@ -1,0 +1,481 @@
+
+drop program 1_maur_tn_pos_collect go
+create program 1_maur_tn_pos_collect
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Begining Date" = ""
+	, "End Date" = ""
+	, "Select Facility" = 0 ;dkh removed MRMG Clinics and LHC
+ 
+with OUTDEV, begin_dt, end_dt, FAC
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+ DECLARE MRN_VAR = F8
+ SET MRN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"MRN")
+ 
+ DECLARE FIN_VAR = F8
+ SET FIN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"FIN NBR")
+ 
+ DECLARE OPP_VAR = f8
+ DECLARE AMT_VAR = f8
+ DECLARE PERCENTAGE = w8
+ declare num = i2
+ declare cnt = i2
+ declare quote = vc with public,noconstant('"')
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+free record rec
+record rec
+	(1 cnt = i4
+	1 qual[*]
+		2 eid = f8
+ 		2 pid = f8
+  		2 patient_name = vc
+  		2 mrn = vc
+  		2 fin = vc
+  		2 admit_dt_tm = vc
+  		2 arrive_dt_tm = vc
+  		2 encntr_type = vc
+  		2 facility = vc
+  		2 nrs_unit = vc
+  		2 hlth_pln = vc
+  		2 opportunity_to_collect = vc
+  		2 act_collected = vc
+  		2 pay_resolution = vc
+  		2 collected_by = vc
+  		2 encntr_info = vc
+  		2 ei_id = f8
+  		2 act_amt_dt = vc
+  		2 department = vc
+  		2 position_type = vc
+  		2 nrs_unit_dept = vc
+  	)
+ 
+/**************************************************************
+;  Patient info
+**************************************************************/
+select into "nl:"
+ 
+from
+	person   p
+	, encounter   e
+	, encntr_alias   ea
+	, encntr_alias   ean
+	, encntr_info   ei
+ 
+plan e
+	where e.loc_facility_cd = $fac
+	and e.loc_nurse_unit_cd not in (2554062791.00,2554062803.00,2554062815.00,2554062827.00,2554062839.00,2554063013.00,
+2554063025.00,2554063109.00,2554063115.00,2554063145.00,2554063151.00,2554063157.00,2554063163.00,2554063169.00,
+2554063181.00,2554063193.00,2554378363.00,2554063319.00,2554063253.00)
+join p where p.person_id = e.person_id
+		and (p.name_last_key != "ZZ*" and p.name_last_key != "XX*")
+join ea where ea.encntr_id = e.encntr_id
+		and ea.encntr_alias_type_cd = mrn_var
+ 
+join ean where ean.encntr_id = e.encntr_id
+		and ean.encntr_alias_type_cd = fin_var
+join ei where ei.encntr_id = e.encntr_id
+and ei.info_sub_type_cd in (2689391139.00 , 3339151.00) ;pay resolution , previous patient type
+and  ei.beg_effective_dt_tm between cnvtdatetime($begin_dt)and cnvtdatetime($end_dt)
+and ei.active_ind = 1
+ 
+order by
+	e.encntr_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+ cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = p.person_id
+    rec->qual[cnt].admit_dt_tm = format(e.reg_dt_tm,"mm/dd/yyyy hh:mm;;d")
+    rec->qual[cnt].arrive_dt_tm = format(ei.beg_effective_dt_tm,"mm/dd/yyyy hh:mm;;d")
+    rec->qual[cnt].patient_name = p.name_full_formatted
+    rec->qual[cnt].facility = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].fin = ean.alias
+    rec->qual[cnt].nrs_unit = uar_get_code_display(e.loc_nurse_unit_cd)
+    rec->qual[cnt].mrn = ea.alias
+    rec->qual[cnt].encntr_type = uar_get_code_display(e.encntr_type_cd)
+ 	rec->qual[cnt].pay_resolution = uar_get_code_display(ei.value_cd)
+ 	rec->qual[cnt].encntr_info = uar_get_code_display(ei.info_sub_type_cd)
+ 	rec->qual[cnt].ei_id = ei.info_sub_type_cd
+ 
+ 	case(e.loc_nurse_unit_cd)
+ 	of 2741848587.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Cancer Center"
+ 	of 2741848545.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Cancer Center"
+ 	of 2553742969.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Cancer Center"
+ 	of 2562247327.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Cancer Center"
+ 	of 2562247261.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Cancer Center"
+ 	of 2553866409.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553866577.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2555565171.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 3161917397.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 21250533.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 21250411.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 3161920173.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 22746736.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 22746858.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554565957.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554565783.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554565861.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 22746980.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553670099.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553670297.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553670435.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553867681.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553866775.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553867561.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553867867.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553867981.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553868083.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553868197.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553868449.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 3357887163.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742237.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742285.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554062767.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554062749.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2554062755.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742255.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742339.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742231.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742351.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 2553742309.00:
+ 	rec->qual[cnt].nrs_unit_dept = "Admitting"
+ 	of 28170721.00:
+ 	rec->qual[cnt].nrs_unit_dept = "MRMC ED"
+ 	of 32012115.00:
+ 	rec->qual[cnt].nrs_unit_dept = "MRMC ED"
+ 	of 2554062695.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554062707.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554062737.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2553742279.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554062701.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554062713.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554062719.00:
+ 	rec->qual[cnt].nrs_unit_dept = "OPI"
+ 	of 2554357419.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554062935.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554357425.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554357395.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554566069.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+	of 2554566105.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554063037.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554566033.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	of 2554137957.00:
+ 	rec->qual[cnt].nrs_unit_dept = "PAV"
+ 	endcase
+ 
+ 
+ 
+foot report
+	if(cnt>0)
+		stat = alterlist(rec->qual,cnt)
+		rec->cnt = cnt
+	endif
+ 
+with nocounter,time=5600
+ 
+/**************************************************************
+;Health Plan
+**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_plan_reltn   ep
+	, health_plan   h
+ 
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ep where ep.encntr_id = e.encntr_id
+		and ep.active_ind = 1
+		and ep.priority_seq = 1
+join h where h.health_plan_id = ep.health_plan_id
+		and h.active_ind = 1
+ 
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].hlth_pln = h.plan_name
+ 
+with nocounter,time=5600, expand = 1
+ 
+/**************************************************************
+;Opportunity to Collect
+**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 
+plan e
+ 	where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd = 2689386419.00
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].opportunity_to_collect = l.long_text
+ 
+with nocounter,time=5600, expand = 1
+ 
+/**************************************************************
+;Collected By
+**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 	, prsnl   pr
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd = 2689386961.00 ;actual amt collected   ;2689387259.00
+		and ei.active_ind = 1
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+join pr where pr.person_id = l.active_status_prsnl_id
+		and pr.person_id not in (12556163.00,13293733.00,13936145.00,12556160.00)
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].collected_by = pr.name_full_formatted
+ 
+;MMC & WMC - ED and OP/IP department grouping
+if(pr.person_id in (13091890.00,13751168.00,13753802.00,12556150.00,13091892.00,
+			13748970.00,12957207.00,13899510.00,13823091.00,13748893.00,12960655.00,
+			12935240.00))
+			rec->qual[pos].department = "PreService"
+			rec->qual[pos].position_type = "PreService"
+	elseif(e.loc_facility_cd = 21250831.00 and e.loc_nurse_unit_cd in (2553743549.00,2553922663.00))
+ 			 	rec->qual[pos].department = "Wayne ED"
+ 			 	rec->qual[pos].position_type = ""
+ 	elseif(e.loc_facility_cd = 21250831.00 and e.loc_nurse_unit_cd not in (2553743549.00,2553922663.00))
+				rec->qual[pos].department = "Wayne OP/IP"
+ 	   			rec->qual[pos].position_type = ""
+ 	elseif(e.loc_facility_cd = 21304872.00 and e.loc_nurse_unit_cd in (2553743279.00,2553922405.00))
+ 				rec->qual[pos].department = "Marshall ED"
+ 				rec->qual[pos].position_type = ""
+	elseif(e.loc_facility_cd = 21304872.00 and e.loc_nurse_unit_cd not in (2553743279.00,2553922405.00))
+				rec->qual[pos].department = "Marshall OP/IP"
+ 	    		rec->qual[pos].position_type = ""
+	else	rec->qual[pos].department = "Unknown"
+    		rec->qual[pos].position_type = "Unknown"
+;    endif
+endif
+ 
+;MRMC - Department and Position grouping
+ 
+   if(e.loc_facility_cd in (21250403.00,2553742717.00))
+   		if(pr.person_id in (13091890.00,13751168.00,13753802.00,12556150.00,13091892.00,
+			13748970.00,12957207.00,13899510.00,13823091.00,13748893.00,12960655.00,
+			12935240.00,12944455.00,13585118.00,13345348.00,13751190.00)) ;005 added users 006 add user
+			rec->qual[pos].department = "PreService"
+			rec->qual[pos].position_type = "PreService"
+		elseif(pr.person_id in (12556092.00,12556331.00,12556093.00,14543506.00,12556091.00,14672187.00,14749095.00,
+								14793001.00,14399789.00));006 ;008 removed and added users
+			rec->qual[pos].department = "Admitting"
+			rec->qual[pos].position_type = "Stationary"
+		elseif(pr.person_id in (12556090.00,14470475.00,12549774.00,14249816.00));008 added user
+			rec->qual[pos].department = "Admitting"
+			rec->qual[pos].position_type = "Floater"
+		elseif(pr.person_id in (12556159.00,14720161.00));006
+			rec->qual[pos].department = "Cancer Center"
+			rec->qual[pos].position_type = "Stationary"
+		elseif(pr.person_id in (13292892.00,13092388.00,13259432.00))
+			rec->qual[pos].department = "Cancer Center"
+			rec->qual[pos].position_type = "Floater"
+		elseif(pr.person_id in (14509692.00,13948470.00,14279051.00,13092179.00,
+			13815769.00,14428981.00,14080168.00,12556099.00,12556080.00,14410706.00,13934350.00,14541856.00
+			,14234763.00,14555543.00,14670432.00,12556084.00));mod 004 added;005 added; 006;008 removed;009 added
+			rec->qual[pos].department = "MRMC ED"
+			rec->qual[pos].position_type = "Stationary"
+		elseif(pr.person_id in (14569790.00,14362327.00,14661570.00,14720140.00,14684808.00));005 007added user ;008 added user
+			rec->qual[pos].department = "MRMC ED"
+			rec->qual[pos].position_type = "Floater"
+		elseif(pr.person_id in (13894355.00,13586437.00,14416892.00,12556152.00,12556149.00))
+			rec->qual[pos].department = "OPI"
+			rec->qual[pos].position_type = "Stationary"
+		elseif(pr.person_id in (14373648.00,14801062.00));13259432.00 ;005 removed user from this list
+			rec->qual[pos].department = "OPI"
+			rec->qual[pos].position_type = "Stationary" ;005 changed from Floater to Stationary
+		elseif(pr.person_id in (12556153.00,12556154.00,13844741.00,13259432.00,13093054.00));009 add user
+			rec->qual[pos].department = "PAV"
+			rec->qual[pos].position_type = "Stationary"
+		elseif(pr.person_id in (12556155.00,14810148.0))
+			rec->qual[pos].department = "PAV"
+			rec->qual[pos].position_type = "Floater"
+		elseif(pr.person_id in (13091890.00,13751168.00,13753802.00,12556150.00,13091892.00,13748970.00,
+			12957207.00,13899510.00,13823091.00,13748893.00,12960655.00,12935240.00))
+			rec->qual[pos].department = "PreService"
+			rec->qual[pos].position_type = "PreService"
+		else rec->qual[pos].department = "Unknown"
+			rec->qual[pos].position_type = "Unknown"
+		endif
+	endif
+ 
+ 
+WITH nocounter,time=5600, expand = 1
+ 
+/**************************************************************
+;Actual Amount Collected
+**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd = 2689386961.00 ;actual amt collected
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+ 
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].act_collected = l.long_text
+ 
+with nocounter,time=5600,expand=1
+ 
+;output file
+select into $outdev
+	Patient_Name = trim(substring(1,160,rec->qual[d1.seq].patient_name))
+	, MRN = trim(substring(1,160,rec->qual[d1.seq].mrn))
+	, FIN = trim(substring(1,160,rec->qual[d1.seq].fin))
+	, Admit_Date_Time = trim(substring(1,40,rec->qual[d1.seq].admit_dt_tm))
+	, Pay_Dt = trim(substring(1,40,rec->qual[d1.seq].arrive_dt_tm))
+	, Encounter_Type = trim(substring(1,40,rec->qual[d1.seq].encntr_type))
+	, Facility = trim(substring(1,60,rec->qual[d1.seq].facility))
+	, Nurse_Unit = trim(substring(1,60,rec->qual[d1.seq].nrs_unit))
+	, Health_Plan = trim(substring(1,60,rec->qual[d1.seq].hlth_pln))
+	, Pay_Resolution = trim(substring(1,60,rec->qual[d1.seq].pay_resolution))
+	, Collected_By = trim(substring(1,60,rec->qual[d1.seq].collected_by))
+	, Opportunity_to_Collect = trim(substring(1,60,rec->qual[d1.seq].opportunity_to_collect))
+	, Amt_Collected = trim(substring(1,60,rec->qual[d1.seq].act_collected))
+	, Department = trim(substring(1,30,rec->qual[d1.seq].department))
+	, Position_Type = trim(substring(1,30,rec->qual[d1.seq].position_type))
+	, Nurse_Unit_Department = trim(substring(1,20,rec->qual[d1.seq].nrs_unit_dept))
+ 
+from
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+    where d1.seq > 0
+    and rec->qual[d1.seq].opportunity_to_collect != "$.00"
+    and rec->qual[d1.seq].opportunity_to_collect != ""
+    and rec->qual[d1.seq].collected_by != ""
+ 
+order by
+	position_type,department,pay_dt
+ 
+with nocounter,separator="",format,time=5600
+ 
+end
+go
+ 
