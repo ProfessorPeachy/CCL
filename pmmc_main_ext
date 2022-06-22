@@ -1,0 +1,821 @@
+drop program maur_tn_pmmc_main_ext:dba go
+create program maur_tn_pmmc_main_ext:dba
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+declare LoadOutAlias (s_code_set = vc, f_contrib_sys_cd = f8 ) = i2
+declare GetAlias (f_cv = f8, f_contrib_sys_cd = f8 ) = vc
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare ms_file_path = vc with protect, noconstant(cnvtlower(trim($1,3)))
+declare ms_dt = vc with protect, constant(trim(format(cnvtdatetime(curdate,curtime3),'YYYYMMDD;;q'),3))
+ 
+declare mf_cs73_HL7STDSRC_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",73,"HL7STDSRC"))
+declare mf_cs319_FIN_CD      = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2930'))
+declare mf_cs319_MRN_CD      = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!8021'))
+declare mf_cs4_SSN_CD        = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2626'))
+declare mf_cs212_HOME_CD     = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4018'))
+declare mf_cs71_INPATIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3958'))
+declare mf_cs71_SWINGBED_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"SWINGBED"))
+declare mf_cs71_PREREG_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"PREREG"))
+declare mf_cs71_CLIENT_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"CLIENT"))
+declare mf_cs400_MSDRG_CD    = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2570183840'))
+declare mf_cs27121_HEALTHPLANALIAS_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2961173'))
+declare mf_cs40_MOTHER_CD    = f8 with protect, constant(uar_get_code_by('MEANING',40,'MOTHER'))
+declare mf_cs40_CHILD_CD     = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',40,'CHILD'))
+declare mf_cs351_FAMILY_CD   = f8 with protect, constant(uar_get_code_by('MEANING',351,'FAMILY'))
+declare mf_cs351_INSURED_CD  = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9521'))
+declare mf_cs333_ADMITDOC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4023'))
+declare mf_cs333_ATTENDDOC_CD= f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4024'))
+declare mf_cs263_MEDITECH_CD = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',263,'MEDITECH'))
+declare mf_cs320_OTHER_CD    = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9852'))
+ 
+declare mf_cs354_BCBS_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"BCBS"))
+declare mf_cs354_COMMERCIALCONTRACT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"COMMERCIALCONTRACT"))
+declare mf_cs354_MEDICAREREPLACEMENT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICAREREPLACEMENT"))
+declare mf_cs354_MEDICAID_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICAID"))
+declare mf_cs354_MRHEMPLOYEES_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MRHEMPLOYEES"))
+declare mf_cs354_WORKERSCOMPENSATION_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"WORKERSCOMPENSATION"))
+declare mf_cs354_MEDICARE_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICARE"))
+declare mf_cs354_COMMERCIALNONCONTRACT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"COMMERCIALNONCONTRACT"))
+ 
+ 
+declare mf_cs354_CLIENT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"CLIENT"))
+declare mf_cs354_SELFPAY_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"SELFPAY"))
+declare mf_cs20849_CLIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!142832'))
+ 
+declare ml_idx1 = i4 with protect, noconstant(0)
+declare ml_idx2 = i4 with protect, noconstant(0)
+declare ml_hp_cnt = i4 with protect, noconstant(0)
+declare num = i4
+declare tcnt = i4 with protect,noconstant(0)
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+free record m_out_alias
+record m_out_alias(
+  1 l_cs_cnt = i4
+  1 qual[*]
+    2 f_code_set = f8
+    2 l_cv_cnt = i4
+    2 qual[*]
+     3 f_code_value = f8
+     3 s_alias = vc
+     3 f_contrib_sys_cd = f8) with protect
+ 
+free record m_temp_rec
+record m_temp_rec(
+  1 l_cnt = i4
+  1 qual[*]
+    2 f_encntr_id = f8)
+ 
+free record m_rec
+record m_rec(
+  1 l_cnt = i4
+  1 qual[*]
+    2 f_person_id = f8
+    2 f_encntr_id = f8
+    2 f_pft_encntr_id = f8
+    2 s_fin = vc
+    2 s_med_service = vc
+    2 s_bill_entity = vc
+    2 s_payer1 = vc
+    2 s_payer2 = vc
+    2 s_payer3 = vc
+    2 s_payer4 = vc
+    2 s_fin_class = vc
+    2 s_mrn = vc
+    2 s_ssn = vc
+    2 s_mom_fin = vc
+    2 s_pat_type = vc
+    2 s_pat_name = vc
+    2 s_ins_ssn = vc
+    2 s_ins_rel_to_pat = vc
+    2 s_ins_name = vc
+    2 s_tot_charges = vc
+    2 s_tot_balance = vc
+    2 s_computer_id = vc
+    2 s_admit_dt = vc
+    2 s_disch_dt = vc
+    2 s_tot_days = vc
+    2 s_pat_dob = vc
+    2 s_ms_drg = vc
+    2 s_admit_doc_id = vc
+    2 s_attend_doc_id = vc
+    2 s_pat_age = vc
+    2 s_pat_gender = vc
+    2 s_zip = vc
+    2 s_insured_grup_name = vc
+  	2 tot_patient_pay_amt = f8;i4
+  	2 tot_patient = vc
+  	2 tot_payer_pay_amt = f8;i4
+  	2 tot_payer = vc
+  	2 tcnt = i4
+  	2 tqual[*]
+  	    3 patient_pay_amt = f8;i4
+	2 acnt = i4
+	2 aqual[*]
+		3 payer_pay_amt = f8;i4
+) with protect
+ 
+ 
+free record frec
+record frec(
+  1 file_desc = i4
+  1 file_offset = i4
+  1 file_dir = i4
+  1 file_name = vc
+  1 file_buf = vc) with protect
+ 
+call LoadOutAlias("71, 354", mf_cs73_HL7STDSRC_CD)
+ 
+;call echorecord(m_out_alias)
+ 
+set frec->file_name = concat(ms_file_path,"c_mrmc_pat_main_",ms_dt,".txt")
+set frec->file_buf = "w"
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+;get discharged encounters
+select into 'nl:'
+  from encounter e
+plan e
+  where e.disch_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+    and e.active_ind = 1
+    and e.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+head report
+  m_temp_rec->l_cnt = 0
+detail
+  m_temp_rec->l_cnt = m_temp_rec->l_cnt + 1
+  stat = alterlist(m_temp_rec->qual,m_temp_rec->l_cnt)
+  m_temp_rec->qual[m_temp_rec->l_cnt].f_encntr_id = e.encntr_id
+with nocounter
+ 
+;get final coded encounters
+select into 'nl:'
+  from coding c,
+       encounter e
+plan c
+  where c.updt_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and c.completed_dt_tm is not null
+    and not expand(ml_idx1,1,m_temp_rec->l_cnt, c.encntr_id, m_temp_rec->qual[ml_idx1].f_encntr_id)
+join e
+  where e.encntr_id = c.encntr_id
+    and e.active_ind = 1
+    and e.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+order by c.encntr_id
+head c.encntr_id
+  m_temp_rec->l_cnt = m_temp_rec->l_cnt + 1
+  stat = alterlist(m_temp_rec->qual,m_temp_rec->l_cnt)
+  m_temp_rec->qual[m_temp_rec->l_cnt].f_encntr_id = c.encntr_id
+with nocounter, expand = 1
+ 
+;get encounters that just got bad debt
+select into 'nl:'
+  from pft_encntr pe,
+       encounter e
+plan pe
+  where pe.bad_debt_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+    and pe.bad_debt_balance != 0.0
+    and pe.active_ind = 1
+    and not expand(ml_idx1,1,m_temp_rec->l_cnt, pe.encntr_id, m_temp_rec->qual[ml_idx1].f_encntr_id)
+join e
+  where e.encntr_id = pe.encntr_id
+    and e.active_ind = 1
+    and e.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+order by pe.encntr_id
+head pe.encntr_id
+  m_temp_rec->l_cnt = m_temp_rec->l_cnt + 1
+  stat = alterlist(m_temp_rec->qual,m_temp_rec->l_cnt)
+  m_temp_rec->qual[m_temp_rec->l_cnt].f_encntr_id = pe.encntr_id
+with nocounter, expand = 1
+ 
+;get encounters that had insurance updated (encounter record gets updated when insurance updates)
+select into 'nl:'
+  from encounter e
+plan e
+  where e.updt_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+    and e.disch_dt_tm is not null
+    and e.active_ind = 1
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+    and not expand(ml_idx1,1,m_temp_rec->l_cnt, e.encntr_id, m_temp_rec->qual[ml_idx1].f_encntr_id)
+detail
+  m_temp_rec->l_cnt = m_temp_rec->l_cnt + 1
+  stat = alterlist(m_temp_rec->qual,m_temp_rec->l_cnt)
+  m_temp_rec->qual[m_temp_rec->l_cnt].f_encntr_id = e.encntr_id
+with nocounter, expand = 1
+ 
+select into 'nl:'
+  from pft_encntr pe,
+       encounter e,
+       person p,
+       billing_entity be,
+       encntr_alias ea,
+       encntr_alias ea2,
+       person_alias pa
+plan pe
+  where expand(ml_idx1,1,m_temp_rec->l_cnt, pe.encntr_id, m_temp_rec->qual[ml_idx1].f_encntr_id)
+    and pe.active_ind = 1
+    ;and pe.fin_class_cd in (mf_cs354_BCBS_CD, mf_cs354_COMMERCIALCONTRACT_CD, mf_cs354_MEDICAREREPLACEMENT_CD,
+    ;                        mf_cs354_MEDICAID_CD, mf_cs354_MRHEMPLOYEES_CD,mf_cs354_WORKERSCOMPENSATION_CD,
+    ;                        mf_cs354_MEDICARE_CD,mf_cs354_COMMERCIALNONCONTRACT_CD)
+    and pe.fin_class_cd not in (mf_cs354_CLIENT_CD, mf_cs354_SELFPAY_CD)
+    and exists (select a.acct_id from account a where a.acct_id = pe.acct_id
+                   and a.active_ind = 1
+                   and a.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+                   and a.acct_sub_type_cd != mf_cs20849_CLIENT_CD
+                   )
+join e
+  where e.encntr_id = pe.encntr_id
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+join p
+  where p.person_id = e.person_id
+join be
+  where be.billing_entity_id = pe.billing_entity_id
+    and be.active_ind = 1
+    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER','WAYNEMEDICALCENTER')
+join ea
+  where ea.encntr_id = pe.encntr_id
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea.encntr_alias_type_cd = mf_cs319_FIN_CD
+join ea2
+  where ea2.encntr_id = pe.encntr_id
+    and ea2.active_ind = 1
+    and ea2.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea2.encntr_alias_type_cd = mf_cs319_MRN_CD
+join pa
+  where pa.person_id = outerjoin(p.person_id)
+    and pa.active_ind = outerjoin(1)
+    and pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and pa.person_alias_type_cd = outerjoin(mf_cs4_SSN_CD)
+order by pe.pft_encntr_id
+head report
+  m_rec->l_cnt = 0
+head pe.pft_encntr_id
+  m_rec->l_cnt = m_rec->l_cnt + 1
+  stat = alterlist(m_rec->qual,m_rec->l_cnt)
+  m_rec->qual[m_rec->l_cnt].f_encntr_id = e.encntr_id
+  m_rec->qual[m_rec->l_cnt].f_pft_encntr_id = pe.pft_encntr_id
+  m_rec->qual[m_rec->l_cnt].f_person_id = e.person_id
+ 
+  if (pe.recur_ind = 1)
+    m_rec->qual[m_rec->l_cnt].s_fin = concat(trim(cnvtalias(ea.alias,ea.alias_pool_cd),3),'-',trim(cnvtstring(pe.recur_seq),3))
+  else
+    m_rec->qual[m_rec->l_cnt].s_fin = trim(cnvtalias(ea.alias,ea.alias_pool_cd),3)
+  endif
+  if (e.encntr_type_cd in (mf_cs71_INPATIENT_CD, mf_cs71_SWINGBED_CD))
+    m_rec->qual[m_rec->l_cnt].s_med_service = 'I'
+  else
+    m_rec->qual[m_rec->l_cnt].s_med_service = 'O'
+  endif
+  if (be.be_name_key = 'MAURYREGIONALMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'MRH'
+  elseif (be.be_name_key = 'MARSHALLMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'MMC'
+  elseif (be.be_name_key = 'WAYNEMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'WMC'
+  endif
+ 
+  m_rec->qual[m_rec->l_cnt].s_fin_class = getAlias(pe.fin_class_cd, mf_cs73_HL7STDSRC_CD)
+  m_rec->qual[m_rec->l_cnt].s_pat_type = getAlias(e.encntr_type_cd, mf_cs73_HL7STDSRC_CD)
+  m_rec->qual[m_rec->l_cnt].s_pat_gender = substring(1,1,trim(uar_get_code_display(p.sex_cd),3))
+  m_rec->qual[m_rec->l_cnt].s_pat_name = trim(p.name_full_formatted,3)
+  m_rec->qual[m_rec->l_cnt].s_mrn = trim(cnvtalias(ea2.alias,ea2.alias_pool_cd),3)
+  m_rec->qual[m_rec->l_cnt].s_admit_dt = trim(format(e.reg_dt_tm,'MM/DD/YYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].s_disch_dt = trim(format(e.disch_dt_tm,'MM/DD/YYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].s_tot_days = cnvtstring(floor(datetimediff(e.disch_dt_tm, e.reg_dt_tm)),20)
+  m_rec->qual[m_rec->l_cnt].s_pat_dob = trim(format(p.birth_dt_tm,'MM/DD/YYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].s_pat_age = trim(cnvtstring(floor(datetimediff(cnvtdatetime(curdate,curtime3),p.birth_dt_tm)/365.0)),3)
+  if (size(trim(pa.alias,3)) > 0)
+    m_rec->qual[m_rec->l_cnt].s_ssn = format(trim(pa.alias,3),"###-##-####;P0")
+  endif
+  m_rec->qual[m_rec->l_cnt].s_tot_charges =
+                               trim(cnvtstring(evaluate(pe.chrg_bal_dr_cr_flag,2,-1*pe.charge_balance,pe.charge_balance),20,2),3)
+  m_rec->qual[m_rec->l_cnt].s_tot_balance =
+                               trim(cnvtstring(evaluate(pe.dr_cr_flag,2,-1*pe.balance,pe.balance),20,2),3)
+ 
+with nocounter, expand = 1
+ 
+ 
+select into 'nl:'
+  from address a
+plan a
+  where expand(ml_idx1,1,m_rec->l_cnt, a.parent_entity_id, m_rec->qual[ml_idx1].f_person_id)
+    and a.parent_entity_name = 'PERSON'
+    and a.active_ind = 1
+    and a.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and a.address_type_cd = mf_cs212_HOME_CD
+order by a.parent_entity_id, a.address_type_seq asc
+head a.parent_entity_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, a.parent_entity_id, m_rec->qual[ml_idx1].f_person_id)
+  while (ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_zip = trim(substring(1,5,trim(a.zipcode_key,3)),3)
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt, a.parent_entity_id, m_rec->qual[ml_idx1].f_person_id)
+  endwhile
+with nocounter, expand = 1
+ 
+ 
+select into 'nl:'
+  from drg d,
+       nomenclature n
+plan d
+  where expand(ml_idx1,1,m_rec->l_cnt, d.encntr_id , m_rec->qual[ml_idx1].f_encntr_id)
+    and d.active_ind = 1
+    and d.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join n
+  where n.nomenclature_id = d.nomenclature_id
+    and n.source_vocabulary_cd = mf_cs400_MSDRG_CD
+order by d.encntr_id, d.drg_priority asc
+head d.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, d.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  while (ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_ms_drg = trim(n.source_identifier,3)
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt, d.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  endwhile
+with nocounter, expand = 1
+ 
+;get payor
+select into 'nl:'
+  from encounter e,
+       encntr_plan_reltn epr,
+       health_plan_alias hpa
+plan e
+  where expand(ml_idx1,1,m_rec->l_cnt, e.encntr_id , m_rec->qual[ml_idx1].f_encntr_id)
+join epr
+  where epr.encntr_id = e.encntr_id
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join hpa
+  where hpa.health_plan_id = outerjoin(epr.health_plan_id)
+    and hpa.active_ind = outerjoin(1)
+    and hpa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and hpa.plan_alias_type_cd = outerjoin(mf_cs27121_HEALTHPLANALIAS_CD)
+order by epr.encntr_id, epr.priority_seq asc, epr.health_plan_id
+head epr.encntr_id
+  ml_hp_cnt = 0
+head epr.health_plan_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  ml_hp_cnt = ml_hp_cnt + 1
+  while (ml_idx2 > 0)
+    if (ml_hp_cnt = 1)
+      m_rec->qual[ml_idx2].s_payer1 =evaluate(size(trim(hpa.alias,3)),0,trim(cnvtstring(epr.health_plan_id,20),3),trim(hpa.alias,3))
+      m_rec->qual[ml_idx2].s_insured_grup_name = trim(epr.subs_member_nbr,3)
+    elseif (ml_hp_cnt = 2)
+      m_rec->qual[ml_idx2].s_payer2 =evaluate(size(trim(hpa.alias,3)),0,trim(cnvtstring(epr.health_plan_id,20),3),trim(hpa.alias,3))
+    elseif (ml_hp_cnt = 3)
+      m_rec->qual[ml_idx2].s_payer3 =evaluate(size(trim(hpa.alias,3)),0,trim(cnvtstring(epr.health_plan_id,20),3),trim(hpa.alias,3))
+    elseif (ml_hp_cnt = 4)
+      m_rec->qual[ml_idx2].s_payer4 =evaluate(size(trim(hpa.alias,3)),0,trim(cnvtstring(epr.health_plan_id,20),3),trim(hpa.alias,3))
+    endif
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt, e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  endwhile
+with nocounter, expand = 1
+ 
+ 
+;get insured
+select into 'nl:'
+  from encounter e,
+       encntr_plan_reltn epr,
+       dummyt d1,
+       person_person_reltn ppr,
+       person p,
+       person_alias pa
+plan e
+  where expand(ml_idx1,1,m_rec->l_cnt, e.encntr_id , m_rec->qual[ml_idx1].f_encntr_id)
+join epr
+  where epr.encntr_id = e.encntr_id
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join d1
+join ppr
+  where ppr.person_id = e.person_id
+    and ppr.related_person_id = epr.person_id
+    and ppr.active_ind = 1
+    and ppr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ppr.person_reltn_type_cd = mf_cs351_INSURED_CD
+join p
+  where p.person_id = ppr.related_person_id
+join pa
+  where pa.person_id = outerjoin(p.person_id)
+    and pa.active_ind = outerjoin(1)
+    and pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and pa.person_alias_type_cd = outerjoin(mf_cs4_SSN_CD)
+order by epr.encntr_id, epr.priority_seq asc, epr.health_plan_id
+head epr.encntr_id
+  ml_hp_cnt = 0
+head epr.health_plan_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  ml_hp_cnt = ml_hp_cnt + 1
+  while (ml_idx2 > 0)
+    if (ml_hp_cnt = 1)
+      m_rec->qual[ml_idx2].s_ins_name = trim(p.name_full_formatted,3)
+      m_rec->qual[ml_idx2].s_ins_rel_to_pat = trim(uar_get_code_display(ppr.related_person_reltn_cd),3)
+      if (size(trim(pa.alias,3)) > 0)
+        m_rec->qual[m_rec->l_cnt].s_ins_ssn = format(trim(pa.alias,3),"###-##-####;P0")
+      endif
+    endif
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt, e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  endwhile
+with nocounter, expand = 1, outerjoin = d1
+ 
+select into 'nl:'
+  from encntr_person_reltn epr,
+       encntr_alias ea
+plan epr
+  where expand(ml_idx1,1,m_rec->l_cnt, epr.related_person_id , m_rec->qual[ml_idx1].f_person_id)
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and epr.related_person_reltn_cd = mf_cs40_MOTHER_CD
+    and epr.person_reltn_type_cd = mf_cs351_FAMILY_CD
+    and epr.person_reltn_cd = mf_cs40_CHILD_CD
+join ea
+  where ea.encntr_id = epr.encntr_id
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea.encntr_alias_type_cd = mf_cs319_FIN_CD
+order by epr.related_person_id, epr.beg_effective_dt_tm desc
+head epr.related_person_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, epr.related_person_id, m_rec->qual[ml_idx1].f_person_id)
+  while (ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_mom_fin = trim(cnvtalias(ea.alias,ea.alias_pool_cd),3)
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt, epr.related_person_id, m_rec->qual[ml_idx1].f_person_id)
+  endwhile
+with nocounter, expand = 1
+ 
+select into 'nl:'
+  from pft_encntr pe,
+       encntr_prsnl_reltn epr,
+       prsnl_alias pa
+plan pe
+  where expand(ml_idx1,1,m_rec->l_cnt, pe.pft_encntr_id , m_rec->qual[ml_idx1].f_pft_encntr_id)
+join epr
+  where epr.encntr_id = pe.encntr_id
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and epr.encntr_prsnl_r_cd in (mf_cs333_ADMITDOC_CD, mf_cs333_ATTENDDOC_CD)
+join pa
+  where pa.person_id = outerjoin(epr.prsnl_person_id)
+    and pa.active_ind = outerjoin(1)
+    and pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and pa.alias_pool_cd = outerjoin(mf_cs263_MEDITECH_CD)
+    and pa.prsnl_alias_type_cd = outerjoin(mf_cs320_OTHER_CD)
+order by pe.pft_encntr_id, epr.encntr_prsnl_r_cd, epr.beg_effective_dt_tm desc
+head pe.pft_encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt, pe.pft_encntr_id , m_rec->qual[ml_idx1].f_pft_encntr_id)
+head epr.encntr_prsnl_r_cd
+  if (ml_idx2 > 0)
+    if (epr.encntr_prsnl_r_cd = mf_cs333_ADMITDOC_CD)
+      if (size(trim(pa.alias,3)) > 0)
+        m_rec->qual[ml_idx2].s_admit_doc_id = trim(pa.alias,3)
+      else
+        m_rec->qual[ml_idx2].s_admit_doc_id = concat("NA:",trim(cnvtstring(epr.prsnl_person_id,20),3))
+      endif
+    endif
+    if (epr.encntr_prsnl_r_cd = mf_cs333_ATTENDDOC_CD)
+      if (size(trim(pa.alias,3)) > 0)
+        m_rec->qual[ml_idx2].s_attend_doc_id =  trim(pa.alias,3)
+      else
+        m_rec->qual[ml_idx2].s_attend_doc_id = concat("NA:",trim(cnvtstring(epr.prsnl_person_id,20),3))
+      endif
+    endif
+  endif
+with nocounter, expand = 1
+ 
+/********************************************************************************************/
+;                    PATIENT PAY AMOUNT
+/********************************************************************************************/
+SELECT into 'nl:'
+    testing2 = evaluate(ptr.dr_cr_flag,2,-1*ptr.amount,ptr.amount)
+ 
+FROM
+	pft_encntr   pe
+	, pft_trans_reltn   ptr
+	, trans_log   tl
+ 
+plan pe where expand(ml_idx1,1,m_rec->l_cnt, pe.pft_encntr_id , m_rec->qual[ml_idx1].f_pft_encntr_id)
+;	where pe.encntr_id =  99920348.00
+join ptr
+	where ptr.parent_entity_id = pe.pft_encntr_id
+ 	and ptr.parent_entity_name = "PFTENCNTR"
+ 	and ptr.active_ind = 1
+ 
+join tl
+	where tl.activity_id = ptr.activity_id
+ 	and tl.trans_type_cd =10982
+ 	and tl.trans_sub_type_cd in (627146.0,627127.0,649404.0)
+ 	and tl.total_trans_amount != 0
+ 	and tl.active_ind = 1
+ 	and tl.suppress_flag = 0
+ 
+order by pe.pft_encntr_id,ptr.activity_id
+ 
+ 
+head pe.pft_encntr_id
+	tcnt = 0
+	acnt = 0
+	testing = 0
+	pos = locateval(num,1,size(m_rec->qual,5),pe.pft_encntr_id,m_rec->qual[num].f_pft_encntr_id)
+ 
+head ptr.activity_id
+    tcnt = tcnt + 1
+    m_rec->qual[pos].tcnt = tcnt
+ 
+    stat = alterlist(m_rec->qual[pos].tqual,tcnt)
+ 
+    m_rec->qual[pos].tqual[tcnt].patient_pay_amt = round(evaluate(ptr.dr_cr_flag,2,-1*ptr.amount,ptr.amount),3)
+ 
+ 
+foot pe.pft_encntr_id
+     m_rec->qual[pos].tot_patient_pay_amt =  sum(m_rec->qual[pos].tqual[tcnt].patient_pay_amt)
+     m_rec->qual[pos].tot_patient = format(cnvtstring(m_rec->qual[pos].tot_patient_pay_amt,2),"#######.##;l")
+     ;m_rec->qual[pos].tot_patient = cnvtstring((format(m_rec->qual[pos].tot_patient_pay_amt,"#######.##;l")),20,2)
+ 
+with nocounter,expand=1
+ 
+/********************************************************************************************/
+;                    PAYER PAY AMOUNT
+/********************************************************************************************/
+SELECT into 'nl:'
+    testing2 = evaluate(ptr2.dr_cr_flag,2,-1*ptr2.amount,ptr2.amount)
+ 
+FROM
+	pft_encntr   pe
+	, pft_trans_reltn   ptr2
+	, trans_log   tl2
+ 
+plan pe where expand(ml_idx1,1,m_rec->l_cnt, pe.pft_encntr_id , m_rec->qual[ml_idx1].f_pft_encntr_id)
+;	where pe.encntr_id =  99920348.00
+ 
+join ptr2
+	where ptr2.parent_entity_id = pe.pft_encntr_id
+ 	and ptr2.parent_entity_name = "PFTENCNTR"
+ 	and ptr2.active_ind = 1
+ 
+join tl2
+	where tl2.activity_id = ptr2.activity_id
+ 	and tl2.trans_type_cd = 10982
+ 	and tl2.trans_sub_type_cd in (627123.0,627139.0,627140.0,627141.0,3542333.0
+ 									,627128.0,627152.0,627132.0,649401.0)
+ 	and tl2.total_trans_amount != 0
+ 	and tl2.active_ind = 1
+ 	and tl2.suppress_flag = 0
+ 
+ 
+order by pe.pft_encntr_id,ptr2.activity_id
+ 
+head pe.pft_encntr_id
+	acnt = 0
+	pos = locateval(num,1,size(m_rec->qual,5),pe.pft_encntr_id,m_rec->qual[num].f_pft_encntr_id)
+ 
+head ptr2.activity_id
+    acnt = acnt + 1
+    m_rec->qual[pos].acnt = acnt
+ 
+    stat = alterlist(m_rec->qual[pos].aqual,acnt)
+ 
+    m_rec->qual[pos].aqual[acnt].payer_pay_amt = round(evaluate(ptr2.dr_cr_flag,2,-1*ptr2.amount,ptr2.amount),3)
+ 
+foot pe.pft_encntr_id
+    m_rec->qual[pos].tot_payer_pay_amt = sum(m_rec->qual[pos].aqual[acnt].payer_pay_amt)
+    m_rec->qual[pos].tot_payer = trim(format(m_rec->qual[pos].tot_payer_pay_amt,"#######.##;l"))
+ 
+with nocounter,expand=1
+ 
+;call echorecord(m_rec)
+ 
+/********************************************************************************************/
+;open file
+set stat = cclio("OPEN",frec)
+ 
+;write header row
+ 
+set frec->file_buf = build('"Patient ID",'
+                        ,'"Payer1 ID",'
+                        ,'"Payer2 ID",'
+                        ,'"Payer3 ID",'
+                        ,'"Payer4 ID",'
+                        ,'"Financial Class for Patient",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"Medical Record ID",'
+                        ,'"Social Security No. for Patient",'
+                        ,'"Mother Patient ID (for Baby)",'
+                        ,'"Patient/Encounter Type",'
+                        ,'"Patient Last/Full Name",'
+                        ,'"Insured Social Security No.",'
+                        ,'"Insured Relation to Patient",'
+                        ,'"Insured Last/Full Name",'
+                        ,'"",'
+                        ,'"Charges - Professional Services",'
+                        ,'"Computer/Image File ID",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"Admission Date",'
+                        ,'"Discharge Date",'
+                        ,'"Total Days",'
+                        ,'"Date of Birth of Patient",'
+                        ,'"",'
+                        ,'"DRG - Primary Grouper",'
+                        ,'"Admitting Physician ID",'
+                        ,'"Attending Physician ID",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"Age of Patient",'
+                        ,'"Sex of Patient",'
+                        ,'"Zip Code of Patient",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"Insured Group Name",'
+                        ,'"Service Category",'
+                        ,'"Provider Org/Group Code",'
+                        ,'"HIS Account Balance",'
+                        ,'"HIS Total Payer Payments",'
+                        ,'"HIS Total Patient Payments",'
+                        ,char(13),char(10))
+set stat = cclio("WRITE",frec)
+ 
+ 
+;write data
+for (ml_idx1 = 1 to m_rec->l_cnt)
+  if (size(trim(m_rec->qual[ml_idx1].s_admit_dt,3)) > 0)
+    set frec->file_buf = build('"',m_rec->qual[ml_idx1].s_fin
+                            ,'","',m_rec->qual[ml_idx1].s_payer1
+                            ,'","',m_rec->qual[ml_idx1].s_payer2
+                            ,'","',m_rec->qual[ml_idx1].s_payer3
+                            ,'","',m_rec->qual[ml_idx1].s_payer4
+                            ,'","',m_rec->qual[ml_idx1].s_fin_class
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_mrn
+                            ,'","',m_rec->qual[ml_idx1].s_ssn
+                            ,'","',m_rec->qual[ml_idx1].s_mom_fin
+                            ,'","',m_rec->qual[ml_idx1].s_pat_type
+                            ,'","',m_rec->qual[ml_idx1].s_pat_name
+                            ,'","',m_rec->qual[ml_idx1].s_ins_ssn
+                            ,'","',m_rec->qual[ml_idx1].s_ins_rel_to_pat
+                            ,'","',m_rec->qual[ml_idx1].s_ins_name
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_tot_charges
+                            ,'","',m_rec->qual[ml_idx1].s_computer_id
+                            ,'","'
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_admit_dt
+                            ,'","',m_rec->qual[ml_idx1].s_disch_dt
+                            ,'","',m_rec->qual[ml_idx1].s_tot_days
+                            ,'","',m_rec->qual[ml_idx1].s_pat_dob
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_ms_drg
+                            ,'","',m_rec->qual[ml_idx1].s_admit_doc_id
+                            ,'","',m_rec->qual[ml_idx1].s_attend_doc_id
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_pat_age
+                            ,'","',m_rec->qual[ml_idx1].s_pat_gender
+                            ,'","',m_rec->qual[ml_idx1].s_zip
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_insured_grup_name
+                            ,'","',m_rec->qual[ml_idx1].s_med_service
+                            ,'","',m_rec->qual[ml_idx1].s_bill_entity
+                            ,'","',m_rec->qual[ml_idx1].s_tot_balance
+                            ,'","',m_rec->qual[ml_idx1].tot_payer_pay_amt
+                            ,'","',m_rec->qual[ml_idx1].tot_patient_pay_amt
+                            ,'"',char(13),char(10))
+    set stat = cclio("WRITE",frec)
+  endif
+endfor
+ 
+;close file
+set stat = cclio("CLOSE",frec)
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+subroutine GetAlias(f_cv, f_contrib_sys_cd)
+  declare ml_cv_pos = i4 with noconstant(0)
+  declare ml_cs_pos = i4 with noconstant(0)
+  declare ml_idx = i4 with noconstant(0)
+  declare mf_code_set = f8 with noconstant(0)
+  declare s_ret_val = vc with noconstant(concat("CD::",trim(cnvtstring(f_cv,20),3)))
+ 
+  set mf_code_set = uar_get_code_set(f_cv)
+ 
+  if(mf_code_set > 0)
+    set ml_cs_pos = locatevalsort(ml_idx,1,m_out_alias->l_cs_cnt,mf_code_set,m_out_alias->qual[ml_idx].f_code_set)
+  else
+    return(s_ret_val)
+  endif
+ 
+  set ml_cv_pos = locatevalsort(ml_idx,1,m_out_alias->qual[ml_cs_pos].l_cv_cnt, f_cv,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_code_value, f_contrib_sys_cd,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_contrib_sys_cd)
+ 
+  if(ml_cv_pos > 0)
+    set s_ret_val = trim(m_out_alias->qual[ml_cs_pos].qual[ml_cv_pos].s_alias,3)
+  endif
+ 
+  return(s_ret_val)
+end
+ 
+subroutine LoadOutAlias(s_code_set, f_contrib_sys_cd)
+  declare l_ret_val = i2 with protect, noconstant(0)
+  ;declare l_cs_cnt = i4 with protect, noconstant(0)
+  declare l_cv_cnt = i4 with protect, noconstant(0)
+ 
+  if(f_contrib_sys_cd > 0.0)
+    select into "nl:"
+      from code_value_outbound cvo
+     where parser(build("cvo.code_set in (",s_code_set,")"))
+       and cvo.contributor_source_cd = f_contrib_sys_cd
+    order by cvo.code_set, cvo.code_value
+   ; head report
+   ;   m_out_alias->l_cs_cnt = 0
+    head cvo.code_set
+      m_out_alias->l_cs_cnt = m_out_alias->l_cs_cnt + 1
+      stat = alterlist(m_out_alias->qual,m_out_alias->l_cs_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].f_code_set = cvo.code_set
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = 0
+    detail
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt  + 1
+      stat = alterlist(m_out_alias->qual[m_out_alias->l_cs_cnt]->qual,m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_code_value = cvo.code_value
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].s_alias = cvo.alias
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_contrib_sys_cd =
+                                                                                                           cvo.contributor_source_cd
+    with nocounter
+ 
+    if(m_out_alias->l_cs_cnt > 0)
+      set l_ret_val = 1
+    endif
+  endif
+  return(l_ret_val)
+end
+ 
+ 
+#EXIT_SCRIPT
+ 
+end
+go
