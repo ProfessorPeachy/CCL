@@ -1,0 +1,256 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ 
+Programmer    		  : Brad Weaver - 3Cords Solutions
+ 
+Date Created   		  : 12/03/2021
+Project Name    	  : PMMC Payment Details
+Requesting Team/Name  : PMMC
+Requesting Dept/Owner : Donna Hall/Kate Huddleston
+Report Title          : PMMC Payment
+Time Frame	          : Previous month
+Type of Patients      :
+Run Frequency		  : monthly
+Output File Name	  :
+Explorer Menu Name    :
+Ops Job Name	      : MAURTNAPP1_-------
+Source Name     	  : cust_script:maur_pmmc_acct_pmts
+Purpose               : Creates a feed of encounter transaction info for previous month.
+ 
+/***********************************************************************************************************************
+*                                        MODIFICATION CONTROL LOG
+************************************************************************************************************************
+*                                                                                                                      *
+* Mod Date       Engineer   Comment                                                                        	       	   *
+* 000 12/03/2018 C_BWEAVER  Initial Development																		   *
+* --- ---------- ---------- -------------------------------------------------------------------------------------------*
+***********************************************************************************************************************/
+drop program maur_pmmc_acct_pmts:dba go
+create program maur_pmmc_acct_pmts:dba
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select a Start Date:" = "SYSDATE"
+	, "Select an End Date:" = "SYSDATE"
+	, "Ops Job:" = "0"
+ 
+with OUTDEV, START_DATE, END_DATE, OPS
+ 
+ 
+/***************************************************************************************
+* Prompt and Display Information													   *
+***************************************************************************************/
+;Format the dates for explorermenu and ops
+DECLARE START_DATE 	= DQ8
+DECLARE END_DATE 	= DQ8
+ 
+IF ($OPS = "1")
+	;run from ops
+	SET START_DATE = CNVTDATETIME(DATETIMEFIND(CNVTLOOKBEHIND("1,M"),"M","B","B"))
+	SET END_DATE =  CNVTDATETIME(DATETIMEFIND(CNVTLOOKBEHIND("1,M"),"M","E","E"))
+ELSE
+	;input was in DD-MMM-YYYY string format
+	SET START_DATE = CNVTDATETIME($START_DATE)
+	SET END_DATE = CNVTDATETIME($END_DATE)
+ENDIF
+ 
+CALL ECHO(BUILD("START DATE: ",FORMAT(START_DATE,"@SHORTDATETIME")))
+CALL ECHO(BUILD("END DATE: ",FORMAT(END_DATE,"@SHORTDATETIME")))
+ 
+/***************************************************************************************
+* File Output Includes and Definition												   *
+***************************************************************************************/
+ 
+free record reply
+record reply
+(
+%i cclsource:status_block.inc
+)
+ 
+ 
+DECLARE SELFPAY_CD	= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",354,"SELFPAY"));642995
+DECLARE MRN_CD		= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",4,"MRN"));2.0
+DECLARE FIN_CD		= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",319,"FIN NBR"));1077.0
+DECLARE AR_CD		= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",18736,"A/R"));810415.00
+DECLARE PATIENT_CD	= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",20849,"PATIENT"));627549.00
+ 
+DECLARE PAYMENT_CD	= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",18649,"PAYMENT"))
+DECLARE CLIENT_CD 	= F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY",71,"CLIENT")) ;001
+DECLARE HISTORY_CD 	= F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY",71,"HISTORY")) ;001
+ 
+DECLARE COLLECTIONAGENCYPAYMENT_CD = F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",20549,"COLLECTIONAGENCYPAYMENT"))
+DECLARE PATIENTPAYMENT_CD = F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",20549,"COLLECTIONAGENCYPAYMENT"))
+DECLARE COPAY_CD 	= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",20549,"COLLECTIONAGENCYPAYMENT"))
+ 
+DECLARE MARSHALL_MC 		= F8 WITH CONSTANT(896554.0)  ;Marshall Medical Center
+DECLARE MAURY_REGIONAL_MC 	= F8 WITH CONSTANT(1641838.0) ;Maury Regional Medical Center
+DECLARE WAYNE_MC 			= F8 WITH CONSTANT(1635796.0) ;Wayne Medical Center
+ 
+/***************************************************************************************
+* Main Data Query													   				   *
+***************************************************************************************/
+DECLARE OUTPUT_FILENAME = VC
+IF ($OPS != "0")
+	SET OUTPUT_FILENAME = CONCAT("cer_temp:bw_test"
+	;CONCAT("/cerner/d_p698/data/batch_files/ccl_extracts/???"
+								,FORMAT(CNVTDATETIME(START_DATE),"YYYYMMDD;;D"),".txt")
+ELSE
+	SET OUTPUT_FILENAME = $OUTDEV
+ENDIF
+ 
+;Facility Code
+;Patient Account Number
+;Admit Date
+;Transaction Date
+;Transaction Amount
+;Transaction Code
+;Transaction Type
+;Transaction SubType
+;Payer
+;ClaimNumber
+;Last Bill Date
+ 
+DECLARE FACILITY_ID = VC
+DECLARE ADMIT_DATE = VC
+DECLARE TRANSACTION_DATE = VC
+DECLARE TRANSACTION_AMOUNT = VC
+DECLARE TRANSACTION_TYPE = VC
+DECLARE TRANSACTION_SUBTYPE = VC
+DECLARE TRANSACTION_CODE = VC
+DECLARE HEALTH_PLAN = VC
+DECLARE PAT_ACCT_NBR = VC
+ 
+ 
+SELECT DISTINCT INTO VALUE(OUTPUT_FILENAME);$OUTDEV
+ 
+FROM ENCOUNTER E
+	,PERSON P
+	,PFT_ENCNTR PE
+	,PFT_TRANS_RELTN PTR
+	,TRANS_LOG TL
+	,PFT_TRANS_RELTN PTR1
+	,ACCOUNT A
+	,PFT_TRANS_ALIAS PTA
+	,BO_HP_RELTN BHR
+	,HEALTH_PLAN HP
+ 	,ENCNTR_ALIAS EA
+ 
+PLAN PTR
+	WHERE PTR.PARENT_ENTITY_NAME = "ACCOUNT"
+	AND PTR.TRANS_TYPE_CD = PAYMENT_CD
+	AND PTR.BEG_EFFECTIVE_DT_TM BETWEEN CNVTDATETIME(START_DATE) AND CNVTDATETIME(END_DATE)
+ 	AND PTR.ACTIVE_IND = 1
+	AND PTR.END_EFFECTIVE_DT_TM > SYSDATE
+ 
+JOIN TL
+	WHERE TL.ACTIVITY_ID = PTR.ACTIVITY_ID
+	AND TL.ACTIVE_IND = 1
+	AND TL.TRANS_TYPE_CD = PAYMENT_CD
+	;AND TL.TRANS_SUB_TYPE_CD IN (COLLECTIONAGENCYPAYMENT,PATIENTPAYMENT_CD,COPAY_CD)
+ 	AND TL.END_EFFECTIVE_DT_TM > SYSDATE
+ 
+JOIN A
+	WHERE A.ACCT_ID = PTR.PARENT_ENTITY_ID
+	AND A.ACCT_TYPE_CD = AR_CD
+	AND A.ACCT_SUB_TYPE_CD = PATIENT_CD
+ 
+JOIN PTR1
+	WHERE PTR1.ACTIVITY_ID = PTR.ACTIVITY_ID
+	AND PTR1.PARENT_ENTITY_NAME = "PFTENCNTR"
+	AND PTR1.ACTIVE_IND = 1
+ 	AND PTR1.END_EFFECTIVE_DT_TM > SYSDATE
+ 
+JOIN PE
+	WHERE PE.PFT_ENCNTR_ID = PTR1.PARENT_ENTITY_ID
+	AND PE.ACTIVE_IND = 1
+ 	AND PE.END_EFFECTIVE_DT_TM > SYSDATE
+ 	AND PE.BILLING_ENTITY_ID IN (MARSHALL_MC,MAURY_REGIONAL_MC,WAYNE_MC)
+ 
+JOIN E
+	WHERE E.ENCNTR_ID = PE.ENCNTR_ID
+    AND E.BEG_EFFECTIVE_DT_TM <= CNVTDATETIME(CURDATE,CURTIME)
+    AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE,CURTIME)
+    AND E.ACTIVE_IND = 1
+ 	;AND E.ENCNTR_TYPE_CD NOT IN (CLIENT_CD,HISTORY_CD) ;001
+ 
+JOIN P
+	WHERE P.PERSON_ID = E.PERSON_ID
+	AND P.ACTIVE_IND = 1
+	AND P.NAME_LAST_KEY != "ZZ*"
+ 
+JOIN PTA
+	WHERE PTA.PFT_TRANS_ALIAS_ID = OUTERJOIN(TL.TRANS_ALIAS_ID)
+ 
+JOIN BHR
+	WHERE BHR.BO_HP_RELTN_ID = PTR.BENEFIT_ORDER_ID
+	AND BHR.ACTIVE_IND = 1
+	AND BHR.END_EFFECTIVE_DT_TM > SYSDATE
+ 
+JOIN HP
+	WHERE HP.HEALTH_PLAN_ID = BHR.HEALTH_PLAN_ID
+ 
+JOIN EA
+  WHERE EA.ENCNTR_ID = E.ENCNTR_ID
+    AND EA.ENCNTR_ALIAS_TYPE_CD = 1077 ;FIN_TYPE
+    AND EA.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE,CURTIME)
+    AND EA.ACTIVE_IND  = 1
+ 
+ORDER BY A.ACCT_ID
+		,PTR.BEG_EFFECTIVE_DT_TM
+		,TL.ACTIVITY_ID
+ 
+HEAD REPORT
+	Y = 0
+ 
+HEAD TL.ACTIVITY_ID
+	Y = Y + 1
+  	IF(Y > 1)
+   		ROW + 1
+  	ELSE
+  		LINE1 = BUILD("Facility ID|","Patient FIN|","Posted Date|","Payment Amount|","Payment Type|","Payment Alias Code|"
+  						,"Health Plan|")
+ 
+		COL 0 LINE1
+	    ROW+1
+  	ENDIF
+  	COL 0
+ 
+	IF (PE.BILLING_ENTITY_ID = MAURY_REGIONAL_MC)
+		FACILITY_ID = 'MRH'
+	ELSEIF (PE.BILLING_ENTITY_ID = MARSHALL_MC)
+	    FACILITY_ID = 'MMC'
+	ELSEIF (PE.BILLING_ENTITY_ID = WAYNE_MC)
+    	FACILITY_ID = 'WMC'
+  	ENDIF
+ 
+	FACILITY_ID = TRIM(CNVTSTRING(PE.BILLING_ENTITY_ID))
+	TRANSACTION_DATE = TRIM(FORMAT(PTR.BEG_EFFECTIVE_DT_TM,"MM/DD/YYYY HH:MM;;D"))
+	TRANSACTION_AMOUNT = TRIM(CNVTSTRING(EVALUATE(PTR.DR_CR_FLAG,2,TL.TOTAL_TRANS_AMOUNT*-1,TL.TOTAL_TRANS_AMOUNT),15,2))
+	TRANSACTION_SUBTYPE = TRIM(CNVTSTRING(TL.TRANS_SUB_TYPE_CD))
+	TRANSACTION_CODE = TRIM(PTA.PFT_TRANS_ALIAS)
+	HEALTH_PLAN = TRIM(HP.PLAN_NAME)
+	PAT_ACCT_NBR = IF (PE.RECUR_IND = 1) ;use this or something else?
+  						BUILD(EA.ALIAS,"-",PE.RECUR_SEQ)
+  					ELSE
+  						TRIM(EA.ALIAS)
+  					ENDIF
+ 
+	FACILITY_ID,"|",
+    PAT_ACCT_NBR,"|",
+    TRANSACTION_DATE,"|",
+    TRANSACTION_AMOUNT,"|",
+    TRANSACTION_SUBTYPE,"|",
+    TRANSACTION_CODE,"|",
+    HEALTH_PLAN,"|"
+ 
+WITH NOCOUNTER, FORMAT = VARIABLE,MAXCOL = 2600,MAXROW = 1,FORMFEED = NONE, ORAHINTCBO("INDEX(PTR XIE8PFT_TRANS_RELTN)")
+ 
+#EXIT_SCRIPT
+;Must have in order for opsview monitor to show successful run
+SET REPLY->STATUS_DATA[1].STATUS = "S"
+ 
+ 
+END GO
+ 
+ 
+ 
+ 
