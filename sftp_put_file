@@ -1,0 +1,172 @@
+drop program sftp_put_file go
+create program sftp_put_file
+/*  ----------------------------------------------------------------------
+ *  Script Name: sftp_put_file_apc
+ *  Description: Puts files on remote sFTP servers via SFTP
+ *  Type:  CCL Script
+ *  Requirements:     Use $cer_data/data/batch_files as local directory
+ *                   'sent' directory exists under $cer_data/data/batch_files
+ *                   Public Key Authentication is set up and working
+ *  ----------------------------------------------------------------------
+ *  Author:          FSI
+ *  Creation Date:   4 DEC 2012
+ *------------------------------------------------------------------------
+ *  MOD     DATE            ANALYST         COMMENT
+ * -----------------------------------------------------------------------
+ *  000     04/21/2011 FSI  Initial release.
+ *  ----------------------------------------------------------------------
+ */
+ 
+;************** Initialize ****************
+prompt
+"Remote User: "    = "<USER>",
+"Remote Host: "    = "<DOMAIN_OR_IP>",
+"Remote Directory: "   = "<SERVER_DIR>",
+"Port: "   = "22",
+"Filename: "   = "<MILLI_FILENAME>",
+"Local Directory: "   = ""
+ 
+DECLARE cur_domain = vc
+DECLARE parent_dir = vc
+DECLARE rem_user = vc
+DECLARE rem_host = vc
+DECLARE rem_dir  = vc
+DECLARE rem_port = vc
+DECLARE loc_dir  = vc
+DECLARE dest_dir = vc
+DECLARE file_name = vc
+DECLARE eol  = c2
+DECLARE script_status = c1
+DECLARE error_text = vc
+DECLARE sftp_cmd = vc
+DECLARE sftp_bfile = vc
+DECLARE sftp_logon = vc
+ 
+SET cur_domain  = CNVTLOWER (CURDOMAIN)
+ 
+SET parent_dir  = BUILD ("/cerner/d_p698/data/batch_files/")
+SET rem_user  = $1
+SET rem_host  = $2
+SET rem_dir  = $3
+SET rem_port  = $4
+SET file_name  = $5
+SET loc_dir  = BUILD (parent_dir, $6)
+SET dest_dir  = BUILD (parent_dir,"sent/")
+SET eol   = concat (char(13),char(10))
+SET rem_file  = BUILD (rem_dir,file_name)
+SET script_status = "S"
+SET sftp_logon = build(rem_user, "@", rem_host)
+SET sftp_cmd = concat ("mput ",loc_dir, file_name, " " , rem_dir, char(13),char(10),"exit")
+call echo(build("in sftp sub - cmd: ", sftp_cmd, char( 0 )))
+SET sftp_bfile = build(loc_dir, "sftp_input.log")
+SET sftp_bfile_log = trim(sftp_bfile)
+SET logical sftplog sftp_bfile_log
+CALL ECHO (BUILD("Loc Dir -> ", loc_dir))
+ 
+select into sftplog
+ sftp_cmd
+with noheading
+ 
+;*******************Check if a File Exists*******************
+DECLARE command = vc
+SET cmd_status = 0
+ 
+IF (cursys = "AIX")
+  SET command = concat("ls ",loc_dir,file_name)
+ELSEIF(cursys = "AXP")
+  SET command = concat("dir ",loc_dir,file_name)
+ELSE
+  SET script_status = "F"
+  SET error_text = concat("ERROR in Script. Unknown platform returned from cursys: ",cursys)
+  go to exitscript
+ENDIF
+ 
+call dcl(command, size(trim(command)), cmd_status)
+ 
+IF(cmd_status != 1)
+  SET script_status = "Z"
+  SET error_text = "Zero files returned."
+  go to exitscript
+ENDIF
+;*********************************************************
+ 
+;*******************Execute SFTP DCL*******************
+DECLARE sftp_acct = vc
+SET sftp_acct = BUILD (TRIM(rem_user),"@",TRIM(rem_host))
+ 
+if(cmd_status = 1)
+  DECLARE command = vc
+ 
+  DECLARE ssh_options  = vc
+  DECLARE ssh_options1 = vc
+  DECLARE ssh_options2 = vc
+ 
+  SET ssh_options1 = concat("-o ",char(34),"IdentityFile $cust_script/sftp/.ssh/id_rsa",char(34))
+  SET ssh_options2 = concat(" -o ",char(34),"UserKnownHostsFile $cust_script/sftp/.ssh/known_hosts",char(34))
+  SET ssh_options  = concat(ssh_options1,ssh_options2)
+  ;SET command = concat("sftp -b ",sftp_bfile," ",ssh_options," ",sftp_logon)
+  ;SET command = concat("sftp -b ", sftp_bfile, " ",sftp_logon)
+  SET command = concat("sftp -b ",sftp_bfile, " -oport=",rem_port," ",sftp_acct)
+  SET cmd_status = 0
+  call dcl(command, size(trim(command)), cmd_status)
+  call echo(build("CMD STATUS after SFTP -> ", cmd_status, char(0)))
+  call echo(build("command =", command, char(0)))
+ENDIF
+;*********************************************************
+ 
+;****************Remove SFTP command file***************
+IF(cmd_status = 1)
+  DECLARE command = vc
+  SET command = concat("rm ", sftp_bfile)
+  SET cmd_status = 0
+  call dcl(command, size(trim(command)), cmd_status)
+  call echo(build("CMD STATUS AFTER REMOVE batch file: ", cmd_status, char(0)))
+ELSE
+  SET script_status = "F"
+  SET error_text = "Remove SFTP command file failed"
+  go to exitscript
+ENDIF
+;*********************************************************
+ 
+;*******************Backup file*************************
+IF (cmd_status = 1)
+  DECLARE command = vc
+  SET command = concat ("mv ", loc_dir, file_name, " ", dest_dir)
+  SET cmd_status = 0
+  call dcl(command, size(trim(command)), cmd_status)
+  call echo(build("BACKUP CMD STATUS -> ", cmd_status))
+ELSE
+  SET script_status = "F"
+  SET error_text = "SFTP file commands failed"
+  go to exitscript
+ENDIF
+;*********************************************************
+ 
+IF (cmd_status != 1)
+  SET script_status = "F"
+  SET error_text = "Could not move file to backup directory"
+ENDIF
+ 
+#exitscript
+ 
+record reply
+(
+1 status_data
+  2 status = c1
+  2 subeventstatus [1]
+    3 operationname = c8
+    3 operationstatus = c1
+    3 targetobjectname = c15
+    3 targetobjectvalue = c100
+)
+ 
+IF ( ( cmd_status != 1 ) )
+  SET reply->status_data->status = script_status
+  SET reply->status_data->subeventstatus[1]->targetobjectvalue = error_text
+ELSE
+  SET reply->status_data->status = script_status
+  SET reply->status_data->subeventstatus[1]->targetobjectvalue = "sftp script successful"
+ENDIF
+ 
+call echorecord ( reply )
+end go
