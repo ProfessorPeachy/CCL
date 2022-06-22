@@ -1,0 +1,447 @@
+drop program maur_tn_pmmc_pat_icd_ext:dba go
+create program maur_tn_pmmc_pat_icd_ext:dba
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+declare LoadOutAlias (s_code_set = vc, f_contrib_sys_cd = f8 ) = i2
+declare GetAlias (f_cv = f8, f_contrib_sys_cd = f8 ) = vc
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare ms_file_path = vc with protect, noconstant(cnvtlower(trim($1,3)))
+declare ms_dt = vc with protect, constant(trim(format(cnvtdatetime(curdate,curtime3),'YYYYMMDD;;q'),3))
+ 
+declare mf_cs73_HL7STDSRC_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",73,"HL7STDSRC"))
+declare mf_cs319_FIN_CD      = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2930'))
+declare mf_cs18649_CHARGE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!29774'))
+declare mf_cs400_ICD10_CD    = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4101498946'))
+declare mf_cs400_ICD10CM_CD  = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4101498946'))
+declare mf_cs400_ICD10PCS_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4101496118'))
+declare mf_cs17_FINAL_CD     = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!13984'))
+declare mf_cs17_ADMIT_CD     = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!17001'))
+ 
+declare mf_cs71_INPATIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3958'))
+declare mf_cs71_SWINGBED_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"SWINGBED"))
+declare mf_cs71_PREREG_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"PREREG"))
+declare mf_cs71_CLIENT_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"CLIENT"))
+ 
+declare mf_cs354_BCBS_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"BCBS"))
+declare mf_cs354_COMMERCIALCONTRACT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"COMMERCIALCONTRACT"))
+declare mf_cs354_MEDICAREREPLACEMENT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICAREREPLACEMENT"))
+declare mf_cs354_MEDICAID_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICAID"))
+declare mf_cs354_MRHEMPLOYEES_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MRHEMPLOYEES"))
+declare mf_cs354_WORKERSCOMPENSATION_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"WORKERSCOMPENSATION"))
+declare mf_cs354_MEDICARE_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"MEDICARE"))
+declare mf_cs354_COMMERCIALNONCONTRACT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"COMMERCIALNONCONTRACT"))
+ 
+declare mf_cs354_CLIENT_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"CLIENT"))
+declare mf_cs354_SELFPAY_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",354,"SELFPAY"))
+declare mf_cs20849_CLIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!142832'))
+ 
+declare ml_idx1 = i4 with protect, noconstant(0)
+declare ml_idx2 = i4 with protect, noconstant(0)
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+free record m_out_alias
+record m_out_alias(
+  1 l_cs_cnt = i4
+  1 qual[*]
+    2 f_code_set = f8
+    2 l_cv_cnt = i4
+    2 qual[*]
+     3 f_code_value = f8
+     3 s_alias = vc
+     3 f_contrib_sys_cd = f8) with protect
+ 
+free record m_rec
+record m_rec(
+  1 l_cnt = i4
+  1 qual[*]
+    2 f_person_id = f8
+    2 f_encntr_id = f8
+    2 f_pft_encntr_id = f8
+    2 s_fin = vc
+    2 s_med_service = vc
+    2 s_bill_entity = vc
+    2 l_diag_cnt = i4
+    2 diag[9]
+      3 f_diagnosis_id = f8
+      3 s_diag_icd = vc
+    2 l_proc_cnt = i4
+    2 proc[9]
+      3 f_procedure_id = f8
+      3 s_proc_icd = vc
+) with protect
+ 
+ 
+free record frec
+record frec(
+  1 file_desc = i4
+  1 file_offset = i4
+  1 file_dir = i4
+  1 file_name = vc
+  1 file_buf = vc) with protect
+ 
+;call LoadOutAlias("34", mf_cs73_HL7STDSRC_CD)
+ 
+;call echorecord(m_out_alias)
+ 
+set frec->file_name = concat(ms_file_path,"c_mrmc_icd_",ms_dt,".txt")
+set frec->file_buf = "w"
+ 
+select into 'nl:'
+  from coding c,
+       encounter e,
+       person p,
+       pft_encntr pe,
+       billing_entity be,
+       encntr_alias ea
+plan c
+  where c.updt_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+    and c.active_ind = 1
+    and c.completed_dt_tm is not null
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join e
+  where e.encntr_id = c.encntr_id
+    and e.active_ind = 1
+    and e.encntr_type_cd not in (mf_cs71_PREREG_CD, mf_cs71_CLIENT_CD)
+join p
+  where p.person_id = e.person_id
+    and p.active_ind = 1
+    and p.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join pe
+  where pe.encntr_id = e.encntr_id
+    and pe.active_ind = 1
+    ;and pe.fin_class_cd in (mf_cs354_BCBS_CD, mf_cs354_COMMERCIALCONTRACT_CD, mf_cs354_MEDICAREREPLACEMENT_CD,
+    ;                        mf_cs354_MEDICAID_CD, mf_cs354_MRHEMPLOYEES_CD,mf_cs354_WORKERSCOMPENSATION_CD,
+    ;                        mf_cs354_MEDICARE_CD,mf_cs354_COMMERCIALNONCONTRACT_CD)
+    and pe.fin_class_cd not in (mf_cs354_CLIENT_CD, mf_cs354_SELFPAY_CD)
+    and exists (select a.acct_id from account a where a.acct_id = pe.acct_id
+                   and a.active_ind = 1
+                   and a.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+                   and a.acct_sub_type_cd != mf_cs20849_CLIENT_CD
+                   )
+join be
+  where be.billing_entity_id = pe.billing_entity_id
+    and be.active_ind = 1
+    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER','WAYNEMEDICALCENTER')
+join ea
+  where ea.encntr_id = pe.encntr_id
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea.encntr_alias_type_cd = mf_cs319_FIN_CD
+order by pe.pft_encntr_id
+head pe.pft_encntr_id
+  m_rec->l_cnt = m_rec->l_cnt + 1
+  stat = alterlist(m_rec->qual,m_rec->l_cnt)
+  m_rec->qual[m_rec->l_cnt].f_encntr_id = pe.encntr_id
+  m_rec->qual[m_rec->l_cnt].f_pft_encntr_id = pe.pft_encntr_id
+  m_rec->qual[m_rec->l_cnt].f_person_id = e.person_id
+  if (pe.recur_ind = 1)
+    m_rec->qual[m_rec->l_cnt].s_fin = concat(trim(cnvtalias(ea.alias,ea.alias_pool_cd),3),'-',trim(cnvtstring(pe.recur_seq),3))
+  else
+    m_rec->qual[m_rec->l_cnt].s_fin = trim(cnvtalias(ea.alias,ea.alias_pool_cd),3)
+  endif
+;  m_rec->qual[m_rec->l_cnt].s_med_service = getAlias(e.med_service_cd, mf_cs73_HL7STDSRC_CD)
+  if (e.encntr_type_cd in (mf_cs71_INPATIENT_CD, mf_cs71_SWINGBED_CD))
+    m_rec->qual[m_rec->l_cnt].s_med_service = 'I'
+  else
+    m_rec->qual[m_rec->l_cnt].s_med_service = 'O'
+  endif
+  if (be.be_name_key = 'MAURYREGIONALMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'MRH'
+  elseif (be.be_name_key = 'MARSHALLMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'MMC'
+  elseif (be.be_name_key = 'WAYNEMEDICALCENTER')
+    m_rec->qual[m_rec->l_cnt].s_bill_entity = 'WMC'
+  endif
+with nocounter
+ 
+ 
+;get diagnosis
+select into 'nl:' ;ml_sort = if (d.diag_type_cd = mf_cs17_ADMIT_CD) 1 else  2 endif
+from pft_encntr pe,
+     coding c,
+     diagnosis d,
+     nomenclature n
+plan pe
+  where expand(ml_idx1,1,m_rec->l_cnt,pe.encntr_id, m_rec->qual[ml_idx1].f_encntr_id, pe.pft_encntr_id,
+               m_rec->qual[ml_idx1].f_pft_encntr_id)
+join c
+  where c.encntr_id = pe.encntr_id
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join d
+  where d.encntr_id = c.encntr_id
+    and d.contributor_system_cd = c.contributor_system_cd
+    and d.active_ind = 1
+    and d.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and d.diag_type_cd = mf_cs17_FINAL_CD;in (mf_cs17_ADMIT_CD, mf_cs17_FINAL_CD)
+join n
+  where n.nomenclature_id = d.nomenclature_id
+    and n.source_vocabulary_cd = mf_cs400_ICD10_CD
+order by pe.pft_encntr_id, d.diag_priority asc, d.diagnosis_id
+head pe.pft_encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,pe.encntr_id, m_rec->qual[ml_idx1].f_encntr_id,pe.pft_encntr_id,
+                      m_rec->qual[ml_idx1].f_pft_encntr_id)
+  if (ml_idx2 > 0)
+    m_rec->qual[ml_idx2].l_diag_cnt = 0
+  endif
+head d.diagnosis_id
+  if (ml_idx2 > 0 and m_rec->qual[ml_idx2].l_diag_cnt < 9)
+    m_rec->qual[ml_idx2].l_diag_cnt = m_rec->qual[ml_idx2].l_diag_cnt + 1
+    m_rec->qual[ml_idx2].diag[m_rec->qual[ml_idx2].l_diag_cnt].f_diagnosis_id = d.diagnosis_id
+    m_rec->qual[ml_idx2].diag[m_rec->qual[ml_idx2].l_diag_cnt].s_diag_icd = trim(n.source_identifier)
+  endif
+with nocounter, expand = 1
+ 
+ 
+select into 'nl:'
+from pft_encntr pe,
+     coding c,
+     procedure p,
+     nomenclature n
+plan pe
+  where expand(ml_idx1,1,m_rec->l_cnt,pe.encntr_id, m_rec->qual[ml_idx1].f_encntr_id, pe.pft_encntr_id,
+               m_rec->qual[ml_idx1].f_pft_encntr_id)
+join c
+  where c.encntr_id = pe.encntr_id
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join p
+  where p.encntr_id = c.encntr_id
+    and p.contributor_system_cd = c.contributor_system_cd
+    and p.active_ind = 1
+    and p.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join n
+  where n.nomenclature_id = p.nomenclature_id
+    and n.source_vocabulary_cd in ( mf_cs400_ICD10CM_CD, mf_cs400_ICD10PCS_CD)
+order by pe.pft_encntr_id, p.proc_priority asc, p.procedure_id
+head pe.pft_encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,pe.encntr_id, m_rec->qual[ml_idx1].f_encntr_id,pe.pft_encntr_id,
+                      m_rec->qual[ml_idx1].f_pft_encntr_id)
+  if (ml_idx2 > 0)
+    m_rec->qual[ml_idx2].l_proc_cnt = 0
+  endif
+head p.procedure_id
+  if (ml_idx2 > 0 and m_rec->qual[ml_idx2].l_proc_cnt < 9)
+    m_rec->qual[ml_idx2].l_proc_cnt = m_rec->qual[ml_idx2].l_proc_cnt + 1
+    m_rec->qual[ml_idx2].proc[m_rec->qual[ml_idx2].l_proc_cnt].f_procedure_id = p.procedure_id
+    m_rec->qual[ml_idx2].proc[m_rec->qual[ml_idx2].l_proc_cnt].s_proc_icd = trim(n.source_identifier,3)
+  endif
+with nocounter, expand = 1
+ 
+ 
+;call echorecord(m_rec)
+ 
+ 
+;open file
+set stat = cclio("OPEN",frec)
+ 
+;write header row
+ 
+set frec->file_buf = build('"Patient ID",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"ICD Diagnosis/01",'
+                        ,'"ICD Diagnosis/02",'
+                        ,'"ICD Diagnosis/03",'
+                        ,'"ICD Diagnosis/04",'
+                        ,'"ICD Diagnosis/05",'
+                        ,'"ICD Diagnosis/06",'
+                        ,'"ICD Diagnosis/07",'
+                        ,'"ICD Diagnosis/08",'
+                        ,'"ICD Diagnosis/09",'
+                        ,'"ICD Procedure/01",'
+                        ,'"ICD Procedure/02",'
+                        ,'"ICD Procedure/03",'
+                        ,'"ICD Procedure/04",'
+                        ,'"ICD Procedure/05",'
+                        ,'"ICD Procedure/06",'
+                        ,'"ICD Procedure/07",'
+                        ,'"ICD Procedure/08",'
+                        ,'"ICD Procedure/09",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"",'
+                        ,'"Service Category",'
+                        ,'"Provider Org/Group Code"'
+                        ,char(13),char(10))
+set stat = cclio("WRITE",frec)
+ 
+ 
+;write data
+for (ml_idx1 = 1 to m_rec->l_cnt)
+  set frec->file_buf = build('"',m_rec->qual[ml_idx1].s_fin
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","')
+  for (ml_idx2 = 1 to 9)
+    set frec->file_buf = build(frec->file_buf,m_rec->qual[ml_idx1].diag[ml_idx2].s_diag_icd,'","')
+  endfor
+  for (ml_idx2 = 1 to 9)
+    set frec->file_buf = build(frec->file_buf,m_rec->qual[ml_idx1].proc[ml_idx2].s_proc_icd,'","')
+  endfor
+  set frec->file_buf = build(frec->file_buf
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","'
+                            ,'","',m_rec->qual[ml_idx1].s_med_service
+                            ,'","',m_rec->qual[ml_idx1].s_bill_entity
+                            ,'"',char(13),char(10))
+  set stat = cclio("WRITE",frec)
+endfor
+ 
+;close file
+set stat = cclio("CLOSE",frec)
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+subroutine GetAlias(f_cv, f_contrib_sys_cd)
+  declare ml_cv_pos = i4 with noconstant(0)
+  declare ml_cs_pos = i4 with noconstant(0)
+  declare ml_idx = i4 with noconstant(0)
+  declare mf_code_set = f8 with noconstant(0)
+  declare s_ret_val = vc with noconstant(concat("CD::",trim(cnvtstring(f_cv,20),3)))
+ 
+  set mf_code_set = uar_get_code_set(f_cv)
+ 
+  if(mf_code_set > 0)
+    set ml_cs_pos = locatevalsort(ml_idx,1,m_out_alias->l_cs_cnt,mf_code_set,m_out_alias->qual[ml_idx].f_code_set)
+  else
+    return(s_ret_val)
+  endif
+ 
+  set ml_cv_pos = locatevalsort(ml_idx,1,m_out_alias->qual[ml_cs_pos].l_cv_cnt, f_cv,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_code_value, f_contrib_sys_cd,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_contrib_sys_cd)
+ 
+  if(ml_cv_pos > 0)
+    set s_ret_val = trim(m_out_alias->qual[ml_cs_pos].qual[ml_cv_pos].s_alias,3)
+  endif
+ 
+  return(s_ret_val)
+end
+ 
+subroutine LoadOutAlias(s_code_set, f_contrib_sys_cd)
+  declare l_ret_val = i2 with protect, noconstant(0)
+  ;declare l_cs_cnt = i4 with protect, noconstant(0)
+  declare l_cv_cnt = i4 with protect, noconstant(0)
+ 
+  if(f_contrib_sys_cd > 0.0)
+    select into "nl:"
+      from code_value_outbound cvo
+     where parser(build("cvo.code_set in (",s_code_set,")"))
+       and cvo.contributor_source_cd = f_contrib_sys_cd
+    order by cvo.code_set, cvo.code_value
+   ; head report
+   ;   m_out_alias->l_cs_cnt = 0
+    head cvo.code_set
+      m_out_alias->l_cs_cnt = m_out_alias->l_cs_cnt + 1
+      stat = alterlist(m_out_alias->qual,m_out_alias->l_cs_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].f_code_set = cvo.code_set
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = 0
+    detail
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt  + 1
+      stat = alterlist(m_out_alias->qual[m_out_alias->l_cs_cnt]->qual,m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_code_value = cvo.code_value
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].s_alias = cvo.alias
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_contrib_sys_cd =
+                                                                                                           cvo.contributor_source_cd
+    with nocounter
+ 
+    if(m_out_alias->l_cs_cnt > 0)
+      set l_ret_val = 1
+    endif
+  endif
+  return(l_ret_val)
+end
+ 
+ 
+#EXIT_SCRIPT
+ 
+end
+go
+ 
