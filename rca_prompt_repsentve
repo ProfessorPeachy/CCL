@@ -1,0 +1,889 @@
+DROP PROGRAM rca_prompt_repsentve :dba GO
+CREATE PROGRAM rca_prompt_repsentve :dba
+ DECLARE script_version = vc WITH private ,constant ("237997.002" )
+ DECLARE hi18n = i4 WITH noconstant (0 )
+ DECLARE ssupervisor = f8 WITH protect ,noconstant (0.00 )
+ IF ((cnvtreal ( $1 ) > 0.0 ) )
+  SET ssupervisor = cnvtreal ( $1 )
+ ENDIF
+ CALL uar_i18nlocalizationinit (hi18n ,curprog ," " ,curcclrev )
+ DECLARE _ccltype_int_ = i2 WITH constant (1 )
+ DECLARE _ccltype_real_ = i2 WITH constant (2 )
+ DECLARE _ccltype_char_ = i2 WITH constant (3 )
+ DECLARE _ccltype_blob_ = i2 WITH constant (4 )
+ DECLARE _ccltype_list_ = i2 WITH constant (5 )
+ RECORD _arguments_ (
+   1 parameter [* ]
+     2 type = i2
+     2 ccltype = c2
+     2 size = i2
+     2 value
+       3 integer = i4
+       3 real = f8
+       3 char = vc
+       3 blob = gc
+       3 list [* ]
+         4 value
+           5 integer = i4
+           5 real = f8
+           5 char = vc
+           5 blob = gc
+ )
+ SUBROUTINE  (setvalidation (bvalid =i2 ) =null )
+  SET reply->validation = bvalid
+ END ;Subroutine
+ SUBROUTINE  (isvalid (_null =i1 ) =i1 )
+  RETURN (reply->validation )
+ END ;Subroutine
+ SUBROUTINE  (makedataset (ini =i4 ) =null )
+  SET columntitle = concat (reportinfo (1 ) ,"$" )
+  CALL initdataset (ini )
+  CALL builddescriptors (0 )
+ END ;Subroutine
+ SUBROUTINE  (setrecord (recno =i4 ,delta =i4 ) =null )
+  SET stat = checkdataset (recno ,delta )
+  SET reply->data[recno ].buffer = concat (reportinfo (2 ) ,"$" )
+ END ;Subroutine
+ SUBROUTINE  (showfieldno (fieldno =i4 ,bshow =i1 ) =null )
+  IF ((fieldno > 0 )
+  AND (fieldno <= size (reply->columndesc ,5 ) ) )
+   SET reply->columndesc[fieldno ].visible = bshow
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  (showfield (fieldname =vc ,bshow =i1 ) =null )
+  DECLARE fld = i4
+  SET fld = getfield (fieldname )
+  IF ((fld > 0 ) )
+   SET reply->columndesc[fld ].visible = bshow
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  (isfieldvisible (fieldno =vc ) =i1 )
+  IF ((fieldno > 0 )
+  AND (fieldno <= size (reply->columndesc ,5 ) ) )
+   RETURN (reply->columndesc[fieldno ].visible )
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  (setfieldtitleno (fieldno =i4 ,title =vc ) =null )
+  IF ((fieldno > 0 )
+  AND (fieldno <= size (reply->columndesc ,5 ) ) )
+   SET reply->columndesc[fieldno ].title = title
+  ENDIF
+  RETURN
+ END ;Subroutine
+ SUBROUTINE  (setfieldtitle (fieldname =vc ,title =vc ) =null )
+  SET fdno = getfield (fieldname )
+  CALL setfieldtitleno (fdno ,title )
+ END ;Subroutine
+ SUBROUTINE  (getfield (fieldname =vc ) =i4 )
+  DECLARE found = i1 WITH private
+  SET colcount = size (reply->columndesc ,5 )
+  IF ((colcount > 0 ) )
+   SET found = 0
+   SET fieldname = trim (cnvtupper (fieldname ) )
+   SET f = 1
+   WHILE ((f <= colcount )
+   AND (found = 0 ) )
+    IF ((trim (reply->columndesc[f ].name ) = fieldname ) )
+     SET fld = f
+     SET found = 1
+    ENDIF
+    SET f +=1
+   ENDWHILE
+   IF (found )
+    RETURN ((f - 1 ) )
+   ENDIF
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  (setfield (nrecno =i4 ,strfieldname =vc ,strvalue =vc ) =i2 )
+  DECLARE colcount = i2 WITH private
+  DECLARE found = i1 WITH private
+  DECLARE fld = i2 WITH private
+  DECLARE txtbuffer = vc WITH notrim ,private
+  DECLARE r = i2 WITH private
+  DECLARE f = i2 WITH private
+  DECLARE ptr = i2 WITH private
+  DECLARE len = i2 WITH private
+  SET colcount = size (reply->columndesc ,5 )
+  IF ((colcount > 0 ) )
+   SET found = 0
+   SET strfieldname = trim (cnvtupper (strfieldname ) )
+   SET f = 1
+   WHILE ((f <= colcount )
+   AND (found = 0 ) )
+    IF ((trim (reply->columndesc[f ].name ) = strfieldname ) )
+     SET fld = f
+     SET found = 1
+    ENDIF
+    SET f +=1
+   ENDWHILE
+   IF ((found = 1 ) )
+    SET ptr = (reply->columndesc[fld ].offset + 1 )
+    SET len = reply->columndesc[fld ].length
+    SET txtbuffer = reply->data[nrecno ].buffer
+    SET r = ((size (txtbuffer ) - (ptr + len ) ) + 1 )
+    SET txtbuffer = concat (substring (1 ,(ptr - 1 ) ,txtbuffer ) ,strvalue ,substring ((ptr + len )
+      ,r ,txtbuffer ) ,char (160 ) )
+    SET reply->data[nrecno ].buffer = substring (1 ,(reply->recordlength + 1 ) ,txtbuffer )
+    RETURN (1 )
+   ENDIF
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  (setfieldno (nrecno =i4 ,fieldno =i2 ,strvalue =vc ) =i2 )
+  DECLARE field = vc WITH notrim ,private
+  DECLARE txtbuffer = vc WITH notrim ,private
+  DECLARE colcount = i2 WITH private
+  DECLARE r = i2 WITH private
+  DECLARE ptr = i2 WITH private
+  DECLARE len = i2 WITH private
+  IF ((fieldno > 0 )
+  AND (fieldno <= size (reply->columndesc ,5 ) ) )
+   SET ptr = (reply->columndesc[fieldno ].offset + 1 )
+   SET len = reply->columndesc[fieldno ].length
+   SET txtbuffer = reply->data[nrecno ].buffer
+   SET r = (size (txtbuffer ) - (ptr + len ) )
+   FOR (i = 1 TO len )
+    IF ((i <= textlen (strvalue ) ) )
+     SET field = concat (field ,substring (i ,1 ,strvalue ) )
+    ELSE
+     SET field = concat (field ,char (160 ) )
+    ENDIF
+   ENDFOR
+   SET txtbuffer = concat (substring (1 ,(ptr - 1 ) ,txtbuffer ) ,replace (field ,char (160 ) ,char (
+      32 ) ,0 ) ,substring ((ptr + len ) ,r ,txtbuffer ) ,char (160 ) )
+   SET reply->data[nrecno ].buffer = txtbuffer
+   RETURN (1 )
+  ENDIF
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  (expanddataset (naddrecs =i2 ) =null )
+  SET nsize = (size (reply->data ,5 ) + naddrecs )
+  SET stat = alterlist (reply->data ,nsize )
+ END ;Subroutine
+ SUBROUTINE  (checkdataset (recno =i2 ,delta =i2 ) =null )
+  IF ((recno >= recordcount (0 ) ) )
+   WHILE ((recno >= recordcount (0 ) ) )
+    CALL expanddataset (delta )
+   ENDWHILE
+  ENDIF
+ END ;Subroutine
+ SUBROUTINE  (addfield (strname =vc ,strtitle =vc ,visible =i2 ,nsize =i2 ) =null )
+  SET reclen = reply->recordlength
+  SET ncolcnt = (size (reply->columndesc ,5 ) + 1 )
+  SET stat = alterlist (reply->columndesc ,ncolcnt )
+  SET reply->columndesc[ncolcnt ].name = trim (cnvtupper (strname ) )
+  SET reply->columndesc[ncolcnt ].title = strtitle
+  SET reply->columndesc[ncolcnt ].visible = visible
+  SET reply->columndesc[ncolcnt ].offset = reclen
+  SET reply->columndesc[ncolcnt ].length = nsize
+  SET reply->recordlength +=nsize
+ END ;Subroutine
+ SUBROUTINE  (addfieldnotitle (strname =vc ,nsize =i2 ) =null )
+  SET createdataset = 0
+  SET reclen = reply->recordlength
+  SET ncolcnt = (size (reply->columndesc ,5 ) + 1 )
+  SET stat = alterlist (reply->columndesc ,ncolcnt )
+  SET reply->columndesc[ncolcnt ].name = trim (cnvtupper (strname ) )
+  SET reply->columndesc[ncolcnt ].offset = reclen
+  SET reply->columndesc[ncolcnt ].length = nsize
+  SET reply->recordlength +=nsize
+ END ;Subroutine
+ SUBROUTINE  (initdataset (ninitrec =i2 ) =null )
+  SET stat = alterlist (reply->columndesc ,0 )
+  SET stat = alterlist (reply->context ,0 )
+  SET stat = alterlist (reply->misc ,0 )
+  SET stat = alterlist (reply->data ,ninitrec )
+ END ;Subroutine
+ SUBROUTINE  (resetdataset (ntotalrecs =i4 ) =null )
+  SET stat = alterlist (reply->data ,ntotalrecs )
+ END ;Subroutine
+ SUBROUTINE  (appendrecord (nrecno =i4 ) =null )
+  DECLARE txtbuffer = vc WITH notrim
+  SET txtbuffer = char (160 )
+  FOR (i = 2 TO reply->recordlength )
+   SET txtbuffer = concat (txtbuffer ,char (160 ) )
+  ENDFOR
+  SET txtbuffer = concat (txtbuffer ,char (160 ) )
+  SET txtbuffer = replace (txtbuffer ,char (160 ) ,char (32 ) ,0 )
+  SET reply->data[nrecno ].buffer = txtbuffer
+ END ;Subroutine
+ SUBROUTINE  (recordcount (dummy =i2 ) =i2 )
+  DECLARE cnt = i2 WITH private
+  SET cnt = size (reply->data ,5 )
+  RETURN (cnvtint (cnt ) )
+ END ;Subroutine
+ SUBROUTINE  (getparameter (paramname =vc ) =vc )
+  DECLARE pndx = i2 WITH private
+  SET pndx = parameterexist (paramname )
+  IF ((pndx > 0 ) )
+   RETURN (request->parameters[pndx ].value )
+  ENDIF
+  RETURN ("" )
+ END ;Subroutine
+ SUBROUTINE  (getparameterno (paramno =i2 ) =vc )
+  IF ((paramno > 0 )
+  AND (paramno <= size (request->parameters ,5 ) ) )
+   RETURN (request->parameters[paramno ].value )
+  ENDIF
+  RETURN ("" )
+ END ;Subroutine
+ SUBROUTINE  (parameterexist (paramname =vc ) =i2 )
+  DECLARE cnt = i2 WITH private
+  SET cnt = size (request->parameters ,5 )
+  SET paramname = trim (cnvtupper (paramname ) )
+  FOR (i = 1 TO cnt )
+   IF ((paramname = trim (cnvtupper (request->parameters[i ].name ) ) ) )
+    RETURN (i )
+   ENDIF
+  ENDFOR
+  RETURN (0 )
+ END ;Subroutine
+ SUBROUTINE  (getparametername (paramno =i2 ) =vc )
+  RETURN (request->parameters[paramno ].name )
+ END ;Subroutine
+ SUBROUTINE  (isparameterreserved (paramno =i2 ) =i2 )
+  DECLARE sname = vc WITH private
+  SET sname = cnvtupper (trim (getparametername (paramno ) ) )
+  IF ((sname = "_DPL_VERSION_" ) )
+   RETURN (true )
+  ELSEIF ((sname = "_VALIDATE_" ) )
+   RETURN (true )
+  ELSEIF ((sname = "_DEBUG_" ) )
+   RETURN (true )
+  ENDIF
+  RETURN (false )
+ END ;Subroutine
+ SUBROUTINE  (getpdlversion (void =i2 ) =f4 )
+  DECLARE sverstr = vc WITH private
+  SET sverstr = getparameter ("_DPL_VERSION_" )
+  IF ((textlen (sverstr ) > 0 ) )
+   RETURN (cnvtreal (sverstr ) )
+  ENDIF
+  RETURN (0001.0001 )
+ END ;Subroutine
+ SUBROUTINE  (isvalidationquery (void =i2 ) =i2 )
+  DECLARE svalflag = vc
+  SET svalflag = getparameter ("_VALIDATE_" )
+  IF ((trim (svalflag ) = "1" ) )
+   RETURN (true )
+  ENDIF
+  RETURN (false )
+ END ;Subroutine
+ SUBROUTINE  (getparametercount (void =i2 ) =i2 )
+  RETURN (size (request->parameters ,5 ) )
+ END ;Subroutine
+ SUBROUTINE  (setmessagebox (msg =vc ) =null )
+  SET reply->status_data.subeventstatus[1 ].targetobjectname = "MSGBOX"
+  SET reply->status_data.subeventstatus[1 ].targetobjectvalue = msg
+ END ;Subroutine
+ SUBROUTINE  (setstatus (cstatus =c1 ,sopname =vc ,copstatus =c1 ) =null )
+  SET reply->status_data.status = cstatus
+  SET reply->status_data.subeventstatus[1 ].operationname = sopname
+  SET reply->status_data.subeventstatus[1 ].operationstatus = copstatus
+ END ;Subroutine
+ SUBROUTINE  (seteventmessage (msg =vc ) =null )
+  SET reply->error_msg = concat (trim (reply->error_msg ) ,trim (msg ) ,";" )
+ END ;Subroutine
+ SUBROUTINE  (parsecommandline (cmdparam =i2 ) =i2 )
+  DECLARE arg = i2 WITH private
+  DECLARE argtype = c20 WITH private
+  DECLARE argval = vc WITH private
+  DECLARE done = i1 WITH private ,noconstant (0 )
+  SET arg = 1
+  WHILE ((done = 0 ) )
+   SET argtype = reflect (parameter (arg ,0 ) )
+   IF ((argtype != " " ) )
+    SET arg +=1
+   ELSE
+    SET done = 1
+    SET arg -=1
+   ENDIF
+  ENDWHILE
+  RETURN (arg )
+ END ;Subroutine
+ SUBROUTINE  builddescriptors (void )
+  DECLARE node = i2 WITH noconstant (0 )
+  DECLARE charpos = i4 WITH noconstant (1 )
+  DECLARE fldstart = i4 WITH noconstant (1 )
+  DECLARE fldend = i4 WITH noconstant (1 )
+  DECLARE fldname = vc
+  SET strlen = size (columntitle )
+  SET reply->recordlength = strlen
+  WHILE ((charpos <= strlen ) )
+   SET node +=1
+   SET stat = alterlist (reply->columndesc ,node )
+   SET reply->columndesc[node ].offset = (fldstart - 1 )
+   SET charpos = parsefieldname (charpos )
+   SET fldname = trim (substring (fldstart ,((charpos - fldstart ) + 1 ) ,columntitle ) )
+   SET reply->columndesc[node ].name = checkduplicates (fldname )
+   SET charpos = skipwhitespace (charpos )
+   SET reply->columndesc[node ].length = ((charpos - fldstart ) - 1 )
+   SET reply->columndesc[node ].title = reply->columndesc[node ].name
+   SET reply->columndesc[node ].visible = 1
+   SET fldstart = charpos
+  ENDWHILE
+  SET stat = alterlist (reply->columndesc ,(size (reply->columndesc ,5 ) - 1 ) )
+  SET createdataset = 0
+ END ;Subroutine
+ CALL echo ("Begin PFT_LOGICAL_DOMAIN_SUBS.INC, version [605046.013 w/o 002,005,007,008,009,010]" )
+ IF ((validate (ld_concept_person ) = 0 ) )
+  DECLARE ld_concept_person = i2 WITH public ,constant (1 )
+ ENDIF
+ IF ((validate (ld_concept_prsnl ) = 0 ) )
+  DECLARE ld_concept_prsnl = i2 WITH public ,constant (2 )
+ ENDIF
+ IF ((validate (ld_concept_organization ) = 0 ) )
+  DECLARE ld_concept_organization = i2 WITH public ,constant (3 )
+ ENDIF
+ IF ((validate (ld_concept_healthplan ) = 0 ) )
+  DECLARE ld_concept_healthplan = i2 WITH public ,constant (4 )
+ ENDIF
+ IF ((validate (ld_concept_alias_pool ) = 0 ) )
+  DECLARE ld_concept_alias_pool = i2 WITH public ,constant (5 )
+ ENDIF
+ IF ((validate (ld_concept_minvalue ) = 0 ) )
+  DECLARE ld_concept_minvalue = i2 WITH public ,constant (1 )
+ ENDIF
+ IF ((validate (ld_concept_maxvalue ) = 0 ) )
+  DECLARE ld_concept_maxvalue = i2 WITH public ,constant (5 )
+ ENDIF
+ IF (NOT (validate (log_error ) ) )
+  DECLARE log_error = i4 WITH protect ,constant (0 )
+ ENDIF
+ IF (NOT (validate (log_warning ) ) )
+  DECLARE log_warning = i4 WITH protect ,constant (1 )
+ ENDIF
+ IF (NOT (validate (log_audit ) ) )
+  DECLARE log_audit = i4 WITH protect ,constant (2 )
+ ENDIF
+ IF (NOT (validate (log_info ) ) )
+  DECLARE log_info = i4 WITH protect ,constant (3 )
+ ENDIF
+ IF (NOT (validate (log_debug ) ) )
+  DECLARE log_debug = i4 WITH protect ,constant (4 )
+ ENDIF
+ DECLARE __lpahsys = i4 WITH protect ,noconstant (0 )
+ DECLARE __lpalsysstat = i4 WITH protect ,noconstant (0 )
+ IF ((validate (logmessage ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (logmessage (psubroutine =vc ,pmessage =vc ,plevel =i4 ) =null )
+   DECLARE cs23372_failed_cd = f8 WITH protect ,constant (uar_get_code_by ("MEANING" ,23372 ,
+     "FAILED" ) )
+   DECLARE hmsg = i4 WITH protect ,noconstant (0 )
+   DECLARE hreq = i4 WITH protect ,noconstant (0 )
+   DECLARE hrep = i4 WITH protect ,noconstant (0 )
+   DECLARE hobjarray = i4 WITH protect ,noconstant (0 )
+   DECLARE srvstatus = i4 WITH protect ,noconstant (0 )
+   DECLARE submit_log = i4 WITH protect ,constant (4099455 )
+   CALL echo ("" )
+   CALL echo ("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::" )
+   IF ((size (trim (psubroutine ,3 ) ) > 0 ) )
+    CALL echo (concat (curprog ," : " ,psubroutine ,"() : " ,pmessage ) )
+   ELSE
+    CALL echo (concat (curprog ," : " ,pmessage ) )
+   ENDIF
+   CALL echo ("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::" )
+   CALL echo ("" )
+   SET __lpahsys = 0
+   SET __lpalsysstat = 0
+   CALL uar_syscreatehandle (__lpahsys ,__lpalsysstat )
+   IF ((__lpahsys > 0 ) )
+    CALL uar_sysevent (__lpahsys ,plevel ,curprog ,nullterm (pmessage ) )
+    CALL uar_sysdestroyhandle (__lpahsys )
+   ENDIF
+   IF ((plevel = log_error ) )
+    SET hmsg = uar_srvselectmessage (submit_log )
+    SET hreq = uar_srvcreaterequest (hmsg )
+    SET hrep = uar_srvcreatereply (hmsg )
+    SET hobjarray = uar_srvadditem (hreq ,"objArray" )
+    SET stat = uar_srvsetdouble (hobjarray ,"final_status_cd" ,cs23372_failed_cd )
+    SET stat = uar_srvsetstring (hobjarray ,"task_name" ,nullterm (curprog ) )
+    SET stat = uar_srvsetstring (hobjarray ,"completion_msg" ,nullterm (pmessage ) )
+    SET stat = uar_srvsetdate (hobjarray ,"end_dt_tm" ,cnvtdatetime (sysdate ) )
+    SET stat = uar_srvsetstring (hobjarray ,"current_node_name" ,nullterm (curnode ) )
+    SET stat = uar_srvsetstring (hobjarray ,"server_name" ,nullterm (build (curserver ) ) )
+    SET srvstatus = uar_srvexecute (hmsg ,hreq ,hrep )
+    IF ((srvstatus != 0 ) )
+     CALL echo (build2 ("Execution of pft_save_system_activity_log was not successful" ) )
+    ENDIF
+    CALL uar_srvdestroyinstance (hreq )
+    CALL uar_srvdestroyinstance (hrep )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (profitlogicaldomaininfo ) ) )
+  RECORD profitlogicaldomaininfo (
+    1 hasbeenset = i2
+    1 logicaldomainid = f8
+    1 logicaldomainsystemuserid = f8
+  ) WITH persistscript
+ ENDIF
+ IF (NOT (validate (ld_concept_batch_trans ) ) )
+  DECLARE ld_concept_batch_trans = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_event ) ) )
+  DECLARE ld_concept_pft_event = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_ruleset ) ) )
+  DECLARE ld_concept_pft_ruleset = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_queue_item_wf_hist ) ) )
+  DECLARE ld_concept_pft_queue_item_wf_hist = i2 WITH public ,constant (ld_concept_prsnl )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_workflow ) ) )
+  DECLARE ld_concept_pft_workflow = i2 WITH public ,constant (ld_concept_prsnl )
+ ENDIF
+ IF (NOT (validate (getlogicaldomain ) ) )
+  SUBROUTINE  (getlogicaldomain (concept =i4 ,logicaldomainid =f8 (ref ) ) =i2 )
+   CALL logmessage ("getLogicalDomain" ,"Entering..." ,log_debug )
+   IF (arelogicaldomainsinuse (0 ) )
+    IF ((((concept < ld_concept_minvalue ) ) OR ((concept > ld_concept_maxvalue ) )) )
+     CALL logmessage ("getLogicalDomain" ,build2 ("Invalid logical domain concept: " ,concept ) ,
+      log_error )
+     RETURN (false )
+    ENDIF
+    FREE RECORD acm_get_curr_logical_domain_req
+    RECORD acm_get_curr_logical_domain_req (
+      1 concept = i4
+    )
+    FREE RECORD acm_get_curr_logical_domain_rep
+    RECORD acm_get_curr_logical_domain_rep (
+      1 logical_domain_id = f8
+      1 status_block
+        2 status_ind = i2
+        2 error_code = i4
+    )
+    DECLARE currentuserid = f8 WITH protect ,constant (reqinfo->updt_id )
+    IF ((profitlogicaldomaininfo->hasbeenset = true ) )
+     SET reqinfo->updt_id = profitlogicaldomaininfo->logicaldomainsystemuserid
+    ENDIF
+    SET acm_get_curr_logical_domain_req->concept = concept
+    EXECUTE acm_get_curr_logical_domain
+    SET reqinfo->updt_id = currentuserid
+    IF ((acm_get_curr_logical_domain_rep->status_block.status_ind != true ) )
+     CALL logmessage ("getLogicalDomain" ,"Failed to retrieve logical domain..." ,log_error )
+     CALL echorecord (acm_get_curr_logical_domain_rep )
+     RETURN (false )
+    ENDIF
+    SET logicaldomainid = acm_get_curr_logical_domain_rep->logical_domain_id
+    CALL logmessage ("getLogicalDomain" ,build2 ("Logical domain for concept [" ,trim (cnvtstring (
+        concept ) ) ,"]: " ,trim (cnvtstring (logicaldomainid ) ) ) ,log_debug )
+    FREE RECORD acm_get_curr_logical_domain_req
+    FREE RECORD acm_get_curr_logical_domain_rep
+   ELSE
+    SET logicaldomainid = 0.0
+   ENDIF
+   CALL logmessage ("getLogicalDomain" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (setlogicaldomain ) ) )
+  SUBROUTINE  (setlogicaldomain (logicaldomainid =f8 ) =i2 )
+   CALL logmessage ("setLogicalDomain" ,"Entering..." ,log_debug )
+   IF (arelogicaldomainsinuse (0 ) )
+    SELECT INTO "nl:"
+     FROM (logical_domain ld )
+     WHERE (ld.logical_domain_id = logicaldomainid )
+     DETAIL
+      profitlogicaldomaininfo->logicaldomainsystemuserid = ld.system_user_id
+     WITH nocounter
+    ;end select
+    SET profitlogicaldomaininfo->logicaldomainid = logicaldomainid
+    SET profitlogicaldomaininfo->hasbeenset = true
+    SELECT INTO "nl:"
+     FROM (prsnl p )
+     WHERE (p.person_id = reqinfo->updt_id )
+     DETAIL
+      IF ((p.logical_domain_id != logicaldomainid ) ) reqinfo->updt_id = profitlogicaldomaininfo->
+       logicaldomainsystemuserid
+      ENDIF
+     WITH nocounter
+    ;end select
+    IF (validate (debug ,0 ) )
+     CALL echorecord (profitlogicaldomaininfo )
+     CALL echo (build ("reqinfo->updt_id:" ,reqinfo->updt_id ) )
+    ENDIF
+   ENDIF
+   CALL logmessage ("setLogicalDomain" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (arelogicaldomainsinuse ) ) )
+  DECLARE arelogicaldomainsinuse (null ) = i2
+  SUBROUTINE  arelogicaldomainsinuse (null )
+   CALL logmessage ("areLogicalDomainsInUse" ,"Entering..." ,log_debug )
+   DECLARE multiplelogicaldomainsdefined = i2 WITH protect ,noconstant (false )
+   SELECT INTO "nl:"
+    FROM (logical_domain ld )
+    WHERE (ld.logical_domain_id > 0.0 )
+    AND (ld.active_ind = true )
+    WITH nocounter
+   ;end select
+   IF ((curqual > 0 ) )
+    SET multiplelogicaldomainsdefined = true
+   ENDIF
+   CALL logmessage ("areLogicalDomainsInUse" ,build2 ("Multiple logical domains " ,evaluate (
+      multiplelogicaldomainsdefined ,true ,"are" ,"are not" ) ," in use" ) ,log_debug )
+   CALL logmessage ("areLogicalDomainsInUse" ,"Exiting..." ,log_debug )
+   RETURN (multiplelogicaldomainsdefined )
+  END ;Subroutine
+ ENDIF
+ SUBROUTINE  (getparameterentityname (dparmcd =f8 ) =vc )
+  DECLARE parammeaning = vc WITH private ,constant (trim (uar_get_code_meaning (dparmcd ) ) )
+  DECLARE returnvalue = vc WITH private ,noconstant ("" )
+  SET returnvalue = evaluate (parammeaning ,"BEID" ,"BILLING_ENTITY" ,"OPTIONALBEID" ,
+   "BILLING_ENTITY" ,"HP ID" ,"HEALTH_PLAN" ,"HP_LIST" ,"HEALTH_PLAN" ,"PRIMARYHP" ,"HEALTH_PLAN" ,
+   "PRIPAYORHPID" ,"HEALTH_PLAN" ,"SECPAYORHPID" ,"HEALTH_PLAN" ,"TERPAYORHPID" ,"HEALTH_PLAN" ,
+   "COLLAGENCY" ,"ORGANIZATION" ,"PAYORORGID" ,"ORGANIZATION" ,"PRECOLAGENCY" ,"ORGANIZATION" ,
+   "PRIPAYORORGI" ,"ORGANIZATION" ,"SECPAYORORGI" ,"ORGANIZATION" ,"TERPAYORORGI" ,"ORGANIZATION" ,
+   "PAYER_LIST" ,"ORGANIZATION" ,"UNKNOWN" )
+  RETURN (returnvalue )
+ END ;Subroutine
+ SUBROUTINE  (paramsarevalidfordomain (paramstruct =vc (ref ) ,dlogicaldomainid =f8 ) =i2 )
+  DECLARE paramidx = i4 WITH private ,noconstant (0 )
+  DECLARE paramentityname = vc WITH private ,noconstant ("" )
+  DECLARE paramvalue = f8 WITH protect ,noconstant (0.0 )
+  DECLARE paramerror = i2 WITH protect ,noconstant (false )
+  FOR (paramidx = 1 TO paramstruct->lparams_qual )
+   SET paramentityname = getparameterentityname (paramstruct->aparams[paramidx ].dvalue_meaning )
+   SET paramvalue = cnvtreal (paramstruct->aparams[paramidx ].svalue )
+   SET paramerror = true
+   IF ((paramentityname = "BILLING_ENTITY" ) )
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (organization o )
+     PLAN (be
+      WHERE (be.billing_entity_id = paramvalue ) )
+      JOIN (o
+      WHERE (o.organization_id = be.organization_id )
+      AND (o.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSEIF ((paramentityname = "HEALTH_PLAN" ) )
+    SELECT INTO "nl:"
+     FROM (health_plan hp )
+     PLAN (hp
+      WHERE (hp.health_plan_id = paramvalue )
+      AND (hp.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSEIF ((paramentityname = "ORGANIZATION" ) )
+    SELECT INTO "nl:"
+     FROM (organization o )
+     PLAN (o
+      WHERE (o.organization_id = paramvalue )
+      AND (o.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSE
+    SET paramerror = false
+   ENDIF
+   IF (paramerror )
+    RETURN (false )
+   ENDIF
+  ENDFOR
+  RETURN (true )
+ END ;Subroutine
+ IF (NOT (validate (getlogicaldomainsystemuser ) ) )
+  SUBROUTINE  (getlogicaldomainsystemuser (logicaldomainid =f8 (ref ) ) =f8 )
+   DECLARE systempersonnelid = f8 WITH protect ,noconstant (0.0 )
+   SELECT INTO "nl:"
+    FROM (logical_domain ld )
+    WHERE (ld.logical_domain_id = logicaldomainid )
+    DETAIL
+     systempersonnelid = ld.system_user_id
+    WITH nocounter
+   ;end select
+   IF ((systempersonnelid <= 0.0 ) )
+    SELECT INTO "nl:"
+     FROM (prsnl p )
+     WHERE (p.active_ind = true )
+     AND (p.logical_domain_id = logicaldomainid )
+     AND (p.username = "SYSTEM" )
+     DETAIL
+      systempersonnelid = p.person_id
+     WITH nocounter
+    ;end select
+   ENDIF
+   IF ((systempersonnelid <= 0.0 ) )
+    CALL logmessage ("getLogicalDomainSystemUser" ,
+     "Failed to determine the default 'SYSTEM' personnel id" ,log_error )
+    RETURN (0.0 )
+   ENDIF
+   CALL logmessage ("getLogicalDomainSystemUser" ,"Exiting" ,log_debug )
+   RETURN (systempersonnelid )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (go_to_exit_script ) ) )
+  DECLARE go_to_exit_script = i2 WITH constant (1 )
+ ENDIF
+ IF (NOT (validate (dont_go_to_exit_script ) ) )
+  DECLARE dont_go_to_exit_script = i2 WITH constant (0 )
+ ENDIF
+ IF ((validate (beginservice ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (beginservice (pversion =vc ) =null )
+   CALL logmessage ("" ,concat ("version:" ,pversion ," :Begin Service" ) ,log_debug )
+   CALL setreplystatus ("F" ,"Begin Service" )
+  END ;Subroutine
+ ENDIF
+ IF ((validate (exitservicesuccess ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (exitservicesuccess (pmessage =vc ) =null )
+   DECLARE errmsg = vc WITH noconstant (" " )
+   DECLARE errcode = i2 WITH noconstant (1 )
+   IF ((size (trim (pmessage ,3 ) ) > 0 ) )
+    CALL logmessage ("" ,pmessage ,log_info )
+   ENDIF
+   IF ((((currevminor2 + (currevminor * 100 ) ) + (currev * 10000 ) ) >= 080311 ) )
+    IF ((curdomain IN ("SURROUND" ,
+    "SOLUTION" ) ) )
+     SET errmsg = fillstring (132 ," " )
+     SET errcode = error (errmsg ,1 )
+     IF ((errcode != 0 ) )
+      CALL exitservicefailure (errmsg ,true )
+     ELSE
+      CALL logmessage ("" ,"Exit Service - SUCCESS" ,log_debug )
+      CALL setreplystatus ("S" ,evaluate (pmessage ,"" ,"Exit Service - SUCCESS" ,pmessage ) )
+      SET reqinfo->commit_ind = true
+     ENDIF
+    ELSE
+     CALL logmessage ("" ,"Exit Service - SUCCESS" ,log_debug )
+     CALL setreplystatus ("S" ,evaluate (pmessage ,"" ,"Exit Service - SUCCESS" ,pmessage ) )
+     SET reqinfo->commit_ind = true
+    ENDIF
+   ELSE
+    CALL logmessage ("" ,"Exit Service - SUCCESS" ,log_debug )
+    CALL setreplystatus ("S" ,evaluate (pmessage ,"" ,"Exit Service - SUCCESS" ,pmessage ) )
+    SET reqinfo->commit_ind = true
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (exitservicefailure ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (exitservicefailure (pmessage =vc ,exitscriptind =i2 ) =null )
+   CALL addtracemessage ("" ,evaluate (trim (pmessage ) ,trim ("" ) ,"Exit Service - FAILURE" ,
+     pmessage ) )
+   CALL logmessage ("" ,evaluate (trim (pmessage ) ,trim ("" ) ,"Exit Service - FAILURE" ,pmessage )
+    ,log_error )
+   IF (validate (reply->failure_stack.failures ) )
+    SET reply->status_data.status = "F"
+    SET reply->status_data.subeventstatus[1 ].operationstatus = "F"
+    SET reply->status_data.subeventstatus[1 ].operationname = reply->failure_stack.failures[1 ].
+    programname
+    SET reply->status_data.subeventstatus[1 ].targetobjectname = reply->failure_stack.failures[1 ].
+    routinename
+    SET reply->status_data.subeventstatus[1 ].targetobjectvalue = reply->failure_stack.failures[1 ].
+    message
+   ELSE
+    CALL setreplystatus ("F" ,evaluate (trim (pmessage ) ,trim ("" ) ,"Exit Service - FAILURE" ,
+      pmessage ) )
+   ENDIF
+   SET reqinfo->commit_ind = false
+   IF (exitscriptind )
+    GO TO exit_script
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (exitservicenodata ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (exitservicenodata (pmessage =vc ,exitscriptind =i2 ) =null )
+   IF ((size (trim (pmessage ,3 ) ) > 0 ) )
+    CALL logmessage ("" ,pmessage ,log_info )
+   ENDIF
+   CALL logmessage ("" ,"Exit Service - NO DATA" ,log_debug )
+   CALL setreplystatus ("Z" ,evaluate (pmessage ,"" ,"Exit Service - NO DATA" ,pmessage ) )
+   SET reqinfo->commit_ind = false
+   IF (exitscriptind )
+    GO TO exit_script
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (setreplystatus ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (setreplystatus (pstatus =vc ,pmessage =vc ) =null )
+   IF (validate (reply->status_data ) )
+    SET reply->status_data.status = nullterm (pstatus )
+    SET reply->status_data.subeventstatus[1 ].operationstatus = nullterm (pstatus )
+    SET reply->status_data.subeventstatus[1 ].operationname = nullterm (curprog )
+    SET reply->status_data.subeventstatus[1 ].targetobjectvalue = nullterm (pmessage )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (addtracemessage ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (addtracemessage (proutinename =vc ,pmessage =vc ) =null )
+   CALL logmessage (proutinename ,pmessage ,log_debug )
+   IF (validate (reply->failure_stack ) )
+    DECLARE failcnt = i4 WITH protect ,noconstant ((size (reply->failure_stack.failures ,5 ) + 1 ) )
+    SET stat = alterlist (reply->failure_stack.failures ,failcnt )
+    SET reply->failure_stack.failures[failcnt ].programname = nullterm (curprog )
+    SET reply->failure_stack.failures[failcnt ].routinename = nullterm (proutinename )
+    SET reply->failure_stack.failures[failcnt ].message = nullterm (pmessage )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (addstatusdetail ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (addstatusdetail (pentityid =f8 ,pdetailflag =i4 ,pdetailmessage =vc ) =null )
+   IF (validate (reply->status_detail ) )
+    DECLARE detailcnt = i4 WITH protect ,noconstant ((size (reply->status_detail.details ,5 ) + 1 )
+     )
+    SET stat = alterlist (reply->status_detail.details ,detailcnt )
+    SET reply->status_detail.details[detailcnt ].entityid = pentityid
+    SET reply->status_detail.details[detailcnt ].detailflag = pdetailflag
+    SET reply->status_detail.details[detailcnt ].detailmessage = nullterm (pdetailmessage )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (copystatusdetails ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (copystatusdetails (pfromrecord =vc (ref ) ,prtorecord =vc (ref ) ) =null )
+   IF (validate (pfromrecord->status_detail )
+   AND validate (prtorecord->status_detail ) )
+    DECLARE fromidx = i4 WITH protect ,noconstant (0 )
+    DECLARE fromcnt = i4 WITH protect ,noconstant (size (pfromrecord->status_detail.details ,5 ) )
+    DECLARE toidx = i4 WITH protect ,noconstant (size (prtorecord->status_detail.details ,5 ) )
+    DECLARE fromparamidx = i4 WITH protect ,noconstant (0 )
+    DECLARE toparamcnt = i4 WITH protect ,noconstant (0 )
+    FOR (fromidx = 1 TO fromcnt )
+     SET toidx +=1
+     SET stat = alterlist (prtorecord->status_detail.details ,toidx )
+     SET prtorecord->status_detail.details[toidx ].entityid = pfromrecord->status_detail.details[
+     fromidx ].entityid
+     SET prtorecord->status_detail.details[toidx ].detailflag = pfromrecord->status_detail.details[
+     fromidx ].detailflag
+     SET prtorecord->status_detail.details[toidx ].detailmessage = pfromrecord->status_detail.
+     details[fromidx ].detailmessage
+     SET toparamcnt = 0
+     FOR (fromparamidx = 1 TO size (pfromrecord->status_detail.details[fromidx ].parameters ,5 ) )
+      SET toparamcnt +=1
+      SET stat = alterlist (prtorecord->status_detail.details[toidx ].parameters ,toparamcnt )
+      SET prtorecord->status_detail.details[toidx ].parameters[toparamcnt ].paramname = pfromrecord->
+      status_detail.details[fromidx ].parameters[fromparamidx ].paramname
+      SET prtorecord->status_detail.details[toidx ].parameters[toparamcnt ].paramvalue = pfromrecord
+      ->status_detail.details[fromidx ].parameters[fromparamidx ].paramvalue
+     ENDFOR
+    ENDFOR
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (addstatusdetailparam ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (addstatusdetailparam (pdetailidx =i4 ,pparamname =vc ,pparamvalue =vc ) =null )
+   IF (validate (reply->status_detail ) )
+    IF (validate (reply->status_detail.details[pdetailidx ].parameters ) )
+     DECLARE paramcnt = i4 WITH protect ,noconstant ((size (reply->status_detail.details[pdetailidx ]
+       .parameters ,5 ) + 1 ) )
+     SET stat = alterlist (reply->status_detail.details[pdetailidx ].parameters ,paramcnt )
+     SET reply->status_detail.details[pdetailidx ].parameters[paramcnt ].paramname = pparamname
+     SET reply->status_detail.details[pdetailidx ].parameters[paramcnt ].paramvalue = pparamvalue
+    ENDIF
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF ((validate (copytracemessages ,char (128 ) ) = char (128 ) ) )
+  SUBROUTINE  (copytracemessages (pfromrecord =vc (ref ) ,prtorecord =vc (ref ) ) =null )
+   IF (validate (pfromrecord->failure_stack )
+   AND validate (prtorecord->failure_stack ) )
+    DECLARE fromidx = i4 WITH protect ,noconstant (0 )
+    DECLARE fromcnt = i4 WITH protect ,noconstant (size (pfromrecord->failure_stack.failures ,5 ) )
+    DECLARE toidx = i4 WITH protect ,noconstant (size (prtorecord->failure_stack.failures ,5 ) )
+    FOR (fromidx = 1 TO fromcnt )
+     SET toidx +=1
+     SET stat = alterlist (prtorecord->failure_stack.failures ,toidx )
+     SET prtorecord->failure_stack.failures[toidx ].programname = pfromrecord->failure_stack.
+     failures[fromidx ].programname
+     SET prtorecord->failure_stack.failures[toidx ].routinename = pfromrecord->failure_stack.
+     failures[fromidx ].routinename
+     SET prtorecord->failure_stack.failures[toidx ].message = pfromrecord->failure_stack.failures[
+     fromidx ].message
+    ENDFOR
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ DECLARE logicaldomainid = f8 WITH protect ,noconstant (0.0 )
+ IF (NOT (getlogicaldomain (ld_concept_organization ,logicaldomainid ) ) )
+  CALL exitservicefailure ("Unable to retrieve LOGICAL_DOMAIN_ID" ,true )
+ ENDIF
+ IF ((- (1 ) = validate (dsupervisorcd ,- (1 ) ) ) )
+  DECLARE dsupervisorcd = f8 WITH public ,noconstant (0.0 )
+ ENDIF
+ SET stat = uar_get_meaning_by_codeset (375 ,"SUPERVISOR" ,1 ,dsupervisorcd )
+ IF ((ssupervisor > 0.0 ) )
+  SELECT DISTINCT
+   display =
+   IF ((d.seq = 1 ) ) uar_i18ngetmessage (hi18n ,"Val1" ,"All (*)" )
+   ELSE concat (trim (p.name_last ) ," , " ,trim (p.name_first ) )
+   ENDIF
+   ,sortkey =
+   IF ((d.seq = 1 ) ) uar_i18ngetmessage (hi18n ,"Val1" ,"All (*)" )
+   ELSE cnvtupper (trim (concat (trim (p.name_last ) ," , " ,trim (p.name_first ) ) ,3 ) )
+   ENDIF
+   ,supervisor_id =
+   IF ((d.seq = 1 ) ) "ALL"
+   ELSE cnvtstring (p.person_id ,19 ,2 )
+   ENDIF
+   FROM (dummyt d WITH seq = 2 ),
+    (prsnl_prsnl_reltn ppr ),
+    (person p )
+   PLAN (d )
+    JOIN (ppr
+    WHERE (ppr.person_id = cnvtreal (ssupervisor ) )
+    AND (ppr.prsnl_prsnl_reltn_cd = dsupervisorcd )
+    AND (ppr.active_ind = 1 ) )
+    JOIN (p
+    WHERE (p.person_id = ppr.related_person_id )
+    AND (p.active_ind = 1 )
+    AND (p.logical_domain_id = logicaldomainid ) )
+   ORDER BY d.seq ,
+    sortkey
+   HEAD REPORT
+    createdataset = 1 ,
+    columntitle = concat (reportinfo (1 ) ,"$" ) ,
+    CALL initdataset (1000 ) ,
+    recno = 0
+   DETAIL
+    recno +=1 ,
+    stat = setrecord (recno ,10 )
+   FOOT REPORT
+    stat = resetdataset (recno )
+   WITH nocounter ,reporthelp ,check
+  ;end select
+ ENDIF
+#exit_script
+END GO
+1)
+1);DECLARE dsupervisorcd = f8 WITH public ,noconstant (0.0 )
+2);DECLARE ZZZZ = VC GO
+3); SET ZZZZ = uar_get_meaning_by_codeset (375 ,"SUPERVISOR" ,1 ,dsupervisorcd ) go
+4); CALL ECHO(ZZZZ) GO
+5)
+6) ;SET lastname = trim (cnvtupper ( "HOLT" ) ); JAMISON
+7)
+8) ;GET SUPERVISOR
+9); SELECT DISTINCT
+10);  display = concat (trim (p.name_last ) ," , " ,trim (p.name_first ) ," - " ,trim (q.username ) ) ,
+11);  sortkey = cnvtupper (concat (trim (p.name_last ) ," , " ,trim (p.name_first ) ," - " ,trim (q .username ) ) ) ,
+12);  supervisor_id = cnvtstring (p.person_id ,19 ,2 )
+13);  FROM (prsnl_prsnl_reltn ppr ),
+14);   (person p ),
+15);   (prsnl q )
+16);  PLAN (ppr
+17);   WHERE (ppr.related_person_id > 0 )
+18);   AND (ppr.prsnl_prsnl_reltn_cd =      679982.00 )
+19);   AND (ppr.active_ind = 1 ) )
+20);   JOIN (p
+21);   WHERE (p.person_id = ppr.person_id )
+22);   AND (p.name_last_key = patstring (build (cnvtupper (cnvtalphanum ("HOLT" ) ) ,"*" ) ) )
+23);   AND (p.active_ind = 1 )
+24);  ; AND (p.logical_domain_id = logicaldomainid )
+25);  )
+26);   JOIN (q
+27);   WHERE (q.person_id = p.person_id ) )
+28);
+29);SELECT * FROM CODE_VAlue cv
+30);plan cv
+31);where cv.code_set = 375
+32);and cv.cdf_meaning = "SUPERVISOR"
+33)
+
+220627:123501 AJAMISON_DVD16              Cost 0.00 Cpu 0.00 Ela 0.00 Dio   0 O0M0R0 P1R0
