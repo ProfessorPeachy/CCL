@@ -1,0 +1,36 @@
+cerner request reply tdb information request id
+
+
+;Call cerner script
+ 
+request TEMP_REQUEST (
+;FILL IN WITH CERNER TDB REQUEST INFO OR translate script to identify paramaters
+ 
+ 
+ 
+ 
+)
+ 
+ 
+recored TEMP_REPLY (
+;FILL IN WITH CERNER TDB REPLY INFO OR translate script to identify paramaters
+ 
+ 
+)
+ 
+ 
+for(i=1 to numbercalls)
+ 
+ 
+ 	     set TEMP_REQUEST->xxxx = CV1
+ 	     execute cerner_script_name with replace("REQUEST", "TEMP_REQUEST"),
+ 	     replace("REPLY", "TEMP_REPLY")
+ 
+ 
+;;Check reply for errors or do what you need to do with it
+ 
+ 
+;reinitilize reply ; if your request isnt overwritten each time do the same for temp_request.
+set stat = initrec(TEMP_REPLY)
+endfor
+
