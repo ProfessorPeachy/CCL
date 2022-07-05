@@ -1,0 +1,158 @@
+  Cerner (R) Proprietary Rights Notice:  All rights reserved.  This material contains the valuable properties and trade secrets of
+  Cerner Corporation of Kansas City, Missouri, United States of America (Cerner), embodying substantial creative efforts and
+  confidential information, ideas and expressions, no part of which may be reproduced or transmitted in any form or by any means,
+  or retained in any storage or retrieval system without the express written permission of Cerner.
+ 
+  Cerner is a registered mark of Cerner Corporation.
+ *********************************************************************************************************************************
+ Date Written:       01/28/2009
+ Source file name:   sc_cps_get_prompt_list.inc
+ Object name:        not a stand alone prg.  Must be used as an include file
+ Program purpose:    Parse the prompts entered by a user.
+ 
+ *********************************************************************************************************************************
+ MODIFICATION CONTROL LOG
+ *********************************************************************************************************************************
+ Mod Date     Engineer             Comment
+ --- -------- -------------------- -----------------------------------------------------------------------------------------------
+
+ *********************************************************************************************************************************
+ END OF ALL MODCONTROL BLOCKS
+ ********************************************************************************************************************************/
+ declare LIST_IN      = i4 with protect, constant(1)
+ declare LIST_NOT_IN  = i4 with protect, constant(2)
+/********************************************************************************************************************************
+ Subroutine
+ ********************************************************************************************************************************/
+ declare GetPromptList(which_prompt = i4, which_column = vc, which_option = i4 (value, LIST_IN)) = vc
+ subroutine GetPromptList(which_prompt, which_column, which_option)
+   declare my_parser      = vc with noconstant("0=0"), private
+   declare prompt_reflect = vc with noconstant(reflect(parameter(which_prompt, 0))), private
+   declare _value         = f8 with noconstant(0.0), private
+   declare count          = i4 with noconstant(0), private
+   declare option_str     = vc with noconstant(""), private
+ 
+   if(which_option <= LIST_IN)
+       set option_str = " IN ("
+   elseif(which_option >= LIST_NOT_IN)
+       set option_str = " NOT IN ("
+   endif
+ 
+   if(prompt_reflect = "C1") ;Selected Any(*)
+     set my_parser = "1=1"
+   elseif(prompt_reflect = "F8") ;Select one item
+     set _value = parameter(which_prompt, 1)
+     if(_value > 0)
+       set my_parser = build(which_column, option_str, _value, ")")
+       else
+         set my_parser = "1=1"
+     endif
+   elseif(substring(1, 1, prompt_reflect) = "L") ;select multiple items
+     set count = cnvtint(substring(2, textlen(prompt_reflect) - 1, prompt_reflect))
+     set my_parser = build2(which_column, option_str)
+     for(i = 1 to count)
+       set my_parser = build(my_parser, parameter(which_prompt, i), ",")
+     endfor
+     set my_parser = replace(my_parser, ",", ")", 2)
+   endif
+   return(my_parser)
+ end ;subroutine GetPromptList
+ 
+ declare GetStrPromptLIst(which_prompt = i4, which_column = vc, which_option = i4 (value, LIST_IN)) = vc
+ subroutine GetStrPromptLIst(which_prompt, which_column, which_option)
+   declare my_parser      = vc with noconstant("0=0"), private
+   declare prompt_reflect = vc with noconstant(reflect(parameter(which_prompt, 0))), private
+   declare _value         = i4 with noconstant(0.0), private
+   declare count          = i4 with noconstant(0), private
+   declare option_str     = vc with noconstant(""), private
+ 
+   if(which_option <= LIST_IN)
+       set option_str = " IN ("
+   elseif(which_option >= LIST_NOT_IN)
+       set option_str = " NOT IN ("
+   endif
+ 
+   if(prompt_reflect = "C1") ;Selected Any(*)
+     set my_parser = "1=1"
+   elseif(prompt_reflect = "I4") ;Select one item (integer)
+     set _value = parameter(which_prompt, 1)
+     if(_value > 0)
+       set my_parser = build(which_column, option_str, "'", _value, "')")  ;qoutes to make string value
+       else
+         set my_parser = "1=1"
+     endif
+   elseif(substring(1, 1, prompt_reflect) = "L") ;select multiple items
+     set count = cnvtint(substring(2, textlen(prompt_reflect) - 1, prompt_reflect))
+     set my_parser = build2(which_column, option_str)
+     for(i = 1 to count)
+       set my_parser = build(my_parser, "'", parameter(which_prompt, i), "',")  ;quotes to make string values
+     endfor
+     set my_parser = replace(my_parser, ",", ")", 2)
+   endif
+   return(my_parser)
+ end ;subroutine GetStrPromptLIst
+ 
+;END %i cclsource:sc_cps_get_prompt_list.inc
+ 
+;call echo("END")
+;call echo(format(enddate,";;Q"))
+;SET STARTDATE = CNVTDATE($BEGDATE)
+;SET ENDDATE= CNVTDATE($ENDDT)
+ 
+;declare subroutines
+declare format_gl_sub_parameter(gl_sub_param = vc) = vc with private
+ 
+ 
+;declare variables
+declare company_name_lookup = vc with private, noconstant("*")
+declare company_unit_lookup = vc with private, noconstant("*")
+declare account_name_lookup = vc with private, noconstant("*")
+declare account_unit_lookup = vc with private, noconstant("*")
+declare CS18649_payment_cd = f8
+declare CS18649_adj_cd = f8
+declare CS18649_charge_cd = f8
+ 
+;set variables
+set CS18649_payment_cd = uar_get_code_by("DISPLAYKEY",18649,"PAYMENT")
+set CS18649_adj_cd = uar_get_code_by("DISPLAYKEY",18649,"ADJUSTMENT")
+set CS18649_charge_cd = uar_get_code_by("DISPLAYKEY",18649,"CHARGE")
+ 
+declare auth_cd = f8
+declare phys_dept_alias_pool_cd = f8
+ 
+set auth_cd = uar_get_code_by("DISPLAYKEY",8,"AUTHVERIFIED")
+set phys_dept_alias_pool_cd = uar_get_code_by("DISPLAYKEY",263,"PHYSICIANDEPARTMENT")
+ 
+if (cnvtupper(trim($COUNIT)) != "")
+	set company_unit_lookup = format_gl_sub_parameter($COUNIT)
+else
+	set company_unit_lookup = "*"
+endif
+if (cnvtupper(trim($ACCTNAME)) != "")
+	set account_name_lookup = format_gl_sub_parameter($ACCTNAME)
+else
+	set account_name_lookup = "*"
+endif
+if (cnvtupper(trim($ACCTUNIT)) != "")
+	set account_unit_lookup = format_gl_sub_parameter($ACCTUNIT)
+else
+	set account_unit_lookup = "*"
+endif
+if (cnvtupper(trim($COMPALIAS)) != "")
+	set company_name_lookup = format_gl_sub_parameter($COMPALIAS)
+else
+	set company_name_lookup = "*"
+endif
+declare be_parser       = vc with noconstant(" "), public ;005
+set be_parser          = GetPromptList(10, "a.billing_entity_id")  ;005
+ 
+declare all_ind = c1 with Constant(substring(1,1,reflect(parameter(10,0)))),Public ;005
+ 
+record get_billent_reply
+ (
+  1 qual_cnt = i4
+   1 qual [*]
+     2 billing_entity_id = f8
+     2 be_name = vc
+ 
+ )
