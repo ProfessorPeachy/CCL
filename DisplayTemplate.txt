@@ -1,0 +1,88 @@
+The DISPLAY_FORMAT option allows you to define how to treat the data; real number, integer, character, date, time, or datetime. The most common is formatting a datetime value to a readable date. This requires using the template and format options.
+
+Examples
+
+
+
+P.UPDT_DT_TM
+
+; default format "mm/dd/yy" - 09/25/95
+
+P.UPDT_DT_TM "DD-MMM-YYYY;;D"
+
+; formats date only - 25-SEP-1995
+
+P.UPDT_DT_TM "HH:MM:SS;;M",
+
+; formats time only - 19:34:00
+
+P.UPDT_DT_TM "DD-MMM-YYYY HH:MM:SS;;D",
+
+; formats both - 25-SEP-1995 19:34:00
+
+P.UPDT_DT_TM "HH:MM:SS DD-MMM-YYYY;;D",
+
+; formats both - 19:34:00 25-SEP-1995
+
+P.UPDT_DT_TM ";;Q"
+
+; displays as default of ; dd-mmm-yyyy hh:mm:ss.cc - 25-SEP-1995 19:34:00.00
+
+P.UPDT_DT_TM "@LONGDATE"
+
+; uses the @ to flex on international environments - output format is SEPTEMBER 25, 1995 19:34:00
+
+P.UPDT_DT_TM "@LONGDATE;L"
+
+; uses the @ to flex on international environments - the output is the same as the above "@LONGDATE" only it is left justified
+
+The template displays dates in a variety of formats, depending upon your needs. The second semicolon is needed to replace the display qualifier because we are using the format option but not the qualifier. Use the D format to treat the numeric field as a date. The data dictionary defines date fields as DQ8 or DI8.
+
+
+
+display_format
+
+Option:	Description:
+C
+
+Character (strip leading/trailing blanks)
+
+D
+
+Date format
+
+E
+
+Scientific notation
+
+F
+
+Treat as real
+
+I
+
+Treat as integer
+
+M
+
+Maritime format (24-hour clock)
+
+Q
+
+Format date/time field
+
+S
+
+Standard time format (12-hour clock)
+
+T
+
+Text (do not strip leading/trailing blanks)
+
+Z
+
+Formatting of DATETIMEDIFF( ) function
+
+Note
+
+The format options C, F, or T are required only if you are using padding, floating commas, or floating dollar sign display qualifiers on a nonnumeric expression.
