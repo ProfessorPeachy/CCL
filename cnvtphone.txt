@@ -1,0 +1,60 @@
+The CNVTPHONE( ) function returns a fixed 30 character expression, left justified which is the raw phone string expression formatted using the selected format. The expression is formatted using the format template from the Field_Value column on the Code_Value_Extension table for Code Set 281 where the Field_Name is FORMAT. If the Field_Value column does not contain a format template, no formatting is applied and the expression is returned as is.
+
+Syntax
+CNVTPHONE(phone_string_unformatted,phone_format_code[,option])
+Metasymbols
+phone_string_unformatted
+A character expression containing a raw unformatted phone string that does not contain any formatting characters.
+
+format_code
+A Code_Value that is equal to a Code_Value from the Code_Value_Extension table for Code Set 281 where the Field_Name is FORMAT. The format stored in the Field_Value column for that Code_Value is used to format the raw phone string.
+
+option
+
+
+
+0
+
+(default) Use the format (###) ###-#### if the phone_format_code value is not found in Code_Value_Extension table for Code Set 281.
+
+1
+
+Return the phone string as is if the phone_format_code value is not found in code_value_extension table for Code Set 281.
+
+2
+
+Implicitly apply cnvtalphanum to strip off special characters before applying format. If the phone_format_code value is not found in the Code_Value_Extension table for Code Set 281, then the format (###) ###-#### is applied.
+
+Examples
+The following example formats the Phone_Num column on the Phone table using the format template for the Code_Value stored in the Phone_Format_CD field on the Phone table.
+
+SELECT	PR.NAME_FULL_FORMATTED,
+        PHONE = CNVTPHONE(P.PHONE_NUM,P.PHONE_FORMAT_CD)
+FROM	PERSON PR,
+        PHONE P
+PLAN PR WHERE PR.UPDT_DT_TM BETWEEN CNVTLOOKBEHIND("1,D") AND CNVTDATETIME(CURDATE,CURTIME3)
+JOIN P	WHERE PR.PERSON_ID = P.PARENT_ENTITY_ID
+AND P.PARENT_ENTITY_NAME= "PERSON"
+GO
+The following example formats the Phone_Num column on the Phone table and joins to the Code_Value_Extension table to display the format template that is stored in the Field_Value column, which is used to format the Phone_Num value.
+
+select
+	pr.name_full_formatted
+	, p.phone_num
+	, phone = cnvtphone(p.phone_num,p.phone_format_cd)
+	, phone1 = cnvtphone(p.phone_num,p.phone_format_cd,1)	
+	, phone2 = cnvtphone(p.phone_num,p.phone_format_cd,2)
+	, p_phone_format_disp = uar_get_code_display(p.phone_format_cd)
+	, p.phone_format_cd
+	, cve.field_name
+	, cve.field_value
+from
+	person   pr
+	, phone   p
+	, code_value_extension   cve
+plan pr where pr.updt_dt_tm between cnvtlookbehind("1,m") and cnvtdatetime(curdate, curtime3)
+join p	where pr.person_id = p.parent_entity_id
+	and p.parent_entity_name= "PERSON"
+join cve where cve.code_value = p.phone_format_cd
+	and cve.field_name = "FORMAT"
+with nocounter, time = 30
