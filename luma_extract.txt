@@ -1,0 +1,653 @@
+/******************************************** PROGRAM HEADER *********
+ 
+Programmer    		  : Nicole Anglin
+ 
+Date Created   		  : 10/04/2021
+Project Name    	  : LUMA Extract (Ticket: 402679)
+ 
+Requesting Dept/Owner :
+Report Title          :
+Time Frame	          :
+Type of Patients      : All encounters
+Run Frequency		  :
+Output File Name	  :
+Explorer Menu Name    :
+Ops Job Name	      :
+Source Name     	  : cust_script:1_maur_tn_luma_extract.prg
+Purpose               :
+ 
+ 
+/*********************************************************************
+*                                        MODIFICATION CONTROL LOG
+**********************************************************************
+*                                                                    *
+*     Mod  Date      Programmer             Comment                  *
+*     --- -------- -------------------- -----------------------------*
+*     000 09/24/21   Nicole Anglin       Initial Release             *
+*                                                                    *
+*	   				                                                 *
+*												                     *
+*     									                             *
+********************************************************************
+*/
+drop program 1_maur_tn_luma_extract go
+create program 1_maur_tn_luma_extract
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"    ;* Enter or select the printer or file name to send this report to.
+	, "Run As:" = "A"
+	, "Appointment Start Date:" = "CURDATE"
+	, "Appointment End Date:" = ""
+	, "Location:" = 0
+	, "Output Type:" = ""
+ 
+with OUTDEV, RUN, START_DATE, END_DATE, LOCATION, TYPE
+ 
+ 
+ 
+/**************************************************************
+; variable initialization
+**************************************************************/
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+ 
+declare num = i4
+set rundate = format(curdate,'yyyymmdd;;d')
+ 
+ 
+if(substring(1,1,reflect(parameter(parameter2($LOCATION),0))) = "L")
+    set opr_var = "IN"
+elseif(parameter(parameter2($LOCATION),0) = 0.0)
+    set opr_var = "!="
+else
+    set opr_var = "="
+endif
+ 
+set luma_filename =
+    build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/luma/",rundate,"_luma_prod"),".csv")
+/**************************************************************
+; record structure
+**************************************************************/
+free record luma
+record luma (
+	1 cnt = i4
+	1 qual [*]
+		2 eid = f8
+		2 pid = f8
+		2 string_pid = vc
+		2 candidate_id = vc;f8
+		2 event_id = f8
+		2 appt_id = vc;f8
+		2 appt_synonym_id = vc;f8
+		2 appt_facility = vc
+		2 appt_facility_org_id = f8
+		2 string_appt_facility_org_id = vc
+		2 appt_facility_id = vc;f8
+		2 appt_facility_address = vc
+		2 appt_facility_city = vc
+		2 appt_facility_state = vc
+		2 appt_facility_zipcode = vc
+		2 appt_location = vc
+		2 appt_location_cd = vc;f8
+		2 appt_Date = vc
+		2 appt_time = vc
+		2 appt_datetime = vc
+		2 appt_resource = vc
+		2 appt_type       = vc
+		2 appt_type_cd    = vc;f8
+		2 appt_note   = vc
+		2 registrar = vc
+		2 registrar_id = vc;f8
+		2 reg_status = vc
+		2 pat_fin = vc
+		2 pat_mrn = vc
+		2 pat_dob = vc
+		2 pat_name_full = vc
+		2 pat_name_first = vc
+		2 pat_name_last = vc
+		2 pat_name_mid = vc
+		2 pat_language = vc
+		2 pat_address = vc
+		2 pat_city = vc
+		2 pat_state = vc
+		2 pat_zipcode = vc
+		2 pat_home_phone = vc
+		2 pat_mobile_phone = vc
+		2 pat_email = vc
+ 
+ 
+)
+ 
+if($RUN = "A")
+select into "NL:"
+;    sea.action_dt_tm
+;    l.location_cd
+;    ,uar_get_code_display(l.location_cd)
+    e.encntr_id
+    ,s1.sch_appt_id
+    ,reg_status = uar_get_code_display(e.encntr_status_cd)
+    ,p.name_full_formatted
+    ,appt_date = format(s1.beg_dt_tm,"MM/dd/yyyy")
+;    ,event = sea.action_meaning
+from
+    sch_event_action    sea
+;    ,prsnl              pr1
+    ,sch_appt           s1
+    ,sch_appt           s2
+    ,person             p
+;    ,sch_location       l
+    ,encounter          e
+    ,encntr_alias       ea
+    ,prsnl              pr2
+    ,sch_event          se
+    ,prsnl              pr1
+plan s1
+    where s1.beg_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+;    where s1.beg_dt_tm between cnvtdatetime(cnvtdate(09202021),0)
+;                           and cnvtdatetime(cnvtdate(09272021),2359)
+ 
+      and s1.role_meaning = "PATIENT"
+      and s1.person_id > 0
+      and s1.active_ind = 1
+      and s1.version_dt_tm >= sysdate
+ 
+join s2
+    where s2.sch_event_id = S1.sch_event_id;sea.sch_event_id
+      and s2.role_meaning = "RESOURCE"
+      and s2.active_ind = 1
+join pr2
+    where pr2.person_id = s2.person_id
+      and pr2.active_ind = 1
+join p
+    where p.person_id = s1.person_id
+      and p.active_ind = 1
+join e
+    where e.encntr_id = s1.encntr_id
+      and e.active_ind = 1
+      and operator(e.loc_facility_cd,opr_var,$LOCATION)
+;      and e.loc_facility_cd = 21250403.0
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.encntr_alias_type_cd in (1079.0
+                                      ,1077.0
+                                      )
+      and ea.active_ind = 1
+join se
+    where se.sch_event_id = s1.sch_event_id
+      and se.version_dt_tm >= sysdate
+      and se.active_ind = 1
+join sea
+    where sea.sch_event_id = s1.sch_event_id
+      and sea.schedule_id   = s1.schedule_id
+join pr1
+    where pr1.person_id = sea.action_prsnl_id
+      and pr1.active_ind = 1
+ 
+order by
+    sea.updt_dt_tm desc
+    ,s1.sch_appt_id
+ 
+ 
+head report
+    cnt = 0
+    stat = alterlist(luma->qual,100)
+ 
+head s1.sch_appt_id
+    cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1)
+        stat = alterlist(luma->qual,cnt+99)
+    endif
+ 
+    luma->qual[cnt].pid = p.person_id
+    luma->qual[cnt].string_pid = cnvtstring(p.person_id)
+    luma->qual[cnt].eid = e.encntr_id
+    luma->qual[cnt].pat_name_full = cnvtupper(p.name_full_formatted)
+    luma->qual[cnt].pat_name_first = p.name_first_key
+    luma->qual[cnt].pat_name_last = p.name_last_key
+    luma->qual[cnt].pat_name_mid = p.name_middle_key
+    luma->qual[cnt].appt_facility = uar_get_code_description(e.loc_facility_cd)
+    luma->qual[cnt].appt_location = uar_get_code_display(s1.appt_location_cd)
+    luma->qual[cnt].appt_location_cd = cnvtstring(s1.appt_location_cd)
+    luma->qual[cnt].appt_id = cnvtstring(s1.sch_event_id);cnvtstring(s1.sch_appt_id)
+    luma->qual[cnt].appt_synonym_id = cnvtstring(se.appt_synonym_cd)
+    luma->qual[cnt].appt_Date = format(s1.beg_dt_tm,"MM/dd/yyyy")
+    luma->qual[cnt].appt_datetime = format(s1.beg_dt_tm,"MM/dd/yyyy HH:mm")
+    luma->qual[cnt].appt_time = format(s1.beg_dt_tm,"HH:mm")
+    luma->qual[cnt].reg_status = s1.state_meaning;uar_get_code_display(e.encntr_status_cd)
+    luma->qual[cnt].pat_dob = datebirthformat(p.birth_dt_tm,p.birth_tz,0,"MM/dd/yyyy;;ZZZ")
+    luma->qual[cnt].appt_resource = pr2.name_full_formatted
+    luma->qual[cnt].pat_language = uar_get_code_display(p.language_cd)
+    luma->qual[cnt].appt_type = uar_get_code_description(se.appt_type_cd)
+    luma->qual[cnt].appt_type_cd = cnvtstring(se.appt_type_cd)
+    luma->qual[cnt].candidate_id = cnvtstring(se.candidate_id)
+    luma->qual[cnt].appt_facility_id = cnvtstring(e.loc_facility_cd)
+    luma->qual[cnt].appt_facility_org_id = e.organization_id
+    luma->qual[cnt].string_appt_facility_org_id = cnvtstring(e.organization_id)
+    luma->qual[cnt].event_id = s1.sch_event_id
+ 
+        luma->qual[cnt].registrar = pr1.name_full_formatted
+        luma->qual[cnt].registrar_id = cnvtstring(pr1.person_id)
+ 
+detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        luma->qual[cnt].pat_fin = ea.alias
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        luma->qual[cnt].pat_mrn = ea.alias
+    endif
+ 
+ 
+foot report
+    if(cnt>0)
+        luma->cnt = cnt
+        stat = alterlist(luma->qual,cnt)
+    endif
+ 
+with nocounter,time=3900
+ 
+elseif($RUN = "O")
+select into "NL:"
+;    sea.action_dt_tm
+;    l.location_cd
+;    ,uar_get_code_display(l.location_cd)
+    e.encntr_id
+    ,s1.sch_appt_id
+    ,reg_status = uar_get_code_display(e.encntr_status_cd)
+    ,p.name_full_formatted
+    ,appt_date = format(s1.beg_dt_tm,"MM/dd/yyyy")
+;    ,event = sea.action_meaning
+from
+    sch_event_action    sea
+;    ,prsnl              pr1
+    ,sch_appt           s1
+    ,sch_appt           s2
+    ,person             p
+;    ,sch_location       l
+    ,encounter          e
+    ,encntr_alias       ea
+    ,prsnl              pr2
+    ,sch_event          se
+    ,prsnl              pr1
+plan s1
+;    where s1.beg_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+    where s1.beg_dt_tm between cnvtdatetime(curdate,0) and cnvtdatetime(curdate+14,2359)
+;    where s1.beg_dt_tm between cnvtdatetime(cnvtdate(09202021),0)
+;                           and cnvtdatetime(cnvtdate(09272021),2359)
+ 
+      and s1.role_meaning = "PATIENT"
+      and s1.person_id > 0
+      and s1.active_ind = 1
+      and s1.version_dt_tm >= sysdate
+ 
+join s2
+    where s2.sch_event_id = S1.sch_event_id;sea.sch_event_id
+      and s2.role_meaning = "RESOURCE"
+      and s2.active_ind = 1
+join pr2
+    where pr2.person_id = s2.person_id
+      and pr2.active_ind = 1
+join p
+    where p.person_id = s1.person_id
+      and p.active_ind = 1
+join e
+    where e.encntr_id = s1.encntr_id
+      and e.active_ind = 1
+      and operator(e.loc_facility_cd,opr_var,$LOCATION)
+;      and e.loc_facility_cd = 21250403.0
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.encntr_alias_type_cd in (1079.0
+                                      ,1077.0
+                                      )
+      and ea.active_ind = 1
+join se
+    where se.sch_event_id = s1.sch_event_id
+      and se.version_dt_tm >= sysdate
+      and se.active_ind = 1
+join sea
+    where sea.sch_event_id = s1.sch_event_id
+      and sea.schedule_id   = s1.schedule_id
+join pr1
+    where pr1.person_id = sea.action_prsnl_id
+      and pr1.active_ind = 1
+ 
+order by
+    sea.updt_dt_tm desc
+    ,s1.sch_appt_id
+ 
+ 
+head report
+    cnt = 0
+    stat = alterlist(luma->qual,100)
+ 
+head s1.sch_appt_id
+    cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1)
+        stat = alterlist(luma->qual,cnt+99)
+    endif
+ 
+    luma->qual[cnt].pid = p.person_id
+    luma->qual[cnt].string_pid = cnvtstring(p.person_id)
+    luma->qual[cnt].eid = e.encntr_id
+    luma->qual[cnt].pat_name_full = cnvtupper(p.name_full_formatted)
+    luma->qual[cnt].pat_name_first = p.name_first_key
+    luma->qual[cnt].pat_name_last = p.name_last_key
+    luma->qual[cnt].pat_name_mid = p.name_middle_key
+    luma->qual[cnt].appt_facility = uar_get_code_description(e.loc_facility_cd)
+    luma->qual[cnt].appt_location = uar_get_code_display(s1.appt_location_cd)
+    luma->qual[cnt].appt_location_cd = cnvtstring(s1.appt_location_cd)
+    luma->qual[cnt].appt_id = cnvtstring(s1.sch_event_id)
+    luma->qual[cnt].appt_Date = format(s1.beg_dt_tm,"MM/dd/yyyy")
+    luma->qual[cnt].appt_datetime = format(s1.beg_dt_tm,"MM/dd/yyyy HH:mm")
+    luma->qual[cnt].appt_time = format(s1.beg_dt_tm,"HH:mm")
+    luma->qual[cnt].reg_status = s1.state_meaning;uar_get_code_display(e.encntr_status_cd)
+    luma->qual[cnt].pat_dob = datebirthformat(p.birth_dt_tm,p.birth_tz,0,"MM/dd/yyyy;;ZZZ")
+    luma->qual[cnt].appt_resource = pr2.name_full_formatted
+    luma->qual[cnt].pat_language = uar_get_code_display(p.language_cd)
+    luma->qual[cnt].appt_type = uar_get_code_description(se.appt_type_cd)
+    luma->qual[cnt].appt_type_cd = cnvtstring(se.appt_type_cd)
+    luma->qual[cnt].candidate_id = cnvtstring(se.candidate_id)
+    luma->qual[cnt].appt_facility_id = cnvtstring(e.loc_facility_cd)
+    luma->qual[cnt].appt_facility_org_id = e.organization_id
+    luma->qual[cnt].string_appt_facility_org_id = cnvtstring(e.organization_id)
+    luma->qual[cnt].event_id = s1.sch_event_id
+ 
+        luma->qual[cnt].registrar = pr1.name_full_formatted
+        luma->qual[cnt].registrar_id = cnvtstring(pr1.person_id)
+ 
+detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        luma->qual[cnt].pat_fin = ea.alias
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        luma->qual[cnt].pat_mrn = ea.alias
+    endif
+ 
+ 
+foot report
+    if(cnt>0)
+        luma->cnt = cnt
+        stat = alterlist(luma->qual,cnt)
+    endif
+ 
+with nocounter,time=3900
+endif
+;patient addresses
+select into "NL:"
+    a.address_id
+from
+    address a
+plan a
+    where expand(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].pid)
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd in(756.0;home
+;                               ,755.0;email
+                               )
+      and a.active_ind = 1
+      and a.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    a.parent_entity_id
+ 
+head a.parent_entity_id
+    pos = locateval(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].pid)
+ 
+    if(a.street_addr2 != "")
+        luma->qual[pos].pat_address = build2(trim(a.street_addr)," ",trim(a.street_addr2))
+    else
+        luma->qual[pos].pat_address = trim(a.street_addr)
+    endif
+ 
+    luma->qual[pos].pat_city = a.city
+    luma->qual[pos].pat_state = uar_get_code_display(a.state_cd)
+ 
+    if(size(trim(a.zipcode)) < 9)
+        luma->qual[pos].pat_zipcode = a.zipcode
+    else
+        luma->qual[pos].pat_zipcode = format(a.zipcode,"#####-####")
+    endif
+ 
+ 
+with nocounter,expand=1,time=3900
+ 
+ 
+;location address
+select into "NL:"
+    a.address_id
+from
+    address a
+plan a
+    where expand(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].appt_facility_org_id)
+      and a.parent_entity_name = "ORGANIZATION"
+      and a.address_type_cd in(754.0;BUSINESS
+;                               ,755.0;email
+                               )
+      and a.active_ind = 1
+      and a.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    a.parent_entity_id
+ 
+head a.parent_entity_id
+    pos = locateval(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].pid)
+ 
+    if(a.street_addr2 != "")
+        luma->qual[pos].appt_facility_address = build2(trim(a.street_addr)," ",trim(a.street_addr2))
+    else
+        luma->qual[pos].appt_facility_address = trim(a.street_addr)
+    endif
+ 
+    luma->qual[pos].appt_facility_city = a.city
+    luma->qual[pos].appt_facility_state = uar_get_code_display(a.state_cd)
+ 
+    if(size(trim(a.zipcode)) < 9)
+        luma->qual[pos].appt_facility_zipcode = a.zipcode
+    else
+        luma->qual[pos].appt_facility_zipcode = format(a.zipcode,"#####-####")
+    endif
+ 
+ 
+with nocounter,expand=1,time=3900
+ 
+;patient phone numbers
+select into "NL:"
+    ph.phone_num
+from
+    phone   ph
+plan ph
+    where expand(num,1,size(luma->qual,5),ph.parent_entity_id,luma->qual[num].pid)
+      and ph.phone_type_cd in (170.0;hone
+                               )
+      and ph.active_ind = 1
+      and ph.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    ph.parent_entity_id
+ 
+head ph.parent_entity_id
+    pos = locateval(num,1,size(luma->qual,5),ph.parent_entity_id,luma->qual[num].pid)
+ 
+detail
+    if(ph.phone_type_cd = 170.0)
+        luma->qual[pos].pat_home_phone = format(ph.phone_num,"###-###-####")
+    elseif(ph.phone_type_cd = 4149712.0)
+        luma->qual[pos].pat_mobile_phone = format(ph.phone_num,"###-###-####")
+    endif
+ 
+with nocounter,expand=1,time=3900
+ 
+;patient email
+select into "NL:"
+    a.address_id
+from
+    address a
+plan a
+    where expand(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].pid)
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd in(;756.0;home
+                                755.0;email
+                               )
+      and a.active_ind = 1
+      and a.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    a.parent_entity_id
+ 
+head a.parent_entity_id
+    pos = locateval(num,1,size(luma->qual,5),a.parent_entity_id,luma->qual[num].pid)
+ 
+    luma->qual[pos].pat_email = a.street_addr
+ 
+ 
+with nocounter,expand=1,time=3900
+ 
+;Appointment note
+select into "NL:"
+ 
+from
+    sch_event_comm  sec
+plan sec
+    where expand(num,1,size(luma->qual,5),sec.sch_event_id,luma->qual[num].event_id)
+      and sec.active_ind = 1
+order by
+    sec.sch_event_id
+ 
+head sec.sch_event_id
+    pos = locateval(num,1,size(luma->qual,5),sec.sch_event_id,luma->qual[num].event_id)
+ 
+    luma->qual[pos].appt_note = cnvtstring(sec.text_id);substring(1,3200,sec.txn_id_text)
+ 
+with nocounter,expand=1,time=3900
+call echorecord(luma)
+ 
+;output section
+declare quote = vc with public, noconstant('"')
+ 
+if($TYPE = "S")
+select into $outdev
+    pat_fin = trim(substring(1,80,luma->qual[d1.seq].pat_fin))
+    ,appt_id = trim(substring(1,80,luma->qual[d1.seq].appt_id))
+    ,reg_status = trim(substring(1,80,luma->qual[d1.seq].reg_status))
+    ,appt_type_cd = trim(substring(1,80,luma->qual[d1.seq].appt_synonym_id));.appt_type_cd
+    ,appt_type = trim(substring(1,80,luma->qual[d1.seq].appt_type))
+;    ,appt_type luma->qual[d1.seq].appt_synonym_id
+    ,pid = trim(substring(1,80,luma->qual[d1.seq].string_pid))
+    ,pat_name_full = trim(substring(1,120,luma->qual[d1.seq].pat_name_full))
+    ,pat_name_first = trim(substring(1,80,luma->qual[d1.seq].pat_name_first))
+    ,pat_name_last = trim(substring(1,80,luma->qual[d1.seq].pat_name_last))
+    ,pat_dob = trim(substring(1,40,luma->qual[d1.seq].pat_dob))
+    ,pat_home_phone = trim(substring(1,40,luma->qual[d1.seq].pat_home_phone))
+    ,pat_mobile_phone = trim(substring(1,40,luma->qual[d1.seq].pat_mobile_phone))
+    ,pat_address = trim(substring(1,120,luma->qual[d1.seq].pat_address))
+    ,pat_city = trim(substring(1,60,luma->qual[d1.seq].pat_city))
+    ,pat_state = trim(substring(1,20,luma->qual[d1.seq].pat_state))
+    ,pat_zipcode = trim(substring(1,20,luma->qual[d1.seq].pat_zipcode))
+    ,pat_email = trim(substring(1,120,luma->qual[d1.seq].pat_email))
+    ,pat_language = trim(substring(1,80,luma->qual[d1.seq].pat_language))
+    ,appt_date = trim(substring(1,60,luma->qual[d1.seq].appt_Date))
+    ,appt_time = trim(substring(1,60,luma->qual[d1.seq].appt_time))
+    ,appt_note = trim(substring(1,80,luma->qual[d1.seq].appt_note))
+    ,registrar_id = trim(substring(1,80,luma->qual[d1.seq].registrar_id))
+    ,appt_resource = trim(substring(1,120,luma->qual[d1.seq].appt_resource))
+    ,appt_location_cd = trim(substring(1,80,luma->qual[d1.seq].appt_location_cd))
+    ,appt_location = trim(substring(1,80,luma->qual[d1.seq].appt_location))
+    ,appt_facility_address = trim(substring(1,120,luma->qual[d1.seq].appt_facility_address))
+    ,appt_facility_city = trim(substring(1,80,luma->qual[d1.seq].appt_facility_city))
+    ,appt_facility_state = trim(substring(1,20,luma->qual[d1.seq].appt_facility_state))
+    ,appt_facility_zipcode = trim(substring(1,40,luma->qual[d1.seq].appt_facility_zipcode))
+    ,appt_facility_org_id = trim(substring(1,80,luma->qual[d1.seq].string_appt_facility_org_id))
+from
+    (dummyt d1 with seq=value(size(luma->qual,5)))
+plan d1
+    where d1.seq > 0
+ 
+head report
+    line0 = build("patientAccountNbr",",","appointment_id",",","appointment_state",",","appt_type_cd",","
+                 ,"appt_type_display",",","patient_id",",","patient_name_full_format",",","patient_first_name",","
+                 ,"patient_last_name",",","patient_birth_date",",","patient_phone_home",","
+                 ,"patient_phone_cell",",","patient_street",",","patient_city",",","patient_state",","
+                 ,"patient_zip_code",",","patient_email",",","patient_language",",","appointment_date",","
+                 ,"appointment_time",",","note",",","prsnl_person_id",",","resource_name",","
+                 ,"practice_number",",","practice_name",",","location_id",",","location_name",","
+                 ,"location_address",",","location_city",",","location_state",",","location_zip",","
+                 ,"organization_id"
+                 )
+    col 0 line0
+    row+1
+ 
+detail
+    line1 = build(pat_fin,",",appt_id,",",reg_status,",",appt_type_cd,",",appt_type,",",pid,","
+                  ,quote,pat_name_full,quote,",",pat_name_first,",",pat_name_last,",",pat_dob,",",pat_home_phone,","
+                  ,pat_mobile_phone,",",pat_address,",",pat_city,",",pat_state,",",pat_zipcode,",",pat_email,","
+                  ,pat_language,",",appt_date,",",appt_time,",",appt_note,",",registrar_id,","
+                  ,quote,appt_resource,quote,",","",",","",",",appt_location_cd,",",appt_location,","
+                  ,appt_facility_address,",",appt_facility_city,",",appt_facility_state,","
+                  ,appt_facility_zipcode,",",appt_facility_org_id
+                  )
+    col 0 line1
+    row+1
+ 
+with nocounter,maxcol=5000,format=variable,separator="|",time=3900,nullreport
+elseif($TYPE = "F")
+select into value(luma_filename)
+    pat_fin = trim(substring(1,80,luma->qual[d1.seq].pat_fin))
+    ,appt_id = trim(substring(1,80,luma->qual[d1.seq].appt_id))
+    ,reg_status = trim(substring(1,80,luma->qual[d1.seq].reg_status))
+    ,appt_type_cd = luma->qual[d1.seq].appt_synonym_id;.appt_type_cd
+    ,appt_type = trim(substring(1,80,luma->qual[d1.seq].appt_type))
+    ,pid = trim(substring(1,80,luma->qual[d1.seq].string_pid))
+    ,pat_name_full = trim(substring(1,120,luma->qual[d1.seq].pat_name_full))
+    ,pat_name_first = trim(substring(1,80,luma->qual[d1.seq].pat_name_first))
+    ,pat_name_last = trim(substring(1,80,luma->qual[d1.seq].pat_name_last))
+    ,pat_dob = trim(substring(1,40,luma->qual[d1.seq].pat_dob))
+    ,pat_home_phone = trim(substring(1,40,luma->qual[d1.seq].pat_home_phone))
+    ,pat_mobile_phone = trim(substring(1,40,luma->qual[d1.seq].pat_mobile_phone))
+    ,pat_address = trim(substring(1,120,luma->qual[d1.seq].pat_address))
+    ,pat_city = trim(substring(1,60,luma->qual[d1.seq].pat_city))
+    ,pat_state = trim(substring(1,20,luma->qual[d1.seq].pat_state))
+    ,pat_zipcode = trim(substring(1,20,luma->qual[d1.seq].pat_zipcode))
+    ,pat_email = trim(substring(1,120,luma->qual[d1.seq].pat_email))
+    ,pat_language = trim(substring(1,80,luma->qual[d1.seq].pat_language))
+    ,appt_date = trim(substring(1,60,luma->qual[d1.seq].appt_Date))
+    ,appt_time = trim(substring(1,60,luma->qual[d1.seq].appt_time))
+    ,appt_note = trim(substring(1,80,luma->qual[d1.seq].appt_note))
+    ,registrar_id = trim(substring(1,80,luma->qual[d1.seq].registrar_id))
+    ,appt_resource = trim(substring(1,120,luma->qual[d1.seq].appt_resource))
+    ,appt_location_cd = trim(substring(1,80,luma->qual[d1.seq].appt_location_cd))
+    ,appt_location = trim(substring(1,80,luma->qual[d1.seq].appt_location))
+    ,appt_facility_address = trim(substring(1,120,luma->qual[d1.seq].appt_facility_address))
+    ,appt_facility_city = trim(substring(1,80,luma->qual[d1.seq].appt_facility_city))
+    ,appt_facility_state = trim(substring(1,20,luma->qual[d1.seq].appt_facility_state))
+    ,appt_facility_zipcode = trim(substring(1,40,luma->qual[d1.seq].appt_facility_zipcode))
+    ,appt_facility_org_id = trim(substring(1,80,luma->qual[d1.seq].string_appt_facility_org_id))
+from
+    (dummyt d1 with seq=value(size(luma->qual,5)))
+plan d1
+    where d1.seq > 0
+ 
+head report
+    line0 = build("patientAccountNbr",",","appointment_id",",","appointment_state",",","appt_type_cd",","
+                 ,"appt_type_display",",","patient_id",",","patient_name_full_format",",","patient_first_name",","
+                 ,"patient_last_name",",","patient_birth_date",",","patient_phone_home",","
+                 ,"patient_phone_cell",",","patient_street",",","patient_city",",","patient_state",","
+                 ,"patient_zip_code",",","patient_email",",","patient_language",",","appointment_date",","
+                 ,"appointment_time",",","note",",","prsnl_person_id",",","resource_name",","
+                 ,"practice_number",",","practice_name",",","location_id",",","location_name",","
+                 ,"location_address",",","location_city",",","location_state",",","location_zip",","
+                 ,"organization_id"
+                 )
+    col 0 line0
+    row+1
+ 
+detail
+    line1 = build(pat_fin,",",appt_id,",",reg_status,",",appt_type_cd,",",appt_type,",",pid,","
+                  ,quote,pat_name_full,quote,",",pat_name_first,",",pat_name_last,",",pat_dob,",",pat_home_phone,","
+                  ,pat_mobile_phone,",",pat_address,",",pat_city,",",pat_state,",",pat_zipcode,",",pat_email,","
+                  ,pat_language,",",appt_date,",",appt_time,",",appt_note,",",registrar_id,","
+                  ,quote,appt_resource,quote,",","",",","",",",appt_location_cd,",",appt_location,","
+                  ,appt_facility_address,",",appt_facility_city,",",appt_facility_state,","
+                  ,appt_facility_zipcode,",",appt_facility_org_id
+                  )
+    col 0 line1
+    row+1
+ 
+with nocounter,maxcol=5000,format=variable,separator="|",time=3900,maxrow=1,nullreport
+endif
+end
+go
