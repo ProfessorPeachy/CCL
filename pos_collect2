@@ -1,0 +1,681 @@
+123
+drop program 1_amj_tn_pos_collect go
+create program 1_amj_tn_pos_collect
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Begining Date" = ""
+	, "End Date" = ""
+	, "Select Facility" = 0
+	, "Enter Personnel Last Name" = ""       ;* Enter the last and first name (last, first).  Wild card * and ? available.
+	, "Persons" = 0                 ;* Select the specific person to view.
+ 
+with OUTDEV, begin_dt, end_dt, fac, PRSNLNAME
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+DECLARE MRN_VAR = F8
+SET MRN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"MRN")
+ 
+DECLARE FIN_VAR = F8
+SET FIN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"FIN NBR")
+ 
+declare previous_patient_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",356,"PREVIOUSPATIENTTYPE"))
+declare pay_resolution_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",356,"PAYRESOLUTION"))
+declare opportunity_to_collect_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",356,"OPPORTUNITYTOCOLLECT"))
+CALL ECHO(opportunity_to_collect_cd)
+call echo(pay_resolution_cd)
+declare actual_amount_collected_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",356,"ACTUALAMTCOLLECTED"))
+ 
+declare wayne_facility_cd 			= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WAYNE")),protect
+declare wayne_emergency_dept_cd 	= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WMCED")),protect
+declare wayne_ed_hold_cd 			= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WMCEDHOLD")),protect
+ 
+declare marshall_facility_cd 		= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"MARSHALL")),protect
+declare marshall_emergency_dept_cd 	= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"MMCED")),protect
+declare marshall_ed_hold_cd 		= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"MMCEDHOLD")),protect
+ 
+declare maury_facility_cd 			= f8
+declare maury_cancer_center_cd 		= f8
+ 
+select into "nl:"
+from code_value c
+where c.code_set = 220
+and c.cdf_meaning = "FACILITY"
+and c.display_key = "MAURY"
+detail
+	maury_facility_cd = c.code_value
+with nocounter
+ 
+ 
+select into "nl:"
+from code_value c
+where c.code_set = 220
+and c.cdf_meaning = "FACILITY"
+and c.display_key = "MRMCCANCERCTR"
+detail
+	maury_cancer_center_cd = c.code_value
+with nocounter
+ 
+ 
+ 
+DECLARE OPP_VAR = f8
+DECLARE AMT_VAR = f8
+DECLARE PERCENTAGE = w8
+ 
+ 
+declare quote = vc with public,noconstant('"')
+declare ucnt 	= i4
+declare pcnt 	= i4
+declare index 	= i4
+declare unit 	= vc
+declare num 	= i4
+declare cnt 	= i4
+declare i 		= i4
+declare thisUnit = vc
+declare unitCode = f8
+ 
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+free record rec
+record rec
+	(1 cnt = i4
+	1 qual[*]
+		2 eid = f8
+ 		2 pid = f8
+  		2 patient_name = vc
+  		2 mrn = vc
+  		2 fin = vc
+  		2 admit_dt_tm = vc
+  		2 arrive_dt_tm = vc
+  		2 encntr_type = vc
+  		2 facility = vc
+  		2 nrs_unit = vc
+  		2 hlth_pln = vc
+  		2 opportunity_to_collect = vc
+  		2 act_collected = vc
+  		2 pay_resolution = vc
+  		2 collected_by = vc
+  		2 encntr_info = vc
+  		2 ei_id = f8
+  		2 act_amt_dt = vc
+  		2 department = vc
+  		2 position_type = vc
+  		2 nrs_unit_dept = vc
+  	)
+ 
+;;01 exclude these units from the query
+free record unit_exclude_rec
+record unit_exclude_rec
+	(1 cnt = i4
+	1 units[*]
+  		2 facility = vc
+  		2 nrs_unit_cd = f8
+  		2 nrs_unit = vc
+  		2 department = vc
+  		2 position_type = vc
+  		2 nrs_unit_dept = vc
+  	)
+ 
+;010 map these units to departments
+free record unit_rec
+record unit_rec
+	(1 cnt = i4
+	1 units[*]
+  		2 nrs_unit_cd = f8
+  		2 nrs_unit_dept = vc
+  		2 nrs_unit 		= vc
+  	)
+ 
+ 
+;010 this will be populated by the first group of set statements below that will be used for adding and removing personnel for MMC and WMC
+free record mmcwmc_pr
+record mmcwmc_pr
+	(1 cnt = i4
+	1 prsnl[*]
+		2 pid			= f8
+		2 name 			= vc
+		2 pos 			= vc
+  		2 dep 			= vc
+  		2 name 			= vc
+  	)
+ 
+;010 this will be populated by the first group of set statements below that will be used for adding and removing personnel for MAURY
+free record maury_pr
+record maury_pr
+	(1 cnt = i4
+	1 prsnl[*]
+		2 pid			= f8
+		2 name 			= vc
+		2 pos 			= vc
+  		2 dep 			= vc
+  		2 name 			= vc
+  	)
+ 
+/** 010 DEPARTMENT MAPPINGS FOR THE QUERY OUTPUT ->>  MRMC, OPI, PAV AND ADMITTING */
+SELECT CV.code_value, CV.display_key
+FROM CODE_VALUE CV
+PLAN CV
+WHERE CV.code_set = 220
+AND CV.active_ind = 1
+and cv.cdf_meaning in ("AMBULATORY", "NURSEUNIT")
+and
+(
+	CV.display_key IN ("MRMCED","MRMCEDHOLD"  											;2 DEPARTMENTS FOR MRMC
+	,"MRMCLAB","MRMCCT","MRMCMRI","MRMCDX","MRMCNM","MRMCUS","MRMCIR"					;7 DEPARTMENTS FOR OPI
+	,"PAVOR","PAVPACU","PAVPREOP","PAVPST","PAVSURGERYCTR","PVBD","PVMM","PVSTEREO","PVUS" 	; 9 DEPARTMENTS FOR PAV
+	)
+)
+OR
+(	;35 DEPARTMENTS FOR ADMITTING
+	CV.display_key IN ("1A","1B","1C","1D","2A","2B","2C","2E","2F","2HOLD","2OR","2PACU","3A","3B","3C","3D","4LD","4MB"
+	,"4NICU","5A","5B","5C","6A","6B","CARDIACREHAB","COVIDINFUSIONCLINIC","LACTATIONCONSULT","LBURGSLEEPLAB","MRMCCCL"
+	,"MRMCCDT","MRMCDIETARYCONSULT","MRMCRESPIRATORY","MRMCSAMEDAYSURGERY","MRMCSLEEPLAB","PICCLINEINSERTION"
+	)
+	AND CV.inst_id > 0
+)
+ORDER BY CV.display_key
+ 
+HEAD REPORT
+    cnt = 0
+    stat = alterlist(unit_rec->units,100)
+DETAIL
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(unit_rec->units,cnt+99)
+    endif
+ 
+    unit_rec->units[cnt].nrs_unit_cd 	= cv.code_value
+    unit_rec->units[cnt].nrs_unit		= cv.display_key
+ 
+    thisUnit = trim(cv.display_key,3)
+ 
+    if (thisUnit in ("MRMCED","MRMCEDHOLD"))
+    	unit_rec->units[cnt].nrs_unit_dept 	= "MRMC ED"
+    elseif (thisUnit IN ("PAVOR","PAVPACU","PAVPREOP","PAVPST","PAVSURGERYCTR","PVBD","PVMM","PVSTEREO","PVUS" ) )
+    	unit_rec->units[cnt].nrs_unit_dept 	= "PAV"
+    elseif (thisUnit IN ("MRMCLAB","MRMCCT","MRMCMRI","MRMCDX","MRMCNM","MRMCUS","MRMCIR") )
+    	unit_rec->units[cnt].nrs_unit_dept 	= "OPI"
+    else
+    	unit_rec->units[cnt].nrs_unit_dept 	= "Admitting"
+    endif
+foot report
+	if(cnt>0)
+		stat = alterlist(unit_rec->units,cnt)
+		unit_rec->cnt = cnt
+	endif
+WITH NOCOUNTER
+ 
+ 
+ 
+ 
+/************************************************************************************************************
+BEGIN------
+	-- WMC AND MMC ONLY
+	SET THE PERSONNEL FOR MMC AND WMC HERE DEPARTMENT AND POSITION
+	PID = person_id, dep = department, pos = position_type
+	set i=i+1, set maury_pr->prsnl[i].pid= , set maury_pr->prsnl[i].dep=" ", set maury_pr->prsnl[i].pos=" "
+*************************************************************************************************************/
+set mmcwmc_pr->cnt = 20			;DEFAULT RECORD STRUCTURE SIZE. IF THERE ARE EVER > 100 EMPLOYEES, THIS WILL NEED TO INCREASE
+set stat= alterlist(mmcwmc_pr->prsnl,mmcwmc_pr->cnt)
+;;QUERY TEST
+ 
+set i=0
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13751168.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Gordon, Brandi
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13091890.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Gordon, Brandi
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13753802.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Hearn, Kimberly
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=12556150.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Hollis,Janell
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13091892.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Houston, Chyenne
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13748970.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Houston, Chyenne
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=12957207.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Lenz, Leisha
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13899510.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Moore, Ginger
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13823091.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Popplewell, Heather
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=13748893.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Taylor, Katie
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=12960655.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Tinin, Sylvia
+set i=i+1, set mmcwmc_pr->prsnl[i].pid=12935240.00, set mmcwmc_pr->prsnl[i].dep="PreService", set mmcwmc_pr->prsnl[i].pos="PreService" ; Willingham, Kara
+ 
+ 
+set mmcwmc_pr->cnt = i
+set stat= alterlist(mmcwmc_pr->prsnl,mmcwmc_pr->cnt)  ;RESIZE REOCRD TO REDUCE THE SIZE OF THE RECORD STRUCTURE TO THE ACTUAL PRSNL COUNT
+;call echorecord(mmcwmc_pr)
+/* END SETTING MMC AND WMC RECORDS *************************************************************************************************************/
+ 
+ 
+ 
+/*************************************************************************************************************
+BEGIN --------
+	-- MAURY ONLY
+	SET THE PERSONNEL FOR MAURY HERE DEPARTMENT AND POSITION_TPE
+	PID = person_id, dep = department, pos = position_type
+	set i=i+1, set maury_pr->prsnl[i].pid= , set maury_pr->prsnl[i].dep=" ", set maury_pr->prsnl[i].pos=" "
+*************************************************************************************************************/
+set maury_pr->cnt = 100				;DEFAULT RECORD STRUCTURE SIZE. IF THERE ARE EVER > 100 EMPLOYEES, THIS WILL NEED TO INCREASE
+set stat= alterlist(maury_pr->prsnl,maury_pr->cnt)
+;;QUERY TEST
+ 
+set i=0
+;ALL OF THESE NAMES ARE ALPHEBETIZED.. SEE THE COMMENTS AT THE END OF EACH LINE
+set i=i+1, set maury_pr->prsnl[i].pid=13894355.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Alderson, Vickena
+set i=i+1, set maury_pr->prsnl[i].pid=12556153.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Stationary" ; Allred,Rachel
+set i=i+1, set maury_pr->prsnl[i].pid=12556159.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Stationary" ; Baker,Katharyn
+set i=i+1, set maury_pr->prsnl[i].pid=14509692.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Barner, Demetria
+set i=i+1, set maury_pr->prsnl[i].pid=12556092.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Blackburn, Emily
+set i=i+1, set maury_pr->prsnl[i].pid=13948470.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Boyd, Courtnee
+set i=i+1, set maury_pr->prsnl[i].pid=14279051.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Braden, Alana
+set i=i+1, set maury_pr->prsnl[i].pid=12556331.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Bytwerk,Rebecca
+set i=i+1, set maury_pr->prsnl[i].pid=14684808.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Floater" ; Calvert, Lauren
+set i=i+1, set maury_pr->prsnl[i].pid=14362327.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Floater" ; Campbell, Kenyetta
+set i=i+1, set maury_pr->prsnl[i].pid=14923481.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Campbell, ReJeane
+set i=i+1, set maury_pr->prsnl[i].pid=12556154.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Stationary" ; Carroll,Christy
+set i=i+1, set maury_pr->prsnl[i].pid=12556093.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Chandler,Joyce
+set i=i+1, set maury_pr->prsnl[i].pid=14720161.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Stationary" ; Cothran, Kayla
+set i=i+1, set maury_pr->prsnl[i].pid=14555543.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Devalcourt, Denita
+set i=i+1, set maury_pr->prsnl[i].pid=13844741.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Stationary" ; Dickinson, Kim
+set i=i+1, set maury_pr->prsnl[i].pid=12556090.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Floater" ; Donaldson R.N., Alyssa
+set i=i+1, set maury_pr->prsnl[i].pid=13345348.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Dungy, Kendra
+set i=i+1, set maury_pr->prsnl[i].pid=13751190.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Dungy, Kendra
+set i=i+1, set maury_pr->prsnl[i].pid=13586437.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Foster, Whitney
+set i=i+1, set maury_pr->prsnl[i].pid=14672187.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Fulgham, Alexandria
+set i=i+1, set maury_pr->prsnl[i].pid=14234763.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Gilman, Valerie
+set i=i+1, set maury_pr->prsnl[i].pid=13093054.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Stationary" ; Glasgow, Heather
+set i=i+1, set maury_pr->prsnl[i].pid=13091890.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Gordon, Brandi
+set i=i+1, set maury_pr->prsnl[i].pid=13751168.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Gordon, Brandi
+set i=i+1, set maury_pr->prsnl[i].pid=14399789.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Harmon, Amber
+set i=i+1, set maury_pr->prsnl[i].pid=14947920.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Floater" ; Harris, Jill
+set i=i+1, set maury_pr->prsnl[i].pid=13753802.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Hearn, Kimberly
+set i=i+1, set maury_pr->prsnl[i].pid=14749095.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Hinton, McCallea
+set i=i+1, set maury_pr->prsnl[i].pid=13092179.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Hodges, Breanna
+set i=i+1, set maury_pr->prsnl[i].pid=13815769.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Hodges, Breanna
+set i=i+1, set maury_pr->prsnl[i].pid=12556150.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Hollis,Janell
+set i=i+1, set maury_pr->prsnl[i].pid=13090520.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Stationary" ; Holt, Amanda
+set i=i+1, set maury_pr->prsnl[i].pid=13770384.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Stationary" ; Holt, Amanda
+set i=i+1, set maury_pr->prsnl[i].pid=13091892.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService"	; Houston, Chyenne
+set i=i+1, set maury_pr->prsnl[i].pid=13748970.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Houston, Chyenne
+set i=i+1, set maury_pr->prsnl[i].pid=12556084.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Hunter,Jody
+set i=i+1, set maury_pr->prsnl[i].pid=14416892.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Juriew, Michael
+set i=i+1, set maury_pr->prsnl[i].pid=14428981.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Kiestler, Cecelia
+set i=i+1, set maury_pr->prsnl[i].pid=14793001.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Langford, Darian
+set i=i+1, set maury_pr->prsnl[i].pid=12957207.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Lenz, Leisha
+set i=i+1, set maury_pr->prsnl[i].pid=14981032.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Lynch-Pettigrew, Lisa
+set i=i+1, set maury_pr->prsnl[i].pid=14080168.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Malcolm, Abbie
+set i=i+1, set maury_pr->prsnl[i].pid=14373648.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Markham, Nancy
+set i=i+1, set maury_pr->prsnl[i].pid=14801062.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Martin, Brooke
+set i=i+1, set maury_pr->prsnl[i].pid=14810148.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Floater" ; McClintock, Marsha
+set i=i+1, set maury_pr->prsnl[i].pid=12556155.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Floater" ; McClintock,Marsha
+set i=i+1, set maury_pr->prsnl[i].pid=14543506.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; McCoy, Beverly
+set i=i+1, set maury_pr->prsnl[i].pid=12556091.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; McCoy,Beverly
+set i=i+1, set maury_pr->prsnl[i].pid=14661570.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Floater" ; Miles, Presley
+set i=i+1, set maury_pr->prsnl[i].pid=13899510.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Moore, Ginger
+set i=i+1, set maury_pr->prsnl[i].pid=13259432.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Floater" ; Morrissey, Carole
+set i=i+1, set maury_pr->prsnl[i].pid=13259432.00, set maury_pr->prsnl[i].dep="PAV", set maury_pr->prsnl[i].pos="Stationary" ; Morrissey, Carole
+set i=i+1, set maury_pr->prsnl[i].pid=15002491.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Floater" ; Morton, Emma
+set i=i+1, set maury_pr->prsnl[i].pid=14676753.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ;Murray, Melinda
+set i=i+1, set maury_pr->prsnl[i].pid=14885275.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Nance, Jacasia
+set i=i+1, set maury_pr->prsnl[i].pid=14921749.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Nance, Jacasia
+set i=i+1, set maury_pr->prsnl[i].pid=12944455.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Newton, Mandy
+set i=i+1, set maury_pr->prsnl[i].pid=12556099.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Phillips,Rachel
+set i=i+1, set maury_pr->prsnl[i].pid=13823091.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Popplewell, Heather
+set i=i+1, set maury_pr->prsnl[i].pid=12556080.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Potts,Daniel
+set i=i+1, set maury_pr->prsnl[i].pid=13585118.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Pritchard, Sarah
+set i=i+1, set maury_pr->prsnl[i].pid=14249816.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Floater" ; Reece, Lindsey
+set i=i+1, set maury_pr->prsnl[i].pid=12549774.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Floater" ; Rubert, Lori
+set i=i+1, set maury_pr->prsnl[i].pid=14470475.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Floater" ; Rubert, Lori
+set i=i+1, set maury_pr->prsnl[i].pid=13292892.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Floater" ; Ruble, Charla
+set i=i+1, set maury_pr->prsnl[i].pid=14410706.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; 	 Sain, David
+set i=i+1, set maury_pr->prsnl[i].pid=12556161.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Stationary" ; Seufert, Megan
+set i=i+1, set maury_pr->prsnl[i].pid=12956501.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Smith, Jennifer
+set i=i+1, set maury_pr->prsnl[i].pid=12556152.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Staggs,Sheila
+set i=i+1, set maury_pr->prsnl[i].pid=13092388.00, set maury_pr->prsnl[i].dep="Cancer Center", set maury_pr->prsnl[i].pos="Floater" ; Stevens, Taylor
+set i=i+1, set maury_pr->prsnl[i].pid=13748893.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Taylor, Katie
+set i=i+1, set maury_pr->prsnl[i].pid=12960655.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Tinin, Sylvia
+set i=i+1, set maury_pr->prsnl[i].pid=14670432.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Totty, Selena
+set i=i+1, set maury_pr->prsnl[i].pid=13934350.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Vuncannon, Charity
+set i=i+1, set maury_pr->prsnl[i].pid=14720140.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Floater" ; Walls, Taylor
+set i=i+1, set maury_pr->prsnl[i].pid=14569790.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Floater" ; Webb, Jana
+set i=i+1, set maury_pr->prsnl[i].pid=14976886.00, set maury_pr->prsnl[i].dep="Admitting", set maury_pr->prsnl[i].pos="Stationary" ; Welch, Kayla
+set i=i+1, set maury_pr->prsnl[i].pid=12935240.00, set maury_pr->prsnl[i].dep="PreService", set maury_pr->prsnl[i].pos="PreService" ; Willingham, Kara
+set i=i+1, set maury_pr->prsnl[i].pid=14541856.00, set maury_pr->prsnl[i].dep="MRMC ED", set maury_pr->prsnl[i].pos="Stationary" ; Woodall, Kristen
+set i=i+1, set maury_pr->prsnl[i].pid=12556149.00, set maury_pr->prsnl[i].dep="OPI", set maury_pr->prsnl[i].pos="Stationary" ; Yokley,Sandra
+ 
+ 
+set maury_pr->cnt = i
+set stat= alterlist(maury_pr->prsnl,maury_pr->cnt) ;RESIZE RECORD TO REDUCE THE SIZE OF THE RECORD STRUCTURE TO THE ACTUAL PRSNL COUNT
+ 
+/* END SETTING MAURY RECORDS *************************************************************************************************************/
+ 
+ 
+;ADD THE PATIENT NAMES TO THE MAURY_PR REC... GOOD FOR TROUBLESHOOTING AND MATCHING UP THE PRSNL ID WITH THE NAME
+select into "nl:"
+	maury_pr->prsnl[d1.seq].pid
+	,name = trim(substring(1,100,pr.name_full_formatted))
+	,department = trim(substring(1,100,maury_pr->prsnl[d1.seq].dep))
+	,position_type = trim(substring(1,100,maury_pr->prsnl[d1.seq].pos))
+from
+	prsnl pr
+	,(dummyt d1 with seq =maury_pr->cnt)
+plan d1
+	where maury_pr->prsnl[d1.seq].pid > 0
+join pr
+	where pr.person_id = maury_pr->prsnl[d1.seq].pid
+detail
+	maury_pr->prsnl[d1.seq].name = pr.name_full_formatted
+with nocounter, format, separator = " "
+ 
+;ADD THE PATIENT NAMES TO THE MAURY_PR REC... GOOD FOR TROUBLESHOOTING AND MATCHING UP THE PRSNL ID WITH THE NAME
+select into "nl:"
+	mmcwmc_pr->prsnl[d1.seq].pid
+	,name = trim(substring(1,100,pr.name_full_formatted))
+	,department = trim(substring(1,100,mmcwmc_pr->prsnl[d1.seq].dep))
+	,position_type = trim(substring(1,100,mmcwmc_pr->prsnl[d1.seq].pos))
+from
+	prsnl pr
+	,(dummyt d1 with seq =mmcwmc_pr->cnt )
+plan d1
+	where mmcwmc_pr->prsnl[d1.seq].pid > 0
+join pr
+	where pr.person_id = mmcwmc_pr->prsnl[d1.seq].pid
+detail
+	mmcwmc_pr->prsnl[d1.seq].name = pr.name_full_formatted
+with nocounter, format, separator = " "
+ 
+ 
+ 
+;/**************************************************************
+;;  Patient info
+;**************************************************************/
+ 
+select into "nl:"
+ p.*
+from
+	person   p
+	, encounter   e
+	, encntr_alias   ea
+	, encntr_alias   ean
+	, encntr_info   ei
+plan e
+	where e.loc_facility_cd = $fac
+	and e.loc_nurse_unit_cd not in (2554062791.00,2554062803.00,2554062815.00,2554062827.00,2554062839.00,2554063013.00,
+2554063025.00,2554063109.00,2554063115.00,2554063145.00,2554063151.00,2554063157.00,2554063163.00,2554063169.00,
+2554063181.00,2554063193.00,2554378363.00,2554063319.00,2554063253.00)
+;MRMC PT,Chapel Hill PT,Spring Hill PT,Pulaski PT,MRMC Wound Care,Maury Amb Serv,Maury Conv Amb,LHC IV Therapy,LHC Lab
+;,LHC MRI,LHC DX,LHC US,LHC MM,LHC BD,LHC PT,Lewis Amb Serv,MMC PT,WMC PT,Columbia Ortho
+join p where p.person_id = e.person_id
+		and (p.name_last_key != "ZZ*" and p.name_last_key != "XX*")
+	;	AND P.name_last_key = "MURRAY"
+join ea where ea.encntr_id = e.encntr_id
+		and ea.encntr_alias_type_cd = mrn_var
+join ean where ean.encntr_id = e.encntr_id
+		and ean.encntr_alias_type_cd = fin_var
+join ei where ei.encntr_id = e.encntr_id
+and ei.info_sub_type_cd in (previous_patient_cd, pay_resolution_cd) ;pay resolution , previous patient type
+;and ei.info_sub_type_cd in (2689391139.00 , 3339151.00) ;pay resolution , previous patient type
+and  ei.beg_effective_dt_tm between cnvtdatetime($begin_dt)and cnvtdatetime($end_dt)
+and ei.active_ind = 1
+order by
+	e.encntr_id
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = p.person_id
+    rec->qual[cnt].admit_dt_tm = format(e.reg_dt_tm,"mm/dd/yyyy hh:mm;;d")
+    rec->qual[cnt].arrive_dt_tm = format(ei.beg_effective_dt_tm,"mm/dd/yyyy hh:mm;;d")
+    rec->qual[cnt].patient_name = p.name_full_formatted
+    rec->qual[cnt].facility = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].fin = ean.alias
+    rec->qual[cnt].nrs_unit = uar_get_code_display(e.loc_nurse_unit_cd)
+    rec->qual[cnt].mrn = ea.alias
+    rec->qual[cnt].encntr_type = uar_get_code_display(e.encntr_type_cd)
+ 	rec->qual[cnt].pay_resolution = uar_get_code_display(ei.value_cd)
+ 	rec->qual[cnt].encntr_info = uar_get_code_display(ei.info_sub_type_cd)
+ 	rec->qual[cnt].ei_id = ei.info_sub_type_cd
+ 
+ 	unitCode = e.loc_nurse_unit_cd
+ 
+ 	pos = locateval(num,1,unit_rec->cnt,e.loc_nurse_unit_cd,unit_rec->units[num].nrs_unit_cd)
+ 	if (pos > 0 )
+ 		rec->qual[cnt].nrs_unit_dept = unit_rec->units[pos].nrs_unit_dept
+ 	endif
+ 
+ 
+foot report
+	if(cnt>0)
+		stat = alterlist(rec->qual,cnt)
+		rec->cnt = cnt
+	endif
+ 
+with nocounter,time=5600
+ 
+ 
+;/**************************************************************
+;;Health Plan
+;**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_plan_reltn   ep
+	, health_plan   h
+ 
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ep where ep.encntr_id = e.encntr_id
+		and ep.active_ind = 1
+		and ep.priority_seq = 1
+join h where h.health_plan_id = ep.health_plan_id
+		and h.active_ind = 1
+ 
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].hlth_pln = h.plan_name
+ 
+with nocounter,time=5600, expand = 1
+;
+;/**************************************************************
+;;Opportunity to Collect
+;**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 
+plan e
+ 	where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd =  opportunity_to_collect_cd ;2689386419;
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].opportunity_to_collect = l.long_text
+ 
+with nocounter,time=5600, expand = 1
+ 
+ 
+ 
+ 
+;/**************************************************************
+;;Collected By
+;**************************************************************/
+declare thisDepartment = vc
+declare thisPosition = vc
+declare num2 = i4
+ 
+ 
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 	, prsnl   pr
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd = actual_amount_collected_cd;2689386961.00 ;actual amt collected   ;2689387259.00
+		and ei.active_ind = 1
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+join pr where pr.person_id = l.active_status_prsnl_id
+		and pr.person_id not in (12556163.00,13293733.00,13936145.00,12556160.00)
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+ 	index = 0
+   	rec->qual[pos].collected_by = pr.name_full_formatted
+ 
+ 
+	;MMC AND WMC DEPARTMENT GROUPING
+	index = locateval(num2,1,size(mmcwmc_pr->prsnl),pr.person_id,mmcwmc_pr->prsnl[num2].pid)
+;
+	if (index > 0)
+		rec->qual[pos].department = "PreService"
+		rec->qual[pos].position_type = "PreService"
+	elseif(e.loc_facility_cd = wayne_facility_cd ) ; 21250831.00) ;WAYNE FACILITY
+		CALL ECHO(BUILD2("WAYNE FACILITY CODE", e.loc_facility_cd))
+		if ( e.loc_nurse_unit_cd in (wayne_emergency_dept_cd,wayne_ed_hold_cd)) ;(2553743549.00,2553922663.00))
+			rec->qual[pos].department = "Wayne ED"
+			CALL ECHO(BUILD2("WAYNE FACILITY ED", e.loc_facility_cd))
+		else
+			rec->qual[pos].department = "Wayne OP/IP"
+			CALL ECHO(BUILD2("WAYNE OP/IP", e.loc_facility_cd))
+		endif
+	elseif (e.loc_facility_cd = marshall_facility_cd) ;21304872.00) ;MARSHALL FACILITY
+		if (e.loc_nurse_unit_cd in (marshall_emergency_dept_cd,marshall_ed_hold_cd));(2553743279.00,2553922405.00)
+			rec->qual[pos].department = "Marshall ED"
+		else
+			rec->qual[pos].department = "Marshall OP/IP"
+		endif
+	else
+		rec->qual[pos].department = "Unknown"
+	    rec->qual[pos].position_type = "Unknown"
+	endif
+ 
+ 	if(e.loc_facility_cd in (maury_facility_cd,maury_cancer_center_cd) ); (21250403.00,2553742717.00))
+		index = 0
+		thisDepartment 	= "Unknown"			;default until set to a known value
+		thisPosition 	= "Unknown"			;default until set to a known value
+ 
+		;;;MRMC - Department and Position grouping
+		index = locateval(num,1,maury_pr->cnt,pr.person_id,maury_pr->prsnl[num].pid)
+		if (index > 0 )
+			thisDepartment 	= maury_pr->prsnl[index].dep
+			thisPosition	= maury_pr->prsnl[index].pos
+		else
+			thisDepartment	= "Unknown"
+			thisPosition	= "Unknown"
+		endif
+ 
+		rec->qual[pos].department 		= thisDepartment
+		rec->qual[pos].position_type 	= thisPosition
+	endif
+WITH nocounter,time=5600, expand = 1
+ 
+;
+ 
+/**************************************************************
+;Actual Amount Collected
+**************************************************************/
+select into "nl:"
+ 
+from
+	 encounter   e
+	, encntr_info   ei
+	, long_text   l
+ 
+plan e
+ 	 where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ei where ei.encntr_id = e.encntr_id
+		and ei.info_sub_type_cd = actual_amount_collected_cd; 2689386961.00 ;actual amt collected
+join l where l.long_text_id = ei.long_text_id
+		and l.active_ind = 1
+ 
+order by
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+   rec->qual[pos].act_collected = l.long_text
+ 
+with nocounter,time=5600,expand=1
+;
+;;output file
+select into $outdev
+	Patient_Name = trim(substring(1,160,rec->qual[d1.seq].patient_name))
+	, MRN = trim(substring(1,160,rec->qual[d1.seq].mrn))
+	, FIN = trim(substring(1,160,rec->qual[d1.seq].fin))
+	, Admit_Date_Time = trim(substring(1,40,rec->qual[d1.seq].admit_dt_tm))
+	, Pay_Dt = trim(substring(1,40,rec->qual[d1.seq].arrive_dt_tm))
+	, Encounter_Type = trim(substring(1,40,rec->qual[d1.seq].encntr_type))
+	, Facility = trim(substring(1,60,rec->qual[d1.seq].facility))
+	, Nurse_Unit = trim(substring(1,60,rec->qual[d1.seq].nrs_unit))
+	, Health_Plan = trim(substring(1,60,rec->qual[d1.seq].hlth_pln))
+	, Pay_Resolution = trim(substring(1,60,rec->qual[d1.seq].pay_resolution))
+	, Collected_By = trim(substring(1,60,rec->qual[d1.seq].collected_by))
+	, Opportunity_to_Collect = trim(substring(1,60,rec->qual[d1.seq].opportunity_to_collect))
+	, Amt_Collected = trim(substring(1,60,rec->qual[d1.seq].act_collected))
+	, Department = trim(substring(1,30,rec->qual[d1.seq].department))
+	, Position_Type = trim(substring(1,30,rec->qual[d1.seq].position_type))
+	, Nurse_Unit_Department = trim(substring(1,20,rec->qual[d1.seq].nrs_unit_dept))
+ 
+ 
+from
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+    where d1.seq > 0
+    and rec->qual[d1.seq].opportunity_to_collect != "$.00"
+    and rec->qual[d1.seq].opportunity_to_collect != ""
+    and rec->qual[d1.seq].collected_by != ""
+ 
+order by
+	position_type,department,pay_dt
+ 
+with nocounter,separator="",format,time=5600
+ 
+ 
+end
+go
