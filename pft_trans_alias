@@ -1,0 +1,78 @@
+drop program 1_get_pft_trans_alias go
+create program 1_get_pft_trans_alias
+ 
+prompt
+	"Enter PFT_TRANS_ALIAS" = ""   ;* Enter PFT_TRANS_ALIAS
+ 
+with PFT_ALIAS
+;using a prompt to refer to parameter as $name instead of $1
+ 
+/****
+For efficiency we do not want to select all people and their aliases.  Therefore prior to using this program to create a data set,
+we prompt the user to enter a person's last name.  Our data set contains the person information and aliases for all people with
+a last name that is equal to the name the user enters.
+****/
+ 
+;Create the subroutines that are needed to manually build a data set
+ 
+ 
+execute CCL_PROMPT_API_DATASET "dataset"
+ 
+declare pcnt = i4
+ 
+SELECT into "nl:"
+	 ALIAS 		= trim(substring(1,20,PTA.pft_trans_alias),3)
+	,REASON 	= trim(substring(1,50,UAR_GET_CODE_DISPLAY(PTA.trans_reason_cd)),3)
+	,TYPE		= trim(substring(1,50,UAR_GET_CODE_DISPLAY(PTA.trans_type_cd)),3)
+	,SUBTYPE 	= trim(substring(1,50,UAR_GET_CODE_DISPLAY(PTA.trans_sub_type_cd)),3)
+;
+FROM PFT_TRANS_ALIAS PTA
+plan pta
+WHERE PTA.pft_trans_alias = PATSTRING(CNVTUPPER($pft_alias))
+/* $pft_alias must be created by a prompt prior to the prompt that uses this data source program*/
+ORDER BY PTA.pft_trans_alias
+head report
+;	;Initialize local variable to reference rows in the data set
+	pcnt = 0
+	;Initialize the data set
+	stat = MakeDataSet(10)
+	;Define fields in the data set
+	vAlias      = AddStringField("PFT_TRANS_ALIAS","PFT Trans Alias:", 1,20)
+	vReason		= AddStringField("TRANS_REASON)","Reason:", 1, 50)
+	vType       = AddStringField("TRANS_TYPE)", "Type:",1,50)
+	vSubType	= AddStringField("TRANS_SUB_TYPE)", "Sub Type:",1,50)
+	vAct       	= AddIntegerField("ACT", "Active Indicator:",1)
+ 
+;;	vBDATE = AddDateField("BDATE","Birth Date Time:",1)
+ 
+;	/*****
+;	Using the Add*Field subroutines above sets
+	vAlias		= 1
+	vReason		= 2
+	vType		= 3
+	vSubType	= 4
+	vAct		= 5
+detail
+	;Populate the data set
+	;Set pcnt equal to the next available row in the data set
+	pcnt = GetNextRecord(0)
+ 
+	;Determine the values and store the alias in the appropiate field of the data set
+	stat = SetStringField(pcnt, vAlias,pta.pft_trans_alias)
+	stat = SetStringField(pcnt, vReason,REASON)
+	stat = SetStringField(pcnt, vType,TYPE)
+	stat = SetStringField(pcnt, vSubType,SUBTYPE)
+	stat = SetIntegerField(pcnt, vAct,pta.active_ind)
+ 
+foot report
+	;Close the data set
+	stat = CloseDataSet(0)
+ 
+WITH  CHECK
+ 
+/*****
+Select statements that create data sets must use the Check control option in the With clause
+to remove non-printable control characters from the data.
+******/
+ 
+end go
