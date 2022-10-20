@@ -1,0 +1,1552 @@
+ 
+DROP PROGRAM 1_TN_NO_CHRGS_3_DAY GO
+CREATE PROGRAM 1_TN_NO_CHRGS_3_DAY
+ prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Billing Enity" = ""
+	, "Encounter Type" = 0
+	, "FACILITY" = 0
+ 
+with OUTDEV, BILLENTIT, ENCTRTYPE, FAC
+ 
+ DECLARE MAUR_TN_NO_CHRGS_3_DAY = f8
+ SET MAUR_TN_NO_CHRGS_3_DAY = 294804.007
+ CALL echo ("Begin PFT_RPT_VALIDATE_BE_SUBS.INC, version [294804.001]" )
+ CALL echo ("Begin PFT_GET_ORGANIZATION_SUBS.INC, version [479650.007]" )
+ IF ((validate (getcodevalue ,char (128 ) ) = char (128 ) ) )
+  DECLARE getcodevalue ((code_set = i4 ) ,(cdf_meaning = vc ) ,(option_flag = i2 ) ) = f8
+ ENDIF
+ IF ((validate (s_cdf_meaning ,char (128 ) ) = char (128 ) ) )
+  DECLARE s_cdf_meaning = c12 WITH public ,noconstant (fillstring (12 ," " ) )
+ ENDIF
+ IF ((validate (s_code_value ,- (0.00001 ) ) = - (0.00001 ) ) )
+  DECLARE s_code_value = f8 WITH public ,noconstant (0.0 )
+ ENDIF
+ SUBROUTINE  getcodevalue (code_set ,cdf_meaning ,option_flag )
+  SET s_cdf_meaning = cdf_meaning
+  SET s_code_value = 0.0
+  SET stat = uar_get_meaning_by_codeset (code_set ,s_cdf_meaning ,1 ,s_code_value )
+  IF ((((stat != 0 ) ) OR ((s_code_value <= 0.0 ) )) )
+   SET s_code_value = 0.0
+   CASE (option_flag )
+    OF 0 :
+     SET table_name = build ("ERROR-->GetCodeValue (" ,code_set ,"," ,'"' ,s_cdf_meaning ,'"' ,"," ,
+      option_flag ,") not found, CURPROG [" ,curprog ,"]" )
+     CALL echo (table_name )
+     SET pft_failed = uar_error
+     EXECUTE pft_log "getcodevalue" ,
+     table_name ,
+     0
+     GO TO exit_script
+    OF 1 :
+     SET table_name = build ("INFO-->GetCodeValue (" ,code_set ,"," ,'"' ,s_cdf_meaning ,'"' ,"," ,
+      option_flag ,") not found, CURPROG [" ,curprog ,"]" )
+     CALL echo (table_name )
+    OF 2 :
+     SET table_name = build ("INFO-->GetCodeValue (" ,code_set ,"," ,'"' ,s_cdf_meaning ,'"' ,"," ,
+      option_flag ,") not found, CURPROG [" ,curprog ,"]" )
+     CALL echo (table_name )
+     EXECUTE pft_log "getcodevalue" ,
+     table_name ,
+     3
+    OF 3 :
+     SET table_name = build ("ERROR-->GetCodeValue (" ,code_set ,"," ,'"' ,s_cdf_meaning ,'"' ,"," ,
+      option_flag ,") not found, CURPROG [" ,curprog ,"]" )
+     CALL echo (table_name )
+     CALL err_add_message (table_name )
+     SET pft_failed = uar_error
+   ENDCASE
+  ELSE
+   CALL echo (build ("SUCCESS-->GetCodeValue (" ,code_set ,"," ,'"' ,s_cdf_meaning ,'"' ,"," ,
+     option_flag ,") CODE_VALUE [" ,s_code_value ,"]" ) )
+  ENDIF
+  RETURN (s_code_value )
+ END ;Subroutine
+ CALL echo ("Begin PFT_LOGICAL_DOMAIN_SUBS.INC, version [434722.007]" )
+ IF ((validate (ld_concept_person ) = 0 ) )
+  DECLARE ld_concept_person = i2 WITH public ,constant (1 )
+ ENDIF
+ IF ((validate (ld_concept_prsnl ) = 0 ) )
+  DECLARE ld_concept_prsnl = i2 WITH public ,constant (2 )
+ ENDIF
+ IF ((validate (ld_concept_organization ) = 0 ) )
+  DECLARE ld_concept_organization = i2 WITH public ,constant (3 )
+ ENDIF
+ IF ((validate (ld_concept_healthplan ) = 0 ) )
+  DECLARE ld_concept_healthplan = i2 WITH public ,constant (4 )
+ ENDIF
+ IF ((validate (ld_concept_alias_pool ) = 0 ) )
+  DECLARE ld_concept_alias_pool = i2 WITH public ,constant (5 )
+ ENDIF
+ IF ((validate (ld_concept_minvalue ) = 0 ) )
+  DECLARE ld_concept_minvalue = i2 WITH public ,constant (1 )
+ ENDIF
+ IF ((validate (ld_concept_maxvalue ) = 0 ) )
+  DECLARE ld_concept_maxvalue = i2 WITH public ,constant (5 )
+ ENDIF
+ IF (NOT (validate (log_error ) ) )
+  DECLARE log_error = i4 WITH protect ,constant (0 )
+ ENDIF
+ IF (NOT (validate (log_warning ) ) )
+  DECLARE log_warning = i4 WITH protect ,constant (1 )
+ ENDIF
+ IF (NOT (validate (log_audit ) ) )
+  DECLARE log_audit = i4 WITH protect ,constant (2 )
+ ENDIF
+ IF (NOT (validate (log_info ) ) )
+  DECLARE log_info = i4 WITH protect ,constant (3 )
+ ENDIF
+ IF (NOT (validate (log_debug ) ) )
+  DECLARE log_debug = i4 WITH protect ,constant (4 )
+ ENDIF
+ IF ((validate (logmessage ,char (128 ) ) = char (128 ) ) )
+  DECLARE logmessage ((psubroutine = vc ) ,(pmessage = vc ) ,(plevel = i4 ) ) = null
+  SUBROUTINE  logmessage (psubroutine ,pmessage ,plevel )
+   DECLARE llevel = vc WITH private ,noconstant ("" )
+   DECLARE cs23372_failed_cd = f8 WITH protect ,constant (uar_get_code_by ("MEANING" ,23372 ,
+     "FAILED" ) )
+   DECLARE hmsg = i4 WITH protect ,noconstant (0 )
+   DECLARE hreq = i4 WITH protect ,noconstant (0 )
+   DECLARE hrep = i4 WITH protect ,noconstant (0 )
+   DECLARE hobjarray = i4 WITH protect ,noconstant (0 )
+   DECLARE srvstatus = i4 WITH protect ,noconstant (0 )
+   DECLARE submit_log = i4 WITH protect ,constant (4099455 )
+   CALL echo ("" )
+   CALL echo ("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::" )
+   IF ((size (trim (psubroutine ,3 ) ) > 0 ) )
+    CALL echo (concat (curprog ," : " ,psubroutine ,"() : " ,pmessage ) )
+   ELSE
+    CALL echo (concat (curprog ," : " ,pmessage ) )
+   ENDIF
+   CALL echo ("::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::" )
+   CALL echo ("" )
+   SET __hsys = 0
+   SET __lsysstat = 0
+   CALL uar_syscreatehandle (__hsys ,__lsysstat )
+   IF ((__hsys > 0 ) )
+    CALL uar_sysevent (__hsys ,plevel ,curprog ,nullterm (pmessage ) )
+    CALL uar_sysdestroyhandle (__hsys )
+   ENDIF
+   IF ((plevel = log_error ) )
+    SET hmsg = uar_srvselectmessage (submit_log )
+    SET hreq = uar_srvcreaterequest (hmsg )
+    SET hrep = uar_srvcreatereply (hmsg )
+    SET hobjarray = uar_srvadditem (hreq ,"objArray" )
+    SET stat = uar_srvsetdouble (hobjarray ,"final_status_cd" ,cs23372_failed_cd )
+    SET stat = uar_srvsetstring (hobjarray ,"task_name" ,nullterm (curprog ) )
+    SET stat = uar_srvsetstring (hobjarray ,"completion_msg" ,nullterm (pmessage ) )
+    SET stat = uar_srvsetdate (hobjarray ,"end_dt_tm" ,cnvtdatetime (curdate ,curtime3 ) )
+    SET stat = uar_srvsetstring (hobjarray ,"current_node_name" ,nullterm (curnode ) )
+    SET stat = uar_srvsetstring (hobjarray ,"server_name" ,nullterm (build (curserver ) ) )
+    SET srvstatus = uar_srvexecute (hmsg ,hreq ,hrep )
+    IF ((srvstatus != 0 ) )
+     CALL echo (build2 ("Execution of pft_save_system_activity_log was not successful" ) )
+    ENDIF
+    CALL uar_srvdestroyinstance (hreq )
+    CALL uar_srvdestroyinstance (hrep )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (profitlogicaldomaininfo ) ) )
+  RECORD profitlogicaldomaininfo (
+    1 hasbeenset = i2
+    1 logicaldomainid = f8
+    1 logicaldomainsystemuserid = f8
+  ) WITH persistscript
+ ENDIF
+ IF (NOT (validate (ld_concept_batch_trans ) ) )
+  DECLARE ld_concept_batch_trans = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_event ) ) )
+  DECLARE ld_concept_pft_event = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_ruleset ) ) )
+  DECLARE ld_concept_pft_ruleset = i2 WITH public ,constant (ld_concept_person )
+ ENDIF
+ IF (NOT (validate (ld_concept_pft_workflow ) ) )
+  DECLARE ld_concept_pft_workflow = i2 WITH public ,constant (ld_concept_prsnl )
+ ENDIF
+ IF (NOT (validate (getlogicaldomain ) ) )
+  DECLARE getlogicaldomain ((concept = i4 ) ,(logicaldomainid = f8 (ref ) ) ) = i2
+  SUBROUTINE  getlogicaldomain (concept ,logicaldomainid )
+   CALL logmessage ("getLogicalDomain" ,"Entering..." ,log_debug )
+   IF (arelogicaldomainsinuse (0 ) )
+    IF ((((concept < ld_concept_minvalue ) ) OR ((concept > ld_concept_maxvalue ) )) )
+     CALL logmessage ("getLogicalDomain" ,build2 ("Invalid logical domain concept: " ,concept ) ,
+      log_error )
+     RETURN (false )
+    ENDIF
+    FREE RECORD acm_get_curr_logical_domain_req
+    RECORD acm_get_curr_logical_domain_req (
+      1 concept = i4
+    )
+    FREE RECORD acm_get_curr_logical_domain_rep
+    RECORD acm_get_curr_logical_domain_rep (
+      1 logical_domain_id = f8
+      1 status_block
+        2 status_ind = i2
+        2 error_code = i4
+    )
+    DECLARE currentuserid = f8 WITH protect ,constant (reqinfo->updt_id )
+    IF ((profitlogicaldomaininfo->hasbeenset = true ) )
+     SET reqinfo->updt_id = profitlogicaldomaininfo->logicaldomainsystemuserid
+    ENDIF
+    SET acm_get_curr_logical_domain_req->concept = concept
+    EXECUTE acm_get_curr_logical_domain
+    SET reqinfo->updt_id = currentuserid
+    IF ((acm_get_curr_logical_domain_rep->status_block.status_ind != true ) )
+     CALL logmessage ("getLogicalDomain" ,"Failed to retrieve logical domain..." ,log_error )
+     CALL echorecord (acm_get_curr_logical_domain_rep )
+     RETURN (false )
+    ENDIF
+    SET logicaldomainid = acm_get_curr_logical_domain_rep->logical_domain_id
+    CALL logmessage ("getLogicalDomain" ,build2 ("Logical domain for concept [" ,trim (cnvtstring (
+        concept ) ) ,"]: " ,trim (cnvtstring (logicaldomainid ) ) ) ,log_debug )
+    FREE RECORD acm_get_curr_logical_domain_req
+    FREE RECORD acm_get_curr_logical_domain_rep
+   ELSE
+    SET logicaldomainid = 0.0
+   ENDIF
+   CALL logmessage ("getLogicalDomain" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (setlogicaldomain ) ) )
+  DECLARE setlogicaldomain ((logicaldomainid = f8 ) ) = i2
+  SUBROUTINE  setlogicaldomain (logicaldomainid )
+   CALL logmessage ("setLogicalDomain" ,"Entering..." ,log_debug )
+   IF (arelogicaldomainsinuse (0 ) )
+    SELECT INTO "nl:"
+     FROM (logical_domain ld )
+     WHERE (ld.logical_domain_id = logicaldomainid )
+     DETAIL
+      profitlogicaldomaininfo->logicaldomainsystemuserid = ld.system_user_id
+     WITH nocounter
+    ;end select
+    SET profitlogicaldomaininfo->logicaldomainid = logicaldomainid
+    SET profitlogicaldomaininfo->hasbeenset = true
+    SELECT INTO "nl:"
+     FROM (prsnl p )
+     WHERE (p.person_id = reqinfo->updt_id )
+     DETAIL
+      IF ((p.logical_domain_id != logicaldomainid ) ) reqinfo->updt_id = profitlogicaldomaininfo->
+       logicaldomainsystemuserid
+      ENDIF
+     WITH nocounter
+    ;end select
+    IF (validate (debug ,0 ) )
+     CALL echorecord (profitlogicaldomaininfo )
+     CALL echo (build ("reqinfo->updt_id:" ,reqinfo->updt_id ) )
+    ENDIF
+   ENDIF
+   CALL logmessage ("setLogicalDomain" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (arelogicaldomainsinuse ) ) )
+  DECLARE arelogicaldomainsinuse (null ) = i2
+  SUBROUTINE  arelogicaldomainsinuse (null )
+   CALL logmessage ("areLogicalDomainsInUse" ,"Entering..." ,log_debug )
+   DECLARE multiplelogicaldomainsdefined = i2 WITH protect ,noconstant (false )
+   SELECT INTO "nl:"
+    FROM (logical_domain ld )
+    WHERE (ld.logical_domain_id > 0.0 )
+    AND (ld.active_ind = true )
+    WITH nocounter
+   ;end select
+   IF ((curqual > 0 ) )
+    SET multiplelogicaldomainsdefined = true
+   ENDIF
+   CALL logmessage ("areLogicalDomainsInUse" ,build2 ("Multiple logical domains " ,evaluate (
+      multiplelogicaldomainsdefined ,true ,"are" ,"are not" ) ," in use" ) ,log_debug )
+   CALL logmessage ("areLogicalDomainsInUse" ,"Exiting..." ,log_debug )
+   RETURN (multiplelogicaldomainsdefined )
+  END ;Subroutine
+ ENDIF
+ DECLARE getparameterentityname ((dparmcd = f8 ) ) = vc
+ SUBROUTINE  getparameterentityname (dparmcd )
+  DECLARE parammeaning = vc WITH private ,constant (trim (uar_get_code_meaning (dparmcd ) ) )
+  DECLARE returnvalue = vc WITH private ,noconstant ("" )
+  SET returnvalue = evaluate (parammeaning ,"BEID" ,"BILLING_ENTITY" ,"OPTIONALBEID" ,
+   "BILLING_ENTITY" ,"HP ID" ,"HEALTH_PLAN" ,"HP_LIST" ,"HEALTH_PLAN" ,"PRIMARYHP" ,"HEALTH_PLAN" ,
+   "PRIPAYORHPID" ,"HEALTH_PLAN" ,"SECPAYORHPID" ,"HEALTH_PLAN" ,"TERPAYORHPID" ,"HEALTH_PLAN" ,
+   "COLLAGENCY" ,"ORGANIZATION" ,"PAYORORGID" ,"ORGANIZATION" ,"PRECOLAGENCY" ,"ORGANIZATION" ,
+   "PRIPAYORORGI" ,"ORGANIZATION" ,"SECPAYORORGI" ,"ORGANIZATION" ,"TERPAYORORGI" ,"ORGANIZATION" ,
+   "PAYER_LIST" ,"ORGANIZATION" ,"UNKNOWN" )
+  RETURN (returnvalue )
+ END ;Subroutine
+ DECLARE paramsarevalidfordomain ((paramstruct = vc (ref ) ) ,(dlogicaldomainid = f8 ) ) = i2
+ SUBROUTINE  paramsarevalidfordomain (paramstruct ,dlogicaldomainid )
+  DECLARE paramidx = i4 WITH private ,noconstant (0 )
+  DECLARE paramentityname = vc WITH private ,noconstant ("" )
+  DECLARE paramvalue = f8 WITH protect ,noconstant (0.0 )
+  DECLARE paramerror = i2 WITH protect ,noconstant (false )
+  FOR (paramidx = 1 TO paramstruct->lparams_qual )
+   SET paramentityname = getparameterentityname (paramstruct->aparams[paramidx ].dvalue_meaning )
+   SET paramvalue = cnvtreal (paramstruct->aparams[paramidx ].svalue )
+   SET paramerror = true
+   IF ((paramentityname = "BILLING_ENTITY" ) )
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (organization o )
+     PLAN (be
+      WHERE (be.billing_entity_id = $BillEntit ) )
+      JOIN (o
+      WHERE (o.organization_id = be.organization_id )
+      AND (o.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSEIF ((paramentityname = "HEALTH_PLAN" ) )
+    SELECT INTO "nl:"
+     FROM (health_plan hp )
+     PLAN (hp
+      WHERE (hp.health_plan_id = paramvalue )
+      AND (hp.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSEIF ((paramentityname = "ORGANIZATION" ) )
+    SELECT INTO "nl:"
+     FROM (organization o )
+     PLAN (o
+      WHERE (o.organization_id = paramvalue )
+      AND (o.logical_domain_id = dlogicaldomainid ) )
+     DETAIL
+      paramerror = false
+     WITH nocounter
+    ;end select
+   ELSE
+    SET paramerror = false
+   ENDIF
+   IF (paramerror )
+    RETURN (false )
+   ENDIF
+  ENDFOR
+  RETURN (true )
+ END ;Subroutine
+ IF (NOT (validate (cs278_facility_cd ) ) )
+  DECLARE cs278_facility_cd = f8 WITH protect ,constant (getcodevalue (278 ,"FACILITY" ,1 ) )
+ ENDIF
+ IF (NOT (validate (cs20849_client_cd ) ) )
+  DECLARE cs20849_client_cd = f8 WITH protect ,constant (getcodevalue (20849 ,"CLIENT" ,1 ) )
+ ENDIF
+ IF (NOT (validate (getauthorizedorganizations ) ) )
+  DECLARE getauthorizedorganizations ((authorizedorganizations = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedorganizations (authorizedorganizations )
+   CALL logmessage ("getAuthorizedOrganizations" ,"Entering..." ,log_debug )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   DECLARE isorgsecurityon = i2 WITH protect ,constant (isorganizationsecurityon (0 ) )
+   DECLARE organizationcount = i4 WITH protect ,noconstant (0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getAuthorizedOrganizations" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   IF (isorgsecurityon )
+    SELECT INTO "nl:"
+     FROM (prsnl_org_reltn por ),
+      (code_value cv ),
+      (organization o )
+     PLAN (por
+      WHERE (por.person_id = reqinfo->updt_id )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+      JOIN (o
+      WHERE (o.organization_id = por.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     ORDER BY por.organization_id
+     DETAIL
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = cv
+      .collation_seq
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ELSE
+    SELECT INTO "nl:"
+     FROM (organization o ),
+      (org_type_reltn otr )
+     PLAN (o
+      WHERE (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (otr
+      WHERE (otr.organization_id = o.organization_id )
+      AND (otr.org_type_cd = cs278_facility_cd )
+      AND (otr.active_ind = true ) )
+     ORDER BY o.organization_id
+     DETAIL
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = 99
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   CALL logmessage ("getAuthorizedOrganizations" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getauthorizedprofitorganizations ) ) )
+  DECLARE getauthorizedprofitorganizations ((authorizedorganizations = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedprofitorganizations (authorizedorganizations )
+   CALL logmessage ("getAuthorizedProFitOrganizations" ,"Entering..." ,log_debug )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   DECLARE isorgsecurityon = i2 WITH protect ,constant (isorganizationsecurityon (0 ) )
+   DECLARE organizationcount = i4 WITH protect ,noconstant (0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getAuthorizedProFitOrganizations" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   IF (isorgsecurityon )
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (be_org_reltn bor ),
+      (organization o ),
+      (prsnl_org_reltn por ),
+      (code_value cv )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (bor
+      WHERE (bor.billing_entity_id = be.billing_entity_id )
+      AND (bor.active_ind = true ) )
+      JOIN (o
+      WHERE (o.organization_id = bor.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (por
+      WHERE (por.organization_id = o.organization_id )
+      AND (por.person_id = reqinfo->updt_id )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+     ORDER BY o.organization_id
+     DETAIL
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = cv
+      .collation_seq
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ELSE
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (be_org_reltn bor ),
+      (organization o )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (bor
+      WHERE (bor.billing_entity_id = be.billing_entity_id )
+      AND (bor.active_ind = true ) )
+      JOIN (o
+      WHERE (o.organization_id = bor.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     ORDER BY o.organization_id
+     DETAIL
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = 99
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   CALL logmessage ("getAuthorizedProFitOrganizations" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getauthorizedclientorganizations ) ) )
+  DECLARE getauthorizedclientorganizations ((authorizedorganizations = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedclientorganizations (authorizedorganizations )
+   CALL logmessage ("getAuthorizedClientOrganizations" ,"Entering..." ,log_debug )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   DECLARE isorgsecurityon = i2 WITH protect ,constant (isorganizationsecurityon (0 ) )
+   DECLARE organizationcount = i4 WITH protect ,noconstant (0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getAuthorizedClientOrganizations" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   IF (isorgsecurityon )
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (account a ),
+      (pft_acct_reltn par ),
+      (organization o ),
+      (prsnl_org_reltn por ),
+      (code_value cv )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (a
+      WHERE (a.billing_entity_id = be.billing_entity_id )
+      AND (a.active_ind = true )
+      AND (a.acct_sub_type_cd = cs20849_client_cd ) )
+      JOIN (par
+      WHERE (par.acct_id = a.acct_id )
+      AND (par.active_ind = true )
+      AND (par.parent_entity_name = "ORGANIZATION" ) )
+      JOIN (o
+      WHERE (o.organization_id = par.parent_entity_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (por
+      WHERE (por.organization_id = o.organization_id )
+      AND (por.person_id = reqinfo->updt_id )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+     ORDER BY o.organization_id
+     HEAD o.organization_id
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = cv
+      .collation_seq
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ELSE
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (account a ),
+      (pft_acct_reltn par ),
+      (organization o )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (a
+      WHERE (a.billing_entity_id = be.billing_entity_id )
+      AND (a.active_ind = true )
+      AND (a.acct_sub_type_cd = cs20849_client_cd ) )
+      JOIN (par
+      WHERE (par.acct_id = a.acct_id )
+      AND (par.active_ind = true )
+      AND (par.parent_entity_name = "ORGANIZATION" ) )
+      JOIN (o
+      WHERE (o.organization_id = par.parent_entity_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     ORDER BY o.organization_id
+     HEAD o.organization_id
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = 99
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   CALL logmessage ("getAuthorizedClientOrganizations" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getauthorizedprofitandclientorganizations ) ) )
+  DECLARE getauthorizedprofitandclientorganizations ((authorizedclientorganizations = vc (ref ) ) ,(
+   authorizedprofitorganizations = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedprofitandclientorganizations (authorizedclientorganizations ,
+   authorizedprofitorganizations )
+   CALL logmessage ("getAuthorizedProFitAndClientOrganizations" ,"Entering..." ,log_debug )
+   FREE RECORD combinedorganizations
+   RECORD combinedorganizations (
+     1 organizations [* ]
+       2 organizationid = f8
+       2 confidentialitylevel = i4
+   )
+   DECLARE num = i4 WITH protect ,noconstant (0 )
+   DECLARE organizationcount = i4 WITH protect ,noconstant (0 )
+   DECLARE startidx = i4 WITH protect ,noconstant (0 )
+   DECLARE combinedorgcnt = i4 WITH protect ,noconstant (0 )
+   DECLARE clientorgcnt = i4 WITH protect ,noconstant (size (authorizedclientorganizations->
+     organizations ,5 ) )
+   DECLARE profitorgcnt = i4 WITH protect ,noconstant (size (authorizedprofitorganizations->
+     organizations ,5 ) )
+   IF ((profitorgcnt = 0 ) )
+    CALL logmessage ("getAuthorizedProFitAndClientOrganizations" ,
+     "No ProFit org to merge, exiting..." ,log_debug )
+    RETURN (true )
+   ELSEIF ((clientorgcnt = 0 ) )
+    SET stat = initrec (authorizedclientorganizations )
+    SET stat = moverec (authorizedprofitorganizations ,authorizedclientorganizations )
+    CALL logmessage ("getAuthorizedProFitAndClientOrganizations" ,
+     "No Client org to merge, exiting..." ,log_debug )
+    RETURN (true )
+   ENDIF
+   SET stat = moverec (authorizedclientorganizations ,combinedorganizations )
+   FOR (loopidx = 1 TO profitorgcnt )
+    IF ((locateval (num ,1 ,clientorgcnt ,authorizedprofitorganizations->organizations[loopidx ].
+     organizationid ,authorizedclientorganizations->organizations[num ].organizationid ) = 0 ) )
+     SET combinedorgcnt = (size (combinedorganizations->organizations ,5 ) + 1 )
+     SET stat = alterlist (combinedorganizations->organizations ,combinedorgcnt )
+     SET combinedorganizations->organizations[combinedorgcnt ].organizationid =
+     authorizedprofitorganizations->organizations[loopidx ].organizationid
+     SET combinedorganizations->organizations[combinedorgcnt ].confidentialitylevel =
+     authorizedprofitorganizations->organizations[loopidx ].confidentialitylevel
+    ENDIF
+   ENDFOR
+   SET stat = initrec (authorizedclientorganizations )
+   SELECT INTO "nl:"
+    FROM (dummyt d1 WITH seq = value (size (combinedorganizations->organizations ,5 ) ) )
+    PLAN (d1
+     WHERE (combinedorganizations->organizations[d1.seq ].organizationid > 0.0 ) )
+    ORDER BY combinedorganizations->organizations[d1.seq ].organizationid
+    DETAIL
+     organizationcount = (organizationcount + 1 ) ,
+     IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedclientorganizations->
+       organizations ,(organizationcount + 19 ) )
+     ENDIF
+     ,authorizedclientorganizations->organizations[organizationcount ].organizationid =
+     combinedorganizations->organizations[d1.seq ].organizationid ,
+     authorizedclientorganizations->organizations[organizationcount ].confidentialitylevel =
+     combinedorganizations->organizations[d1.seq ].confidentialitylevel
+    FOOT REPORT
+     stat = alterlist (authorizedclientorganizations->organizations ,organizationcount )
+    WITH nocounter
+   ;end select
+   FREE RECORD combinedorganizations
+   CALL logmessage ("getAuthorizedProFitAndClientOrganizations" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getbillingentities ) ) )
+  DECLARE getbillingentities ((billingentities = vc (ref ) ) ) = i2
+  SUBROUTINE  getbillingentities (billingentities )
+   CALL logmessage ("getBillingEntities" ,"Entering..." ,log_debug )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getBillingEntities" ,"Failed to retrieve logical domain ID..." ,log_error )
+    RETURN (false )
+   ENDIF
+   SELECT INTO "nl:"
+    FROM (billing_entity be ),
+     (organization o )
+    PLAN (be
+     WHERE (be.active_ind = true ) )
+     JOIN (o
+     WHERE (o.organization_id = be.organization_id )
+     AND (o.active_ind = true )
+     AND (o.logical_domain_id = organizationlogicaldomainid ) )
+    ORDER BY be.billing_entity_id
+    HEAD REPORT
+     billingentitycount = 0
+    DETAIL
+     billingentitycount = (billingentitycount + 1 ) ,
+     stat = alterlist (billingentities->billingentities ,billingentitycount ) ,
+     billingentities->billingentities[billingentitycount ].billingentityid = be.billing_entity_id
+    WITH nocounter
+   ;end select
+   IF (validate (debug ,0 ) )
+    CALL echorecord (billingentities )
+   ENDIF
+   CALL logmessage ("getBillingEntities" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getauthorizedbillingentities ) ) )
+  DECLARE getauthorizedbillingentities ((billingentities = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedbillingentities (billingentities )
+   CALL logmessage ("getAuthorizedBillingEntities" ,"Entering..." ,log_debug )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   DECLARE billingentitycount = i4 WITH protect ,noconstant (0 )
+   DECLARE isorgsecurityon = i2 WITH protect ,constant (isorganizationsecurityon (0 ) )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getAuthorizedBillingEntities" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   CALL echorecord (billingentities )
+   IF (isorgsecurityon )
+    SELECT DISTINCT
+     be.billing_entity_id
+     FROM (billing_entity be ),
+      (organization o ),
+      (prsnl_org_reltn por ),
+      (code_value cv )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (o
+      WHERE (o.organization_id = be.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (por
+      WHERE (por.organization_id = o.organization_id )
+      AND (por.person_id = reqinfo->updt_id )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+     ORDER BY be.billing_entity_id
+     HEAD be.billing_entity_id
+      billingentitycount = (billingentitycount + 1 ) ,
+      IF ((mod (billingentitycount ,20 ) = 1 ) ) stat = alterlist (billingentities->billingentities ,
+        (billingentitycount + 19 ) )
+      ENDIF
+      ,billingentities->billingentities[billingentitycount ].billingentityid = be.billing_entity_id
+     FOOT REPORT
+      stat = alterlist (billingentities->billingentities ,billingentitycount )
+     WITH nocounter
+    ;end select
+   ELSE
+    IF (NOT (getbillingentities (billingentities ) ) )
+     CALL logmessage ("getAuthorizedBillingEntities" ,"Failed to retrieve Billing Entity ID's..." ,
+      log_error )
+     RETURN (false )
+    ENDIF
+   ENDIF
+   IF (validate (debug ,0 ) )
+    CALL echorecord (billingentities )
+   ENDIF
+   CALL logmessage ("getAuthorizedBillingEntities" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (getauthorizedbillingentitiesbyuserid ) ) )
+  DECLARE getauthorizedbillingentitiesbyuserid ((billingentities = vc (ref ) ) ) = i2
+  SUBROUTINE  getauthorizedbillingentitiesbyuserid (billingentities )
+   CALL logmessage ("getAuthorizedBillingEntitiesByUserId" ,"Entering..." ,log_debug )
+   DECLARE billingentitycount = i4 WITH protect ,noconstant (0 )
+   DECLARE isbillingentitysecurityon = i2 WITH protect ,constant (isbillingentitysecurityon (0 ) )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("getAuthorizedBillingEntitiesByUserId" ,
+     "Failed to retrieve logical domain ID..." ,log_error )
+    RETURN (false )
+   ENDIF
+   IF (isbillingentitysecurityon )
+    SELECT DISTINCT
+     be.billing_entity_id
+     FROM (billing_entity be ),
+      (be_org_reltn bor ),
+      (organization o ),
+      (be_prsnl_group_r bg ),
+      (pft_prsnl_group_r pg )
+     PLAN (pg
+      WHERE (pg.prsnl_id = reqinfo->updt_id )
+      AND (pg.active_ind = true ) )
+      JOIN (bg
+      WHERE (bg.pft_prsnl_group_id = pg.pft_prsnl_group_id )
+      AND (bg.active_ind = true ) )
+      JOIN (be
+      WHERE (be.billing_entity_id = bg.billing_entity_id )
+      AND (be.active_ind = true ) )
+      JOIN (bor
+      WHERE (bor.billing_entity_id = be.billing_entity_id )
+      AND (bor.active_ind = true ) )
+      JOIN (o
+      WHERE (o.organization_id = bor.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     ORDER BY be.billing_entity_id
+     DETAIL
+      billingentitycount = (billingentitycount + 1 ) ,
+      IF ((mod (billingentitycount ,20 ) = 1 ) ) stat = alterlist (billingentities->billingentities ,
+        (billingentitycount + 19 ) )
+      ENDIF
+      ,billingentities->billingentities[billingentitycount ].billingentityid = be.billing_entity_id
+     FOOT REPORT
+      stat = alterlist (billingentities->billingentities ,billingentitycount )
+     WITH nocounter
+    ;end select
+   ELSE
+    IF (NOT (getbillingentities (billingentities ) ) )
+     CALL logmessage ("getAuthorizedBillingEntities" ,"Failed to retrieve Billing Entity ID's..." ,
+      log_error )
+     RETURN (false )
+    ENDIF
+   ENDIF
+   IF (validate (debug ,0 ) )
+    CALL echorecord (billingentities )
+   ENDIF
+   CALL logmessage ("getAuthorizedBillingEntitiesByUserId" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (isorganizationsecurityon ) ) )
+  DECLARE isorganizationsecurityon (null ) = i2
+  SUBROUTINE  isorganizationsecurityon (null )
+   CALL logmessage ("isOrganizationSecurityOn" ,"Entering..." ,log_debug )
+   DECLARE isorgsecurityon = i2 WITH protect ,noconstant (false )
+   IF (validate (ccldminfo->mode ,0 ) )
+    IF ((ccldminfo->sec_org_reltn > 0 ) )
+     SET isorgsecurityon = true
+    ENDIF
+   ELSE
+    SELECT INTO "nl:"
+     FROM (dm_info di )
+     WHERE (di.info_name = "SEC_ORG_RELTN" )
+     AND (di.info_domain = "SECURITY" )
+     AND (di.info_number > 0.0 )
+     DETAIL
+      isorgsecurityon = true
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL logmessage ("isOrganizationSecurityOn" ,build2 ("Organization security is " ,evaluate (
+      isorgsecurityon ,true ,"on" ,"off" ) ) ,log_debug )
+   CALL logmessage ("isOrganizationSecurityOn" ,"Exiting..." ,log_debug )
+   RETURN (isorgsecurityon )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (isbillingentitysecurityon ) ) )
+  DECLARE isbillingentitysecurityon (null ) = i2
+  SUBROUTINE  isbillingentitysecurityon (null )
+   CALL logmessage ("isBillingEntitySecurityOn" ,"Entering..." ,log_debug )
+   DECLARE isbillingentitysecurityon = i2 WITH protect ,noconstant (false )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("isBillingEntitySecurityOn" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   SELECT INTO "nl:"
+    FROM (dm_info di )
+    WHERE (di.info_name = "SEC_BE_RELTN" )
+    AND (di.info_domain = "SECURITY" )
+    AND (di.info_domain_id = organizationlogicaldomainid )
+    AND (di.info_number > 0.0 )
+    DETAIL
+     isbillingentitysecurityon = true
+    WITH nocounter
+   ;end select
+   CALL logmessage ("isBillingEntitySecurityOn" ,build2 ("Billing Entity security is " ,evaluate (
+      isbillingentitysecurityon ,true ,"on" ,"off" ) ) ,log_debug )
+   CALL logmessage ("isBillingEntitynSecurityOn" ,"Exiting..." ,log_debug )
+   RETURN (isbillingentitysecurityon )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (isconfidentialitysecurityon ) ) )
+  DECLARE isconfidentialitysecurityon (null ) = i2
+  SUBROUTINE  isconfidentialitysecurityon (null )
+   CALL logmessage ("isConfidentialitySecurityOn" ,"Entering..." ,log_debug )
+   DECLARE isconfidsecurityon = i2 WITH protect ,noconstant (false )
+   IF (validate (ccldminfo->mode ,0 ) )
+    IF ((ccldminfo->sec_confid > 0 ) )
+     SET isconfidsecurityon = true
+    ENDIF
+   ELSE
+    SELECT INTO "nl:"
+     FROM (dm_info di )
+     WHERE (di.info_name = "SEC_CONFID" )
+     AND (di.info_domain = "SECURITY" )
+     AND (di.info_number > 0.0 )
+     DETAIL
+      isconfidsecurityon = true
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL logmessage ("isConfidentialitySecurityOn" ,build2 ("Confidentiality level security is " ,
+     evaluate (isconfidsecurityon ,true ,"on" ,"off" ) ) ,log_debug )
+   CALL logmessage ("isConfidentialitySecurityOn" ,"Exiting..." ,log_debug )
+   RETURN (isconfidsecurityon )
+  END ;Subroutine
+ ENDIF
+ DECLARE getauthorizedprofitorgsforbe ((billingentityids = vc ) ,(authorizedorganizations = vc (ref
+   ) ) ) = i2
+ SUBROUTINE  getauthorizedprofitorgsforbe (billingentityids ,authorizedorganizations )
+  CALL logmessage ("getAuthorizedProFitOrgsForBe" ,"Entering..." ,log_debug )
+  DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+  DECLARE isorgsecurityon = i2 WITH protect ,constant (isorganizationsecurityon (0 ) )
+  DECLARE organizationcount = i4 WITH protect ,noconstant (0 )
+  DECLARE iidx = i4 WITH protect ,noconstant (0 )
+  IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+   CALL logmessage ("getAuthorizedProFitOrgsForBe" ,"Failed to retrieve logical domain ID..." ,
+    log_error )
+   RETURN (false )
+  ENDIF
+  IF (isorgsecurityon )
+   SELECT INTO "nl:"
+    FROM (billing_entity be ),
+     (be_org_reltn bor ),
+     (organization o ),
+     (prsnl_org_reltn por ),
+     (code_value cv )
+    PLAN (be
+     WHERE expand (iidx ,1 ,size (billingentityids->billingentities ,5 ) ,be.billing_entity_id ,
+      billingentityids->billingentities[iidx ].billingentityid )
+     AND (be.active_ind = true ) )
+     JOIN (bor
+     WHERE (bor.billing_entity_id = be.billing_entity_id )
+     AND (bor.active_ind = true ) )
+     JOIN (o
+     WHERE (o.organization_id = bor.organization_id )
+     AND (o.active_ind = true )
+     AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     JOIN (por
+     WHERE (por.organization_id = o.organization_id )
+     AND (por.person_id = reqinfo->updt_id )
+     AND (por.active_ind = true )
+     AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+     AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+     JOIN (cv
+     WHERE (cv.code_value = por.confid_level_cd ) )
+    ORDER BY o.organization_id
+    HEAD o.organization_id
+     organizationcount = (organizationcount + 1 ) ,
+     IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+       organizations ,(organizationcount + 19 ) )
+     ENDIF
+     ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id ,
+     authorizedorganizations->organizations[organizationcount ].confidentialitylevel = cv
+     .collation_seq
+    FOOT REPORT
+     stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+    WITH nocounter
+   ;end select
+  ELSE
+   SELECT INTO "nl:"
+    FROM (billing_entity be ),
+     (be_org_reltn bor ),
+     (organization o )
+    PLAN (be
+     WHERE expand (iidx ,1 ,size (billingentityids->billingentities ,5 ) ,be.billing_entity_id ,
+      billingentityids->billingentities[iidx ].billingentityid )
+     AND (be.active_ind = true ) )
+     JOIN (bor
+     WHERE (bor.billing_entity_id = be.billing_entity_id )
+     AND (bor.active_ind = true ) )
+     JOIN (o
+     WHERE (o.organization_id = bor.organization_id )
+     AND (o.active_ind = true )
+     AND (o.logical_domain_id = organizationlogicaldomainid ) )
+    ORDER BY o.organization_id
+    HEAD o.organization_id
+     organizationcount = (organizationcount + 1 ) ,
+     IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+       organizations ,(organizationcount + 19 ) )
+     ENDIF
+     ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id ,
+     authorizedorganizations->organizations[organizationcount ].confidentialitylevel = 99
+    FOOT REPORT
+     stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+    WITH nocounter
+   ;end select
+  ENDIF
+  CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+  CALL logmessage ("getAuthorizedProFitOrgsForBe" ,"Exiting..." ,log_debug )
+  RETURN (true )
+ END ;Subroutine
+ FREE RECORD billingentitieslist
+ RECORD billingentitieslist (
+   1 billingentities [* ]
+     2 billingentityid = f8
+ )
+ SET stat = getauthorizedbillingentities (billingentitieslist )
+ IF (NOT (stat ) )
+  CALL logmessage ("PFT_RPT_VALIDATE_BE_SUBS" ,
+   "Failed while finding logical domain billing entities " ,log_error )
+ ENDIF
+ IF (NOT (validate (validatebillingentity ) ) )
+  DECLARE validatepromptbillingentity ((billingentityname = vc ) ,(validbillingentitylist = vc (ref
+    ) ) ,(getparticipating = i2 ) ) = i2
+  SUBROUTINE  validatepromptbillingentity (billingentityname ,validbillingentitylist ,
+   getparticipating )
+   CALL logmessage ("validateBillingEntity" ,"Entering..." ,log_debug )
+   DECLARE becount = i4 WITH protect ,noconstant (0 )
+   DECLARE beindex = i4 WITH protect ,noconstant (0 )
+   DECLARE parentfound = i2 WITH protect ,noconstant (false )
+   IF ((cnvtupper (cnvtalphanum (billingentityname ) ) = "DEFAULTDELIVERYSYSTEM" ) )
+    SELECT INTO "nl:"
+     FROM (delivery_system ds ),
+      (billing_entity be )
+     WHERE (ds.active_ind = 1 )
+     AND expand (beindex ,1 ,size (billingentitieslist->billingentities ,5 ) ,ds.billing_entity_id ,
+      billingentitieslist->billingentities[beindex ].billingentityid )
+     AND (be.billing_entity_id = ds.billing_entity_id )
+     DETAIL
+      becount = (becount + 1 ) ,
+      stat = alterlist (validbillingentitylist->billingentities ,becount ) ,
+      validbillingentitylist->billingentities[becount ].billingentityid = ds.billing_entity_id ,
+      validbillingentitylist->billingentities[becount ].billingentityname = be.be_name
+     WITH nocounter
+    ;end select
+    IF (getparticipating
+    AND (validbillingentitylist->billingentities[becount ].billingentityid > 0.0 ) )
+     SELECT INTO "nl:"
+      FROM (billing_entity be )
+      WHERE (be.parent_be_id = validbillingentitylist->billingentities[becount ].billingentityid )
+      AND expand (beindex ,1 ,size (billingentitieslist->billingentities ,5 ) ,be.billing_entity_id ,
+       billingentitieslist->billingentities[beindex ].billingentityid )
+      AND (be.active_ind = 1 )
+      DETAIL
+       becount = (becount + 1 ) ,
+       stat = alterlist (validbillingentitylist->billingentities ,becount ) ,
+       validbillingentitylist->billingentities[becount ].billingentityid = be.billing_entity_id ,
+       validbillingentitylist->billingentities[becount ].billingentityname = be.be_name ,
+       validbillingentitylist->billingentities[becount ].parentbillingentityid = be.parent_be_id
+      WITH nocounter
+     ;end select
+    ENDIF
+   ELSE
+    SELECT INTO "nl:"
+     FROM (billing_entity be )
+     WHERE (be.be_name_key = patstring (build (cnvtupper (cnvtalphanum (billingentityname ) ) ,"*" )
+      ) )
+     AND (be.active_ind = 1 )
+     AND expand (beindex ,1 ,size (billingentitieslist->billingentities ,5 ) ,be.billing_entity_id ,
+      billingentitieslist->billingentities[beindex ].billingentityid )
+     ORDER BY be.parent_be_id
+     DETAIL
+      IF (getparticipating ) becount = (becount + 1 ) ,stat = alterlist (validbillingentitylist->
+        billingentities ,becount ) ,validbillingentitylist->billingentities[becount ].billingentityid
+        = be.billing_entity_id ,validbillingentitylist->billingentities[becount ].billingentityname
+       = be.be_name ,validbillingentitylist->billingentities[becount ].parentbillingentityid = be
+       .parent_be_id
+      ELSE
+       IF ((((parentfound = false ) ) OR ((be.parent_be_id = 0.0 ) )) ) becount = (becount + 1 ) ,
+        stat = alterlist (validbillingentitylist->billingentities ,becount ) ,validbillingentitylist
+        ->billingentities[becount ].billingentityid = be.billing_entity_id ,validbillingentitylist->
+        billingentities[becount ].billingentityname = be.be_name ,validbillingentitylist->
+        billingentities[becount ].parentbillingentityid = be.parent_be_id ,
+        IF ((be.parent_be_id = 0.0 ) ) parentfound = true
+        ENDIF
+       ENDIF
+      ENDIF
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL logmessage ("validateBillingEntity" ,"Exiting..." ,log_debug )
+   IF ((size (validbillingentitylist->billingentities ,5 ) > 0 ) )
+    RETURN (true )
+   ELSE
+    RETURN (false )
+   ENDIF
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (validatebillingentitylist ) ) )
+  DECLARE validatebillingentitylist ((suppliedbillingentities = vc (ref ) ) ,(validbillingentitylist
+   = vc (ref ) ) ) = i2
+  SUBROUTINE  validatebillingentitylist (suppliedbillingentities ,validbillingentitylist )
+   CALL logmessage ("validateBillingEntityList" ,"Entering..." ,log_debug )
+   DECLARE beindex2 = i4 WITH protect ,noconstant (0 )
+   SELECT INTO "nl:"
+    FROM (billing_entity be ),
+     (dummyt d1 WITH seq = value (size (suppliedbillingentities->billingentities ,5 ) ) ),
+     (dummyt d2 WITH seq = value (size (billingentitieslist->billingentities ,5 ) ) )
+    PLAN (d1
+     WHERE (suppliedbillingentities->billingentities[d1.seq ].billingentityid > 0.0 ) )
+     JOIN (d2
+     WHERE (billingentitieslist->billingentities[d2.seq ].billingentityid = suppliedbillingentities->
+     billingentities[d1.seq ].billingentityid ) )
+     JOIN (be
+     WHERE (be.billing_entity_id = billingentitieslist->billingentities[d2.seq ].billingentityid ) )
+    DETAIL
+     matchfound = true ,
+     beindex2 = (beindex2 + 1 ) ,
+     stat = alterlist (validbillingentitylist->billingentities ,beindex2 ) ,
+     validbillingentitylist->billingentities[beindex2 ].billingentityid = be.billing_entity_id ,
+     validbillingentitylist->billingentities[beindex2 ].billingentityname = be.be_name ,
+     validbillingentitylist->billingentities[beindex2 ].parentbillingentityid = be.parent_be_id
+    WITH nocounter
+   ;end select
+   IF ((validate (debug ,0 ) = 1 )
+   AND (matchfound = 1 ) )
+    CALL echorecord (validbillingentitylist )
+   ENDIF
+   CALL logmessage ("validateBillingEntityList" ,"Exiting..." ,log_debug )
+   RETURN (matchfound )
+  END ;Subroutine
+ ENDIF
+ IF (NOT (validate (usenewbillingentitylogic ) ) )
+  DECLARE usenewbillingentitylogic (null ) = i2
+  SUBROUTINE  usenewbillingentitylogic (null )
+   DECLARE usenewlogic = i2 WITH protect ,noconstant (true )
+   DECLARE organizationlogicaldomainid = f8 WITH protect ,noconstant (0.0 )
+   IF (NOT (getlogicaldomain (ld_concept_organization ,organizationlogicaldomainid ) ) )
+    CALL logmessage ("useNewBillingEntityLogic" ,"Failed to retrieve logical domain ID..." ,
+     log_error )
+    RETURN (false )
+   ENDIF
+   IF (NOT (validate (dm_info_domain_profit_reporting ) ) )
+    DECLARE dm_info_domain_profit_reporting = vc WITH protect ,constant ("PROFIT_REPORTING" )
+   ENDIF
+   IF (NOT (validate (dm_info_name_bypass_new_be_logic ) ) )
+    DECLARE dm_info_name_bypass_new_be_logic = vc WITH protect ,constant (
+     "BYPASS_NEW_BILLING_ENTITY_LOGIC" )
+   ENDIF
+   SELECT INTO "nl:"
+    FROM (dm_info d )
+    WHERE (d.info_domain = dm_info_domain_profit_reporting )
+    AND (d.info_name = dm_info_name_bypass_new_be_logic )
+    AND (d.info_domain_id = organizationlogicaldomainid )
+    AND (d.info_number > 0.0 )
+    DETAIL
+     usenewlogic = false
+    WITH nocounter
+   ;end select
+   RETURN (usenewlogic )
+  END ;Subroutine
+ ENDIF
+ SET code_set = 319
+ SET cdf_meaning = "FIN NBR"
+ SET cnt = 1
+ SET code_value = 0.0
+ SET stat = uar_get_meaning_by_codeset (code_set ,nullterm (cdf_meaning ) ,cnt ,code_value )
+ SET alias_code = code_value
+ SET code_set = 4
+ SET cdf_meaning = "MRN"
+ SET cnt = 1
+ SET code_value = 0.0
+ SET stat = uar_get_meaning_by_codeset (code_set ,nullterm (cdf_meaning ) ,cnt ,code_value )
+ SET mrn_code = code_value
+ FREE SET be_info
+ RECORD be_info (
+   1 be_list [* ]
+     2 be_id = f8
+     2 be_name = vc
+ )
+ SET be_count = 0
+ SET x = 0
+ IF (usenewbillingentitylogic (0 ) )
+  DECLARE beinfoindex = i4 WITH protect ,noconstant (0 )
+  DECLARE getparticipating = i2 WITH protect ,noconstant (false )
+  FREE RECORD authorizedbillingentitylist
+  RECORD authorizedbillingentitylist (
+    1 billingentities [* ]
+      2 billingentityid = f8
+      2 billingentityname = vc
+      2 parentbillingentityid = f8
+  )
+  IF (( $2 != "Default Delivery System" ) )
+   SET getparticipating = true
+  ENDIF
+  IF (NOT (validatepromptbillingentity ( $2 ,authorizedbillingentitylist ,getparticipating ) ) )
+   CALL logmessage (curprog ,"No valid billing entities found" ,log_warning )
+  ENDIF
+  SET stat = alterlist (be_info->be_list ,size (authorizedbillingentitylist->billingentities ,5 ) )
+  FOR (beinfoindex = 1 TO size (authorizedbillingentitylist->billingentities ,5 ) )
+   SET be_info->be_list[beinfoindex ].be_id = authorizedbillingentitylist->billingentities[
+   beinfoindex ].billingentityid
+   SET be_info->be_list[beinfoindex ].be_name = authorizedbillingentitylist->billingentities[
+   beinfoindex ].billingentityname
+   SET be_count = beinfoindex
+  ENDFOR
+  SET x = size (authorizedbillingentitylist->billingentities ,5 )
+ ELSE
+  SET parent = "F"
+  IF (( $2 = "Default Delivery System" )
+  AND ( $2 != char (42 ) ) )
+   SET parent = "T"
+   SELECT DISTINCT INTO "nl:"
+    b.billing_entity_id ,
+    b.be_name
+    FROM (billing_entity b )
+    WHERE (b.parent_be_id > 0 )
+    AND (b.active_ind = 1 )
+    DETAIL
+     stat = alterlist (be_info->be_list ,1 ) ,
+     be_info->be_list[1 ].be_id = b.parent_be_id ,
+     x = 1 ,
+     be_count = 1
+    WITH nocounter
+   ;end select
+   IF ((curqual = 0 ) )
+    SELECT INTO "nl:"
+     ds.billing_entity_id
+     FROM (delivery_system ds )
+     WHERE (ds.active_ind = 1 )
+     DETAIL
+      stat = alterlist (be_info->be_list ,1 ) ,
+      be_info->be_list[1 ].be_id = ds.billing_entity_id ,
+      x = 1 ,
+      be_count = 1
+     WITH nocounter
+    ;end select
+   ENDIF
+   SELECT DISTINCT INTO "nl:"
+    b.be_name
+    FROM (billing_entity b )
+    WHERE (b.billing_entity_id = be_info->be_list[1 ].be_id )
+    DETAIL
+     be_info->be_list[1 ].be_name = b.be_name
+    WITH nocounter
+   ;end select
+  ELSE
+   SELECT DISTINCT INTO "nl:"
+    b.billing_entity_id ,
+    b.be_name
+    FROM (billing_entity b )
+    WHERE (b.be_name_key = patstring (build (cnvtupper (cnvtalphanum ( $2 ) ) ,"*" ) ) )
+    AND (b.active_ind = 1 )
+    ORDER BY b.billing_entity_id ,
+     b.be_name
+    DETAIL
+     x = (x + 1 ) ,
+     IF ((x > size (be_info->be_list ,5 ) ) ) stat = alterlist (be_info->be_list ,x )
+     ENDIF
+     ,be_info->be_list[x ].be_id = b.billing_entity_id ,
+     be_info->be_list[x ].be_name = b.be_name ,
+     be_count = x
+    WITH nocounter
+   ;end select
+  ENDIF
+ ENDIF
+ IF ((x = 0 ) )
+  CALL echo ("No billing Entity found" )
+  RETURN
+ ENDIF
+ RECORD datemin3 (
+   1 value = dq8
+ )
+ SET datemin3->value = datetimeadd (cnvtdatetime (curdate ,0 ) ,- (3 ) )
+ 
+ SELECT DISTINCT INTO trim ( $1 )
+	p.name_full_formatted
+	, e.encntr_type_cd
+	, fin_nbr = ea.alias
+	, mrn = pa.alias
+	, e.disch_dt_tm
+	, med_service = uar_get_code_display (e.med_service_cd )
+	, be.be_name
+	, encntr_type = substring (1 ,20 ,uar_get_code_display (e.encntr_type_cd ) )
+	, p2.name_full_formatted
+	, SCH_STATE_DISP = UAR_GET_CODE_DISPLAY(SA.SCH_STATE_CD )
+	, RESOURCE_DISP = UAR_GET_CODE_DISPLAY(SA.RESOURCE_CD)
+	, APPT_TYPE_DISP = UAR_GET_CODE_DISPLAY(SE.APPT_TYPE_CD)
+ 
+FROM
+	(dummyt   d  WITH seq = value (be_count ))
+	, billing_entity   be
+	, be_org_reltn   bo
+	, encounter   e
+	, encntr_alias   ea
+	, person   p
+	, person_alias   pa
+	, pft_encntr   pe
+	, person   p2
+	, encntr_prsnl_reltn   epr
+	, sch_appt   sa
+	, sch_event   se
+ 
+;abs
+PLAN (d )
+ 
+   JOIN (be
+   WHERE (be.billing_entity_id = be_info->be_list[d.seq ].be_id ) )
+   JOIN (bo
+   WHERE (be.billing_entity_id = bo.billing_entity_id ) )
+   JOIN (e
+   WHERE (e.disch_dt_tm < cnvtdatetime (datemin3->value ) )
+   and (E.LOC_FACILITY_CD = $FAC);ashelton
+   AND ((e.organization_id + 0 ) = (bo.organization_id + 0 ) )
+   AND (e.med_service_cd != 20138433.00)
+   AND not exists
+       (SELECT
+	sa1.encntr_id
+ 
+FROM
+	sch_appt   sa1
+ 
+ 
+WHERE (sa1.encntr_id = e.encntr_id)
+   AND (sa1.resource_cd in (270271935, 2554058723, 2554058789, 2553892113, 2554613319, 2554311707, 2554311723,
+   2554311739,2554311755,2554311763,2554311779,2554311787,2554311803,2554311819,2554,11835,2554311851,
+   2554311867,2554311899,2554311915,2554311931,2554311947,2554311963,2554311979,2554311995,2554312011,
+   2554312027,2554312043,2554312059,2554312075,2554312091,2554336625,2554336681,2554325323,2554688249,
+   2554688257,2554688265,2554688291,2554688299,2555341225,2555706485,2555709389,2560887217))) )
+ 
+   JOIN (ea
+   WHERE (e.encntr_id = ea.encntr_id )
+   AND (ea.encntr_alias_type_cd = alias_code )
+   AND e.encntr_type_cd = $EnctrType )
+   JOIN (p
+   WHERE (e.person_id = p.person_id )
+   and (p.name_full_formatted != "XX*")
+   and (p.name_full_formatted != "ZZ*") )
+   JOIN (pa
+   WHERE (p.person_id = pa.person_id )
+   AND (pa.person_alias_type_cd = mrn_code ) )
+   JOIN (pe
+   WHERE (outerjoin (e.encntr_id ) = pe.encntr_id )
+   AND (pe.last_charge_dt_tm = null ) )
+   JOIN (epr
+   WHERE (epr.encntr_id = e.encntr_id
+   AND (epr.encntr_prsnl_r_cd = 1119.00)))
+   JOIN (p2
+   WHERE (p2.person_id = epr.prsnl_person_id))
+   JOIN (sa
+   WHERE (sa.encntr_id = e.encntr_id)
+   AND (sa.sch_state_cd = 4537)) ;not in (4544, 4543, 4538, 4535, 4545)))
+   Join (se
+	where (se.sch_event_id = sa.sch_event_id)
+	and (se.appt_type_cd in (667104.00	;Surgery
+,2553889485.00 ;	PM New
+,2553890305.00 ;	PM Established
+,2554058531.00 ;	OB New
+,2554058563.00 ;	OB Established
+,2554058579.00 ;	GYN New
+,2554058595.00 ;	GYN Established
+,2554058611.00 ;	GYN Acute
+,2554058627.00 ;	OB Ultrasound
+,2554058643.00 ;	GYN Ultrasound
+,2554313145.00 ;	NEU New
+,2554313215.00 ;	NEU Established
+,2554313241.00 ;	NEU Procedure
+,2554313321.00 ;	NS Consult
+,2554313345.00 ;	NS Follow Up 15
+,2554313361.00 ;	NS Follow Up 30
+,2554313377.00 ;	FQHC New
+,2554315105.00 ;	FQHC Established
+,2554315253.00 ;	FQHC Procedures
+,2554316077.00 ;	FQHC BH New
+,2554316117.00 ;	FQHC BH Established
+,2554316169.00 ;	Urology New
+,2554316205.00 ;	Urology Follow Up
+,2554316253.00 ;	Urology Procedure 30
+,2554316269.00 ;	Urology Procedure 60
+,2554316285.00 ;	Surg New
+,2554316319.00 ;	Surg Office Visit
+,2554316343.00 ;	Surg Procedures
+,2554316415.00 ;	Pulm New
+,2554316453.00 ;	Pulm Established
+,2554316469.00 ;	Pulm Same Day
+,2554316485.00 ;	Pulm Extended Follow Up
+,2554316517.00 ;	Pulm Hospital Follow Up
+,2554316605.00 ;	Pulm Respiratory Therapist 20
+,2554316635.00 ;	Pulm Respiratory Therapist 60
+,2554316667.00 ;	Pulm Respiratory Therapist 120
+,2554317183.00 ;	Endo New 30 Minutes
+,2554317211.00 ;	Endo Established
+,2554346619.00 ;	PC New
+,2554346643.00 ;	PC Established
+,2554346659.00 ;	PC Procedure 15
+,2554346723.00 ;	PC Procedure 20 AA
+,2554346771.00 ;	PC Procedure 30
+,2554346843.00 ;	PC Procedure 45 AA
+,2554346955.00 ;	PC TCM 15
+,2554346979.00 ;	PC TCM 30
+,2554347059.00 ;	PC Same Day
+,2554347391.00 ;	PC Medicare Wellness
+,2554347439.00 ;	PC HealthSprings 360
+,2554347455.00 ;	Urgent Care School Physicals
+,2554347559.00 ;	Urgent Care Physicals
+,2554347623.00 ;	Urgent Care Established
+,2554347639.00 ;	Urgent Care New
+,2554347743.00 ; 	PC DOT Physical
+,2554347783.00 ;	PC PAF
+,2554347831.00 ;	PC Preventative
+,2554350379.00 ;	Rhe Established
+,2554535389.00 ;	Endo Diabetic New 30 Minutes
+,2554535405.00 ;	Endo Diabetic Follow Up 15 Minutes
+,2554535445.00 ;	PC New Medicare
+,2554562063.00 ;	Onc Follow Up
+,2554562079.00 ;	Onc New Patient
+,2554567913.00 ;	Occ Med New
+,2554567929.00 ;	Occ Med Established
+,2554568015.00 ;	Occ Med Occupational Health
+,2554688151.00 ;	PC Labs/Nurse
+,2555706153.00 ;	ID New
+,2555706211.00 ;	ID Follow Up
+,2555706227.00 ;	ID Hospital Follow Up
+,2559164945.00 ;	GYN Onc New
+,2559165025.00 ;	GYN Onc Established
+,2559165049.00 ;	GYN Onc Procedures
+,2559239939.00 ;	Rhe New
+,2559622493.00 ;	FQHC Client Bill 20/30
+,2559622517.00 ;	FQHC Established Same Day
+,2559622549.00 ;	FQHC New Same Day
+,2559622581.00 ;	FQHC Preventative
+,2559623539.00 ;	FQHC Medicare Wellness
+,2559625577.00 ;	FQHC Hospital Follow Up
+,2559625625.00 ;	FQHC HealthSpring 360
+,2559625657.00 ;	FQHC DOT Physical
+,2559629263.00 ;	PC Labs AA
+,2559630495.00 ;	NS Established
+,2560397679.00 ;	Urology Procedure 15
+,2560605115.00 ;	Plastic Surg New
+,2560608719.00 ;	Plastic Surg Established
+,2560608743.00 ;	Plastic Surg Follow Up
+,2560608767.00 ;	Plastic Surg Procedure
+,2560608791.00 ;	Plastic Surg Pre-Op
+,2560698393.00 ;	Core Walk In
+,2560949293.00 ;	Urology Injection 15
+,2566075463.00 ;	GYN Onc Established 60
+,2575263983.00 ;	FQHC Walk In
+,2596826759.00 ;	SH Urgent Care
+,2613538441.00 ;	GYN Procedures
+,2718115579.00 ;	Endo Established (Transfer) 30 Minutes
+,2718115881.00 ;	Endo Follow Up 15 Minutes
+,2718115997.00 ;	Endo Hospital Follow Up 30 Minutes
+,2766865395.00 ;	FQHC Established Complex 30
+,2766865817.00 ;	FQHC Established Fasting
+,2766866177.00 ;	FQHC Established Non-Fasting
+,2876353901.00 ;	IRIS Appointment
+,2990279123.00 ;	PC Pharmacist Established
+,2990281615.00 ;	PC Pharmacist New
+,3015580315.00 ;	OB Acute Appointment
+,3068259941.00 ;	FQHC Established Telemedicine
+,3071750573.00 ;	Onc Telemedicine,
+,3143824627.00 ;	GYN Acute RHC
+,3143825339.00 ;	GYN Establsihed RHC
+,3143827895.00 ;	GYN New RHC
+,3143842631.00 ;	GYN Procedures RHC
+,3143845203.00 ;	GYN Ultrasound RHC
+,3143850499.00 ;	OB Acute RHC
+,3143854433.00 ;	OB Established RHC
+,3143857259.00 ;	OB New RHC
+,3143861955.00 ;	OB Ultrasound RHC
+,3149265947.00 ;	PC Established RHC
+,3149266001.00 ;	PC Established Telemedicine RHC
+,3149273567.00 ;	PC HealthSprings 360 RHC
+,3149273853.00 ;	PC Medicare Wellness RHC
+,3149274009.00 ;	PC New RHC
+,3149274539.00 ;	PC Preventative RHC
+,3149274761.00 ;	PC Procedure 15 RHC
+,3149275167.00 ;	PC Procedure 30 RHC
+,3149275465.00 ;	PC TCM 15 RHC
+,3149275579.00 ;	PC TCM 30 RHC
+,3149287101.00 ;	PC Same Day RHC
+,3150395881.00 ;	PC Established Fasting RHC
+,3151748033.00 ;	PC New Medicare RHC
+,3152679407.00 ;	PC X-Ray RHC
+,3152725599.00 ;	Urgent Care Established RHC
+,3152730097.00 ;	Urgent Care New RHC
+,3152733291.00 ;	Urgent Care Physicals RHC
+,3152734013.00 ;	Urgent Care School Physicals RHC
+,3168728195.00 ; 	Rhe Established RHC
+,3168736837.00 ;	Rhe New RHC
+,3168797361.00 ;	Core Walk In RHC,
+,3171378159.00 ;	Occ Med Established RHC
+,3196070547.00 ;	IRIS Appointment RHC
+,3344058861.00 ;	Onc Cerner
+,3073828787.00 ;	Rhe Established Telemedicine
+,3168729761.00 ;	Rhe Established Telemedicine RHC
+,3492592735.00    )));	Wellness Covid Test
+ 
+ 
+ORDER BY
+	e.disch_dt_tm   DESC
+	, be.be_name
+	, med_service
+	, p.name_full_formatted
+ 
+HEAD REPORT
+   report_total = 0
+  ;HEAD PAGE
+   row + 2 ,
+   CALL center (trim (be.be_name ) ,0 ,79 ) ,
+   row + 1 ,
+   CALL center ("Patients Discharged Past 3 Days and Charges Not Posted to Account" ,0 ,79 ) ,
+   row + 1 ,
+   col 0 ,
+   CALL center (concat ("For: " ,format (curdate ,"mm/dd/yyyy;;d" ) ) ,0 ,79 ) ,
+   row + 1 ,
+   col 4 ,
+   "DATE: " ,
+   curdate "mm/dd/yyyy;;d" ,
+   col 67 ,
+   "Page" ,
+   col 72 ,
+   curpage "####" ,
+   row + 1 ,
+   col 4 ,
+   "TIME: " ,
+   curtime "hh:mm;;m" ,
+   row + 1 ,
+   col 0 ,
+   "Medical Service: " ,
+   med_service ,
+   row + 2 ,
+   col 0 ,
+   "Name" ,
+   col 32 ,
+   "Fin Nbr" ,
+   col 42 ,
+   "MRN" ,
+   col 50 ,
+   "Disch Date" ,
+   col 62 ,
+   "Encntr Type" ,
+   col 75,
+   "Attending Phy",
+   col 105,
+   "Resource",
+   col 155,
+   "Appt Type"
+   row + 1 ,
+   col 0 ,
+   under = fillstring (199 ,"-" ) ,
+   under ,
+   row + 1
+  HEAD be.be_name
+   row + 0 ,num_be = 0
+  HEAD med_service
+   row + 0 ,num_ms = 0
+  DETAIL
+   col 0 ,
+   CALL print (trim (substring (1 ,40 ,p.name_full_formatted ) ) ) ,
+   col 32 ,
+   CALL print (trim (substring (1 ,18 ,fin_nbr ) ) ) ,
+   col 42 ,
+   CALL print (trim (substring (1 ,18 ,mrn ) ) ) ,
+   col 50 ,
+   e.disch_dt_tm "mm/dd/yyyy;;d" ,
+   col 62 ,
+   encntr_type ,
+   num_ms = (num_ms + 1 ) ,
+   col 75,
+   CALL print (trim (substring (1 ,40 ,p2.name_full_formatted ) ) ) ,
+   col 105,
+   CALL print (trim (substring (1 ,50 ,RESOURCE_DISP ))) ,
+   col 155,
+   CALL print (trim (substring (1 ,50 ,APPT_TYPE_DISP ))) ,
+   row + 1
+ 
+  FOOT  med_service
+   num_be = (num_be + num_ms ) ,row + 1 ,col 0 ,"Total for Service: " ,med_service ,col 60 ,num_ms
+   "#########;r" ;,
+   ;BREAK
+  FOOT  be.be_name
+   report_total = (report_total + num_be ) ,row + 1 ,col 0 ,"Total for Billing Entity: " ,be.be_name
+   ,col 60 ,num_be "#########;r" ;,
+  ; BREAK
+  FOOT REPORT
+   row + 1 ,
+   col 40 ,
+   "Report Total: " ,
+   col 60 ,
+   report_total "#########;r"
+ 
+WITH nullreport,maxcol= 200, compress ;,landscape
+ ;end select
+END GO
+ 
