@@ -1,0 +1,590 @@
+drop program 1_billing_encounters go
+create program 1_billing_encounters
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Beginning Date" = ""
+	, "Select Ending Date  Time" = "" 
+
+with OUTDEV, BEG_DT, END_DT
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+
+
+DECLARE fin_cd					= F8 WITH constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+DECLARE mrn_cd					= F8 WITH constant(uar_get_code_by("MEANING",319,"MRN")),protect;2.0
+DECLARE ssn_cd					= F8 WITH constant(uar_get_code_by("DISPLAYKEY",4,"SSN")),protect;2.0
+declare home_address_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'HOME'))
+declare home_phone_cd 			= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'HOME'))
+ 
+declare msdrg_cd 				= f8 with constant(uar_get_code_by("DISPLAYKEY",400,"MSDRG")),protect ;4326105
+declare drg_cd 					= f8 with constant(uar_get_code_by("DISPLAYKEY",401,"MSDRG")),protect
+ 
+declare guarantor_type_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",351,"DEFAULTGUARANTOR"))
+DECLARE guarantor_mrn_cd		= F8 WITH constant(uar_get_code_by("DISPLAYKEY",4,"MRN")),protect;2.0
+ 
+declare asOfDateTime			= c19 with CONSTANT(format(curdate,'mm/dd/yyyy hh:mm;;d')), protect
+ 
+ 
+declare medicaid_fin_class_cd 	= f8 with constant(uar_get_code_by("DISPLAYKEY",354,"MEDICAID")),protect ; 634775.00
+;SET CODE_SET = 354
+;SET CDF_MEANING = "MEDICARE"
+;SET CNT = 1
+;SET CODE_VALUE = 0.0
+;SET STAT = UAR_GET_MEANING_BY_CODESET (CODE_SET ,NULLTERM (CDF_MEANING ) ,CNT ,CODE_VALUE )
+;SET MEDICARE_FIN_CLASS_CODE = CODE_VALUE
+ 
+;
+;select * from code_value cv
+;plan cv
+;where cv.code_value = 4326105
+ 
+call echo(asOfDateTime)
+call echo(build2("drg codess:  " , msdrg_cd))
+declare ecnt = i4
+ 
+ 
+ 
+free record file_rec
+record file_rec
+(
+	1 cnt			= i4
+	1 files[*]
+		2 filename	= vc
+		2 message	= vc
+		2 status	= i2
+)
+ 
+free record encntr_rec
+record encntr_rec
+(
+	1 cnt									= i4
+	1 begindate								= vc
+	1 enddate								= vc
+	1 begindateDQ8							= dq8
+	1 enddateDQ8							= dq8
+	1 encounters[*]
+		2 ecnt								= i4
+		2 mrn								= c20
+		2 fin								= vc	;AccountNumber
+		2 personid							= f8
+		2 encntrid							= f8
+		2 pft_encntrid						= f8
+		2 extract_dttm						= c19
+		2 facility							= c200
+		2 visit_id							= c50
+		2 fname								= c35 	;02_patient name		;(last,first m)
+		2 mname								= c25
+		2 lname								= c60 	;02_patient name		;(last,first m)
+		2 gender							= c10
+		2 admitDate							= c20
+		2 ipAdmitDate						= c20
+		2 dischargeDate						= c20
+		2 dob								= c10 	;04_patient dob		;(mm/dd/ccyy
+		2 dod								= c10
+		2 ssn								= c9
+		2 msdrg                             = c3
+		2 dischargeDispCode	              = c50
+		2 financialClass                    = c50
+		2 primaryInsuranceCode              = c50
+		2 primaryInsuranceDesc              = c200
+		2 primaryInsurancePolicyNum         = c50
+		2 secondaryInsuranceCode            = c200
+		2 secondaryInsuranceDesc            = c200
+		2 secondaryInsurancePolicyNum       = c50
+		2 tertiaryInsuranceCode             = c50
+		2 tertiaryInsuranceDesc             = c200
+		2 tertiaryInsurancePolicyNum		= c50
+		2 patientType                       = c50
+		2 serviceType                       = c50
+		2 unitStatus                        = c10
+		2 addressLine1                      = c55
+		2 addressLine2                      = c55
+		2 city                              = c30
+		2 state                             = c30
+		2 zip                               = c10
+		2 phone                             = c10
+		2 pacuProvider                      = c50
+		2 momFirstName                      = c35
+		2 momLastName                       = c60
+		2 momSSN                            = c9
+		2 guarantorSSN                      = c35
+		2 guarantorFName                    = c35
+		2 guarantorLName                    = c60
+		2 guarantorMRN                      = c50
+		2 guarantorPID						= f8		;person id of the guarantor
+		2 totCharges                        = f8
+		2 accountBalance                    = f8
+		2 medicaidRecipientID               = c50
+		2 medicareClaimNumber               = c50
+		2 patAccSystemIndicator             = c200
+ 
+)
+ 
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+/*ENCOUNTER*/
+select into $outdev; 'nl:'; /*csv*/
+	eid 		= enc.encntr_id ; this is the encounter table system assign id
+	,pid 		= enc.person_id ; This is the Person table system assign ID
+	,pft_eid 	= pe.pft_encntr_id
+;	,AsOfDateTime 					= format("@SHORTDATETIME", cnvtdatetime(curdate,curtime3))
+	,FacilityIdentifier				= BE.be_name
+	,VisitID						= ""
+	,MedicalRecordNumber 			= mrn.alias
+	,FirstName						= p.name_first_key
+	,LastName						= p.name_last_key
+	,Gender							= uar_get_code_display(p.sex_cd)
+	,AdmitDate						= format(enc.reg_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	,IPAdmitDate					= format(enc.inpatient_admit_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	,DischargeDate					= format(enc.disch_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	,dob							= p.birth_dt_tm
+	,dod							= p.deceased_dt_tm
+	,AccountNumber 					= fin.alias
+	,DischDispDESC					= uar_get_code_display(enc.disch_disposition_cd)
+	,dischDispCode					= enc.disch_disposition_cd
+	,FinancialClass					= uar_get_code_display(enc.financial_class_cd)
+	,PatientType					= uar_get_code_display(enc.encntr_type_cd)
+	,ServiceType					= uar_get_code_display(enc.med_service_cd)
+	,UnitStatus = ""
+	,cva.alias
+	,pe.pft_encntr_id
+	,pe.adjustment_balance
+	,pe.pft_encntr_alias
+FROM
+  encounter enc
+  ,code_value_alias cva
+  ,pft_encntr	pe
+  ,billing_entity be
+  ,encntr_alias fin
+  ,encntr_alias mrn
+  ,person p
+plan enc
+   ;WHERE  Enc.DISCH_DT_TM >= cnvtdatetime(curdate-2,curtime3) ;'01-JUL-22'
+   WHERE 	ENC.disch_dt_tm	>= CNVTDATETIME($BEG_DATE)
+   AND 		ENC.disch_dt_tm <= CNVTDATETIME($END_DATE)
+   and enc.organization_id > 0
+   ;and enc.person_id =    12753145.00 ;many pft_encntrs
+join cva
+	where cva.code_value = enc.disch_disposition_cd
+	and cva.alias not in   ("01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","20","21"
+	,"30","40","41","42","43"
+	,"50","51","62","63","64","65","66"
+	,"69","70"
+	,"81","82","83","84","85","86","87","88","89","90","91","92","93","94","95") ;these are causing duplicates because of alpha char
+	AND CVA.primary_ind = 0
+join pe
+	where pe.encntr_id = enc.encntr_id
+	and pe.active_ind = 1
+join be
+	where be.billing_entity_id = pe.billing_entity_id
+	and be.be_name != "Maury Regional Medical Group"
+	;and be.be_name_key != ""
+join fin
+   	where fin.encntr_id = enc.encntr_id
+   	and fin.encntr_alias_type_cd = fin_cd
+join mrn
+   	where mrn.encntr_id = enc.encntr_id
+   	and mrn.encntr_alias_type_cd = mrn_cd
+join p
+	where p.person_id = enc.person_id
+	and p.active_ind = 1
+	AND P.name_last_key NOT LIKE '%TEST%'
+    AND P.name_last_key NOT LIKE '%XXXCERNER%'
+    AND P.name_last_key NOT LIKE '%ZZCERNER%'
+    AND P.name_last_key != 'XXXMANDADO'
+order by enc.disch_dt_tm, eid ,pe.pft_encntr_id desc
+;with nocounter, format, separator = " ", time = 600, maxrec = 150, CHECK
+ 
+head report
+    ecnt = 0
+    stat = alterlist(encntr_rec->encounters, 100)
+head enc.encntr_id
+	null
+head pe.pft_encntr_id
+	ecnt = ecnt+1
+ 
+	encntr_rec->cnt = ecnt
+    if(mod(encntr_rec->cnt,99) = 1 and encntr_rec->cnt != 1)
+      stat = alterlist(encntr_rec->encounters, ecnt + 99)
+      ;call echo(build2("new size" , size(encntr_rec->encounters),5))
+    endif
+ 
+ 	encntr_rec->encounters[ecnt].ecnt					= ecnt
+    encntr_rec->encounters[ecnt].personid 				= enc.person_id
+    encntr_rec->encounters[ecnt].encntrid 				= enc.encntr_id
+    encntr_rec->encounters[ecnt].pft_encntrid			= pe.pft_encntr_id
+    encntr_rec->encounters[ecnt].mrn					= mrn.alias
+    encntr_rec->encounters[ecnt].fin					= fin.alias
+    encntr_rec->encounters[ecnt].fname					= trim(substring(1,100,p.name_first),3)
+	encntr_rec->encounters[ecnt].mname					= trim(substring(1,100,p.name_middle),3)
+    encntr_rec->encounters[ecnt].lname					= trim(substring(1,100,p.name_last),3)
+	encntr_rec->encounters[ecnt].dob					= format(p.birth_dt_tm, "mm/dd/yyyy")
+	encntr_rec->encounters[ecnt].dod					= format(p.deceased_dt_tm, "mm/dd/yyyy")
+	encntr_rec->encounters[ecnt].fin					= fin.alias
+	encntr_rec->encounters[ecnt].extract_dttm			= asOfDateTime
+	encntr_rec->encounters[ecnt].facility				= be.be_name
+	encntr_rec->encounters[ecnt].visit_id				= ""
+	encntr_rec->encounters[ecnt].mrn					= mrn.alias
+	encntr_rec->encounters[ecnt].fname					= p.name_first
+	encntr_rec->encounters[ecnt].mname					= p.name_middle
+	encntr_rec->encounters[ecnt].lname					= p.name_last
+	encntr_rec->encounters[ecnt].gender					= uar_get_code_display(p.sex_cd)
+	encntr_rec->encounters[ecnt].admitDate				= format(enc.reg_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	encntr_rec->encounters[ecnt].ipAdmitDate			= format(enc.inpatient_admit_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	encntr_rec->encounters[ecnt].dischargeDate			= format(enc.disch_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	encntr_rec->encounters[ecnt].dob					= format(p.birth_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	encntr_rec->encounters[ecnt].dod					= format(p.deceased_dt_tm,'mm/dd/yyyy HH:MM;;DS')
+	encntr_rec->encounters[ecnt].fin					= fin.alias
+	encntr_rec->encounters[ecnt].dischargeDispCode		= cva.alias
+	encntr_rec->encounters[ecnt].financialClass			= uar_get_code_display(enc.financial_class_cd)
+	encntr_rec->encounters[ecnt].patientType			= uar_get_code_display(enc.encntr_type_cd)
+	encntr_rec->encounters[ecnt].serviceType			= uar_get_code_display(enc.med_service_cd)
+	encntr_rec->encounters[ecnt].unitStatus				= ""
+	encntr_rec->encounters[ecnt].pacuProvider			= uar_get_code_display(enc.disch_to_loctn_cd)
+ 	encntr_rec->encounters[ecnt].totCharges				= pe.charge_balance
+ 	encntr_rec->encounters[ecnt].accountBalance			= pe.balance
+ 	encntr_rec->encounters[ecnt].patAccSystemIndicator	= "CernerMillennium"
+ 
+ 
+ 
+ 
+ 	;if (enc.financial_class_cd = medicaid_fin_class_cd)
+ 		;MedicaidRecipientID
+		;MedicareHealthInsuranceClaimNumber
+ 
+ 	;endif
+foot report
+	 stat = alterlist(encntr_rec->encounters, ecnt)
+with nocounter, format, separator = " ", time = 600, maxrec = 150
+ 
+ 
+;GET PATIENT SSN
+select into 'nl:' ;$OUTDEV
+	 pid = encntr_rec->encounters[d1.seq].personid
+	,eid = encntr_rec->encounters[d1.seq].encntrid
+	,ssn = pa.alias
+from
+	 person_alias pa
+	,(dummyt d1 with seq=encntr_rec->cnt)
+plan d1
+	where d1.seq > 0
+join pa
+	where pa.person_id =  encntr_rec->encounters[d1.seq].personid
+	and pa.person_alias_type_cd = ssn_cd
+	and pa.active_ind = 1
+	and pa.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm >= cnvtdatetime(curdate, curtime3)
+order pid, eid
+detail
+	encntr_rec->encounters[d1.seq].ssn	= ssn
+with nocounter,format, separator = " "
+ 
+ 
+;GET INSURANCE INFORMATION
+select into 'nl:' ; $outdev
+	 eid					= encntr_rec->encounters[d1.seq].encntrid
+;	,pid					= encntr_rec->encounters[d1.seq].personid
+;	,fname					= encntr_rec->encounters[d1.seq].fname
+;	,fname					= encntr_rec->encounters[d1.seq].lname
+	,hp.plan_desc
+	,plan_type = uar_get_code_display(hp.plan_type_cd)
+	,epr.member_nbr
+;	,epr.member_person_code
+;	,epr.alt_member_nbr, epr.card_issue_nbr
+;	,epr.insured_card_name
+;	,hpa.alias
+;	,insured_person_id		= epr.person_id
+;	,health_plan_id			= epr.health_plan_id
+;	,insurance_priority		= epr.priority_seq
+from
+	 encntr_plan_reltn epr
+	,health_plan 		hp
+	,health_plan_alias  hpa
+	,(dummyt d1 with seq=encntr_rec->cnt)
+plan d1
+	where encntr_rec->encounters[d1.seq].encntrid > 0
+join epr
+	where epr.encntr_id		= encntr_rec->encounters[d1.seq].encntrid
+	and epr.active_ind 			= 1
+join hP
+	where hP.health_plan_id		= outerjoin(epr.health_plan_id)
+	and hP.active_ind 			= 1
+join hpa ; health plan alias
+	where hpa.health_plan_id 	= outerjoin(hp.health_plan_id);outerjoin(hp.health_plan_id)
+	and hpa.plan_alias_type_cd	= outerjoin(666881.00);  cs=27121	dk=HEALTHPLANALIAS
+	and hpa.alias_pool_cd =      outerjoin(683993.00)	;cs=263     dk=HEALTHPLAN
+	and hpa.active_ind			= outerjoin(1)
+order by eid
+detail
+	if (epr.priority_seq = 1)
+		encntr_rec->encounters[d1.seq].primaryInsuranceCode			= uar_get_code_display(hp.plan_type_cd)
+		encntr_rec->encounters[d1.seq].primaryInsuranceDesc			= hp.plan_desc
+		encntr_rec->encounters[d1.seq].primaryInsurancePolicyNum 	= epr.subs_member_nbr
+	elseif (epr.priority_seq = 2)
+		encntr_rec->encounters[d1.seq].secondaryInsuranceCode		= uar_get_code_display(hp.plan_type_cd)
+		encntr_rec->encounters[d1.seq].secondaryInsuranceDesc		= hp.plan_desc
+		encntr_rec->encounters[d1.seq].secondaryInsurancePolicyNum 	= epr.subs_member_nbr
+	elseif (epr.priority_seq = 3)
+		encntr_rec->encounters[d1.seq].tertiaryInsuranceCode		= uar_get_code_display(hp.plan_type_cd)
+		encntr_rec->encounters[d1.seq].tertiaryInsuranceDesc		= hp.plan_desc
+		encntr_rec->encounters[d1.seq].tertiaryInsurancePolicyNum 	= epr.subs_member_nbr
+	endif
+with time =300, format, separator = ' ', format(date,"@SHORTDATETIME")
+ 
+ 
+;;GET HOME ADDRESS
+select into 'nl:'
+	pid =  encntr_rec->encounters[d1.seq].personid
+	,eid =  encntr_rec->encounters[d1.seq].encntrid
+	,a.city
+	,state = a.state
+	,a.zipcode
+	,a.street_addr
+	,a.street_addr2
+	,address_type = uar_get_code_display(a.address_type_cd)
+	,a.country
+from
+	address a
+	,(dummyt d1 with seq = encntr_rec->cnt)
+plan d1
+	where encntr_rec->encounters[d1.seq].personid > 0
+join a
+	where a.parent_entity_id = encntr_rec->encounters[d1.seq].personid
+	and a.parent_entity_name = 'PERSON'
+	and a.active_ind = 1
+	and a.address_type_cd = home_address_cd
+order by pid, eid, a.address_id
+head a.address_id
+	encntr_rec->encounters[d1.seq].addressLine1	= trim(a.street_addr,3)
+	encntr_rec->encounters[d1.seq].addressLine2 = trim(a.street_addr2,3)
+	encntr_rec->encounters[d1.seq].city 		= a.city
+	encntr_rec->encounters[d1.seq].state 		= a.state
+	encntr_rec->encounters[d1.seq].zip 			= TRIM(substring(1,5,a.zipcode))
+with nocounter, format, separator=' ',time = 600,check
+ 
+ 
+;;GET HOME PHONE
+select into 'nl:'
+	 ph.phone_num
+from
+	PHONE ph
+	,(dummyt d1 with seq = encntr_rec->cnt)
+plan d1
+	where encntr_rec->encounters[d1.seq].personid > 0
+join ph
+	where ph.parent_entity_id = encntr_rec->encounters[d1.seq].personid
+	and ph.phone_type_cd = home_phone_cd
+	and ph.parent_entity_name = "PERSON"
+	and ph.active_ind = 1
+detail
+	encntr_rec->encounters[d1.seq].phone = ph.phone_num
+with nocounter, format, separator=' ',time = 600,check
+ 
+ 
+ 
+;GET GUARANTOR
+select into $outdev
+     ;pid = encntr_rec->encounters[d1.seq].personid
+	 eid = encntr_rec->encounters[d1.seq].encntrid
+	,reltn=uar_get_code_display(epr.person_reltn_cd)
+	,reltn_type=uar_get_code_display(epr.person_reltn_type_cd)
+	,related_person_relationship= uar_get_code_display(epr.related_person_reltn_cd)
+	,epr.*
+from
+	 encntr_person_reltn epr
+	,person p
+	,(dummyt d1 with seq=(encntr_rec->cnt))
+plan d1
+	where d1.seq > 0
+join EPR
+	where epr.encntr_id 			= encntr_rec->encounters[d1.seq].encntrid
+	and epr.person_reltn_type_cd 	=  guarantor_type_cd ;1150.00	;Default Guarantor PERSON_GUARANTOR_CODE
+	and epr.active_ind 				= 1
+join p
+	where p.person_id 				= epr.related_person_id
+	and p.active_ind 				= 1
+	and p.beg_effective_dt_tm 		<= cnvtdatetime(curdate, curtime3)
+	and p.end_effective_dt_tm 		>= cnvtdatetime(curdate, curtime3)
+order by eid
+detail
+	encntr_rec->encounters[d1.seq].guarantorPID		= p.person_id
+	encntr_rec->encounters[d1.seq].guarantorFName 	= p.name_first
+	encntr_rec->encounters[d1.seq].guarantorLName 	= p.name_last
+with nocounter, format, separator = " "
+ 
+ 
+;GET GUARANTOR SSN AND MRN
+select into $OUTDEV
+	 pid 	= encntr_rec->encounters[d1.seq].personid
+	,eid 	= encntr_rec->encounters[d1.seq].encntrid
+	,gpid	= encntr_rec->encounters[d1.seq].guarantorPID
+	,gssn   = pa.alias
+from
+	 person_alias pa
+	,(dummyt d1 with seq=encntr_rec->cnt)
+plan d1
+	where d1.seq > 0
+join pa
+	where pa.person_id 			=  encntr_rec->encounters[d1.seq].guarantorPID
+	and pa.person_alias_type_cd in (ssn_cd,guarantor_mrn_cd)
+	and pa.active_ind 			= 1
+	and pa.beg_effective_dt_tm 	<= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm 	>= cnvtdatetime(curdate, curtime3)
+order gpid
+detail
+	if (pa.person_alias_type_cd = ssn_cd)
+		encntr_rec->encounters[d1.seq].guarantorSSN	= pa.alias
+	elseif (pa.person_alias_type_cd = guarantor_mrn_cd)
+		encntr_rec->encounters[d1.seq].guarantorMRN	= pa.alias
+	endif
+ 
+with nocounter,format, separator = " "
+ 
+ 
+ 
+ 
+;GET MSDRG
+select into $OUTDEV
+	 pid 	= encntr_rec->encounters[d1.seq].personid
+	,eid 	= encntr_rec->encounters[d1.seq].encntrid
+	,code  = uar_get_code_display(drg.source_vocabulary_cd)
+	,n.source_identifier
+	,n.principle_type_cd
+	,uar_get_code_display(n.principle_type_cd )
+	,uar_get_code_display(n.source_vocabulary_cd )
+	,n.source_vocabulary_cd
+	,drg.*
+ 
+from
+	drg
+	,nomenclature n
+	,(dummyt d1 with seq=encntr_rec->cnt)
+plan d1
+	where d1.seq > 0
+join drg
+	where drg.encntr_id	= encntr_rec->encounters[d1.seq].encntrid
+	and drg.active_ind = 1
+join n
+	where n.nomenclature_id = drg.nomenclature_id
+	and n.source_vocabulary_cd =msdrg_cd ; 4326105
+	and n.active_ind = 1
+order by eid
+head eid
+	encntr_rec->encounters[d1.seq].msdrg = n.source_identifier
+with nocounter, format, separator = " "
+;
+;;GET MSDRG
+;select into $OUTDEV
+;	 pid 	= encntr_rec->encounters[d1.seq].personid
+;	,eid 	= encntr_rec->encounters[d1.seq].encntrid
+;	,code  = uar_get_code_display(drg.source_vocabulary_cd)
+;	,drg.*
+;from
+;	 drg_encntr_extension drg
+;	,(dummyt d1 with seq=encntr_rec->cnt)
+;plan d1
+;	where d1.seq > 0
+;join drg
+;	where drg.encntr_id	= encntr_rec->encounters[d1.seq].encntrid
+;	;and drg.source_vocabulary_cd =msdrg_cd ; 4326105
+;order by eid, drg.drg_encntr_extension_id desc
+;;head eid
+;;	encntr_rec->encounters[d1.seq].msdrg = drg.source_identifier
+;with nocounter, format, separator = " "
+;    /*MSDRG*/
+;    LEFT JOIN (SELECT ENCNTR_ID, SOURCE_IDENTIFIER AS MSDRG, UPDT_DT_TM,
+;                    ROW_NUMBER() OVER( PARTITION BY ENCNTR_ID ORDER BY  DRG_ENCNTR_EXTENSION_ID DESC) AS ROWRANK
+;                    FROM DRG_ENCNTR_EXTENSION
+;                    WHERE SOURCE_VOCABULARY_CD = '4326105' /*Code 4326105 = DRG*/
+;                    ) DRG /*Was able to also find diagnosis and procedure codes here*/
+;                    ON DRG.ENCNTR_ID = Enc.ENCNTR_ID
+;                    AND DRG.ROWRANK = '1'
+ 
+;;GET GUARANTOR mrn
+;select into $OUTDEV
+;	 pid 	= encntr_rec->encounters[d1.seq].personid
+;	,eid 	= encntr_rec->encounters[d1.seq].encntrid
+;	,gpid	= encntr_rec->encounters[d1.seq].guarantorPID
+;	,gssn   = pa.alias
+;from
+;	 person_alias pa
+;	,(dummyt d1 with seq=encntr_rec->cnt)
+;plan d1
+;	where d1.seq > 0
+;join pa
+;	where pa.person_id 			= encntr_rec->encounters[d1.seq].guarantorPID
+;	and pa.person_alias_type_cd = 10.00	;MRN
+;	and pa.active_ind 			= 1
+;	and pa.beg_effective_dt_tm 	<= cnvtdatetime(curdate, curtime3)
+;	and pa.end_effective_dt_tm 	>= cnvtdatetime(curdate, curtime3)
+;order gpid
+;detail
+;	encntr_rec->encounters[d1.seq].guarantorMRN	= pa.alias
+;with nocounter,format, separator = " "
+;
+;
+;call echojson(encntr_rec, $OUTDEV)
+ 
+;call echorecord(encntr_rec)
+;join c
+;	where c.encntr_id = enc.encntr_id
+;	and c.active_ind = 1
+;JOIN diag
+;	where diag.encntr_id = enc.encntr_id
+;	and diag.contributor_system_cd = c.contributor_system_cd
+;	and diag.diag_priority = 1
+;	;and diag.*; >= 0.00
+;	and diag.active_ind =  1
+;	and diag.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 )
+;	and diag.end_effective_dt_tm >cnvtdatetime (curdate ,curtime3 )
+;join n
+;	where n.nomenclature_id = diag.nomenclature_id
+;	and n.principle_type_cd = drg_cd;msdrg_p_cd;msdrg_cd;msdrg_cd
+;	;and n.source_vocabulary_cd = msdrg_s_cd;msdrg_cd;msdrg_cd
+;	and n.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 )
+;	and n.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3 )
+;	;and n.source_vocabulary_cd = hfcs
+;;	and n.source_vocabulary_cd = msdrg_cd; in (msdrg_cd, apdrg_cd, aprdrg_cd)
+ 
+;with nocounter, format, separator = " "
+ 
+;
+;SELECT
+;AP.Description
+;;EncA.Alias, EncA.ENCNTR_ID
+;                    FROM
+;                    ;ENCNTR_ALIAS EncA
+;                ALIAS_POOL AP
+;                plan ap
+;                where ap.description = "FIN"
+;                 ;  plan ap where AP.Description = 'FIN'
+;                   and AP.ACTIVE_IND = 1
+;                join enca
+;                   where enca.alias_pool_cd = ap.alias_pool_cd
+;                    ;ON AP.ALIAS_POOL_CD = EncA.ALIAS_POOL_CD
+;                    ;    AND AP.ACTIVE_IND = '1' /*Alias_Pool.Active_Ind contains 2 values 1 or NULL*/
+;                    ;    AND EncA.ACTIVE_IND = '1' /*Encntr_Alias.Active_Ind contains 2 values 1 or 0*/
+;                        ;AND AP.Description NOT IN (' ','MRN')
+;
+;       with maxrec = 100, time = 10
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 
