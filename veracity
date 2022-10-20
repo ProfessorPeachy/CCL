@@ -1,0 +1,921 @@
+
+ 
+;"/cerner/d_p698/data/batch_files/ccl_extracts/veracity/:file_name"
+ 
+Inclusions
+----------
+ 
+ 
+Exclusions
+----------
+Exclude Test patients
+ 
+**************************************************************************************************************************/
+ 
+drop program 1_amj_veracity_pai go
+create program 1_amj_veracity_pai
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+ 
+with OUTDEV
+ 
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare num = i2
+declare cnt = i2
+declare num2 = i2
+declare fin_var = f8
+declare mrn_var = f8
+declare ssn_var = f8
+declare home_adr_var = f8
+declare home_phone_var = f8
+declare guar_var = f8
+declare def_guar_var = f8
+declare employer_var = f8
+declare emp_adr_var = f8
+declare emp_phone_var = f8
+declare final_dx_var = f8
+declare disch_dx_var = f8
+declare drg_var = f8
+declare attend_phys_var = f8
+declare comment_var = f8
+declare claim_cancel_var = f8
+declare copay_var = f8
+declare pat_pay_var = f8
+declare com_ins_pay_var = f8
+declare medicaid_pay_var = f8
+declare medicare_pay_var = f8
+declare workcomp_ins_pay_var = f8
+ 
+set fin_var = uar_get_code_by("DISPLAYKEY",263,"FIN")
+set mrn_var = uar_get_code_by("DISPLAYKEY",263,"MRN")
+set ssn_var = uar_get_code_by("DISPLAYKEY",263,"SSN")
+set home_adr_var = uar_get_code_by("DISPLAYKEY",212,"HOME")
+set home_phone_var = uar_get_code_by("DISPLAYKEY",43,"HOME")
+set guar_var = uar_get_code_by("MEANING", 351, "GUARANTOR")
+set def_guar_var = uar_get_code_by("MEANING", 351, "DEFGUAR")
+set employer_var = uar_get_code_by("MEANING",338,"EMPLOYER")
+set emp_adr_var = uar_get_code_by("MEANING",212,"BUSINESS")
+set emp_phone_var = uar_get_code_by("MEANING",43,"BUSINESS")
+set final_dx_var = uar_get_code_by("MEANING",17,"FINAL")
+set disch_dx_var = uar_get_code_by("MEANING",17,"DISCHARGE")
+set drg_var = uar_get_code_by("MEANING",400,"MSDRG")
+set attend_phy_var = uar_get_code_by("MEANING",333,"ATTENDDOC")
+set comment_var = uar_get_code_by("MEANING",355,"COMMENT")
+set claim_cancel_var = uar_get_code_by("MEANING",18935,"CANCELED")
+set copay_var = uar_get_code_by("MEANING",20549,"COPAY")
+set pat_pay_var = uar_get_code_by("MEANING",20549,"PATIENT PAY")
+set com_ins_pay_var = uar_get_code_by("MEANING",20549,"COM INS PAY")
+set medicaid_pay_var = uar_get_code_by("MEANING",20549,"MEDICAID PAY")
+set medicare_pay_var = uar_get_code_by("MEANING",20549,"MEDICARE PAY")
+set workcomp_ins_pay_var = uar_get_code_by("MEANING",20549,"WORK CMP PAY")
+ 
+if(validate(request->batch_selection))
+    set opsFlag = 1
+else
+    set opsFlag = 0
+endif
+ 
+set veracity_pai_file = build("/cerner/d_p698/data/batch_files/ccl_extracts/veracity/MRH_PAI.txt")
+ 
+ 
+/**************************************************************
+; Record Structure
+**************************************************************/
+free record enc
+record enc
+( 1 cnt = i4
+ 1 qual[*]
+ 	2 eid = f8
+ 	2 pid = f8
+ 	2 fin = vc
+ 	2 patctrlnum = f8
+  	2 mrn = vc
+ 	2 entity_id = f8
+ 	2 entity_name = vc
+ 	2 fname = vc
+ 	2 lname = vc
+ 	2 mname = vc
+ 	2 pat_addr1 = vc
+ 	2 pat_addr2 = vc
+ 	2 pat_city = vc
+ 	2 pat_st = vc
+ 	2 pat_zip = vc
+ 	2 pat_phone = vc
+ 	2 ssn = vc
+ 	2 dob = vc
+ 	2 sex = vc
+	2 guar_name = vc
+	2 guar_ssn = vc
+	2 guar_dob = vc
+	2 guar_rel = vc
+	2 guar_addr1 = vc
+	2 guar_addr2 = vc
+	2 guar_city = vc
+	2 guar_st = vc
+	2 guar_zip = vc
+	2 guar_phone = vc
+	2 guar_emp = vc
+	2 guar_emp_addr1 = vc
+	2 guar_emp_addr2 = vc
+	2 guar_emp_city = vc
+	2 guar_emp_st = vc
+	2 guar_emp_zip = vc
+	2 guar_emp_phone = vc
+ 	2 ins_ver_req_dt = vc
+ 	2 ins_ver_req_notes = vc
+ 	2 ins_ver_requestor = vc
+ 	2 registrar_id = f8
+ 	2 coder_id = f8
+ 	2 ins1_code = f8
+ 	2 ins1_name = vc
+ 	2 ins2_code = f8
+ 	2 ins2_name = vc
+ 	2 fin_class_cd = f8
+ 	2 fin_class_name = vc
+ 	2 auth_requestor = vc
+ 	2 auth_req_dt = vc
+ 	2 auth_req_ack = vc
+ 	2 auth_start_dt = vc
+ 	2 auth_end_dt = vc
+ 	2 auth_num = vc
+ 	2 auth_notes = vc
+ 	2 pat_type = vc
+ 	2 svc_type = f8
+ 	2 svc_type_desc = vc
+ 	2 svc_loc_cd = f8
+ 	2 svc_loc_desc = vc
+ 	2 attend_phys_cd = f8
+ 	2 attend_phys_name = vc
+ 	2 drg = vc
+ 	2 apr_drg = vc; MRH doesn't use APRDRGs
+ 	2 apr_drg_desc = vc
+ 	2 severity_illness = vc; SOI comes from MSDRG
+ 	2 pdx = vc
+ 	2 sec_dx = vc
+ 	2 disc_dx = vc
+ 	2 admit_dt = vc
+ 	2 disch_dt = vc
+ 	2 depart_id = f8
+ 	2 depart_name = vc
+ 	2 len_stay = i4
+ 	2 root_cause = vc
+ 	2 agency_code = f8
+ 	2 agency_desc = vc
+ 	2 pcn_cnt = i4
+ 	2 pcn_qual[*]
+ 		3 pcn_cnt2 = i4
+ 		3 patctrlnum = vc
+ 		3 claimstatus = vc
+ 		3 tot_chg = f8
+ 		3 tot_adj = f8
+ 		3 acct_bal = f8
+ 		3 pat_bal = f8
+ 		3 prim_pay_acct_bal = f8
+ 		3 tot_ins_pay = f8
+ 		3 tot_pat_pay = f8
+ 		3 exp_reimb = f8
+ 		3 exp_not_allowed = f8
+  	)
+ 
+/**************************************************************
+; Encounter Info
+**************************************************************/
+ 
+SELECT INTO "nl:"
+	e.encntr_id
+	, e.person_id
+	, e.reg_prsnl_id
+	, e_financial_class_disp = uar_get_code_display(e.financial_class_cd)
+	, e_disch_disposition_disp = uar_get_code_display(e.disch_disposition_cd)
+	, e.disch_dt_tm
+	, e_encntr_type_disp = uar_get_code_display(e.encntr_type_cd)
+	, e_med_service_disp = uar_get_code_display(e.med_service_cd)
+	, e_loc_nurse_unit_disp = uar_get_code_display(e.loc_nurse_unit_cd)
+	, e.reason_for_visit
+	, ea.alias
+	, c.coding_prsnl_id
+	, ep.encntr_prsnl_reltn_id
+	, p.person_id
+	, p.name_full_formatted
+	, e_loc_facility_disp = uar_get_code_display(e.loc_facility_cd)
+ 
+FROM
+	  encounter   e
+	, encntr_alias ea
+	, coding c
+	, encntr_prsnl_reltn   ep
+	, prsnl p
+ 
+ 
+plan e
+	where (e.disch_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,2359)
+    or e.updt_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,2359))
+	and	 e.active_ind = 1
+join ea
+	where e.encntr_id = ea.encntr_id
+	and ea.alias_pool_cd = fin_var ;38741899.00
+	and ea.active_ind = 1
+join c
+	where outerjoin(e.encntr_id) = c.encntr_id
+	and c.active_ind = outerjoin(1)
+join ep
+	where outerjoin(e.encntr_id) = ep.encntr_id
+	and ep.encntr_prsnl_r_cd = outerjoin(attend_phy_var);1119.00
+	and ep.end_effective_dt_tm > cnvtdate(curdate)
+join p
+	where outerjoin(ep.prsnl_person_id) = p.person_id
+	and p.active_ind = outerjoin(1)
+ 
+head report e.encntr_id
+ 	cnt = 0
+	stat = alterlist(enc->qual,100)
+ 
+head e.encntr_id
+	 cnt = cnt +1
+ 
+ 	if(mod(cnt,100)=1 and cnt !=1)
+		stat = alterlist(enc->qual,cnt+99)
+	endif
+ 
+	 	enc->qual[cnt].eid = e.encntr_id
+ 		enc->qual[cnt].pid = e.person_id
+ 		enc->qual[cnt].fin = cnvtstring(ea.alias)
+ 		enc->qual[cnt].entity_id = e.loc_facility_cd
+ 		enc->qual[cnt].entity_name = uar_get_code_display(e.loc_facility_cd)
+ 		enc->qual[cnt].registrar_id = e.reg_prsnl_id
+ 		enc->qual[cnt].coder_id = c.coding_prsnl_id
+ 		enc->qual[cnt].fin_class_cd = e.financial_class_cd
+ 		enc->qual[cnt].fin_class_name = uar_get_code_display(e.financial_class_cd)
+ 		enc->qual[cnt].depart_id = e.disch_disposition_cd
+ 		enc->qual[cnt].depart_name = uar_get_code_display(e.disch_disposition_cd)
+ 		enc->qual[cnt].admit_dt = format(e.reg_dt_tm,'MM/DD/YYYY;;q')
+ 		enc->qual[cnt].disch_dt = format(e.disch_dt_tm,'MM/DD/YYYY;;q')
+ 		case (uar_get_code_display(e.encntr_type_cd))
+ 			of "Inpatient":
+ 				enc->qual[cnt].pat_type = "I"
+ 			of "Outpatient":
+ 				enc->qual[cnt].pat_type = "O"
+ 			of "Emergency":
+ 				enc->qual[cnt].pat_type = "E"
+ 		endcase
+	 	enc->qual[cnt].svc_type = e.med_service_cd
+ 		enc->qual[cnt].svc_type_desc = uar_get_code_display(e.med_service_cd)
+	 	enc->qual[cnt].svc_loc_cd = e.loc_nurse_unit_cd
+ 		enc->qual[cnt].svc_loc_desc = uar_get_code_display(e.loc_nurse_unit_cd)
+ 		enc->qual[cnt].len_stay = datetimediff(e.disch_dt_tm,e.reg_dt_tm,1)
+ 		enc->qual[cnt].root_cause = ""
+ 		enc->qual[cnt].attend_phys_cd = p.person_id
+ 		enc->qual[cnt].attend_phys_name = p.name_full_formatted
+ 
+foot report e.encntr_id
+	if(cnt>0)
+		stat = alterlist(enc->qual,cnt)
+		enc->cnt = cnt
+	endif
+ 
+WITH nocounter,time=60
+;call echorecord(enc)
+/**************************************************************
+; Patient Info
+**************************************************************/
+ 
+select into "nl:"
+	p.name_first_key
+	, p.name_middle_key
+	, p.name_last_key
+	, p.birth_dt_tm
+	, p_sex_disp = uar_get_code_display(p.sex_cd)
+	, pa.alias
+	, a.street_addr
+	, a.street_addr2
+	, a.city
+	, a_state_disp = uar_get_code_display(a.state_cd)
+	, a.zipcode
+	, ph.phone_num_key
+ 
+from
+	encounter e1
+	, person   p
+	, person_alias   pa
+	, person_alias   pa2
+	, address   a
+	, phone   ph
+ 
+plan e1 where expand(num,1,size(enc->qual,5),e1.encntr_id,enc->qual[num].eid)
+join p
+	where e1.person_id = p.person_id
+	and p.active_ind = 1
+	and p.name_last_key != "ZZ*" and p.name_last_key != "XXX*"
+join pa
+	where outerjoin(p.person_id) = pa.person_id
+	and pa.active_ind = outerjoin(1)
+	and pa.alias_pool_cd = outerjoin(mrn_var)
+join pa2
+	where outerjoin(p.person_id) = pa2.person_id
+	and pa2.active_ind = outerjoin(1)
+	and pa2.alias_pool_cd = outerjoin(ssn_var)
+join a
+	where outerjoin(p.person_id) = a.parent_entity_id
+	and a.active_ind = outerjoin(1)
+	and a.address_type_cd = outerjoin(home_adr_var)
+join ph
+	where outerjoin(p.person_id) = ph.parent_entity_id
+	and ph.active_ind = outerjoin(1)
+	and ph.phone_type_cd = outerjoin(home_phone_var)
+ 
+head e1.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e1.encntr_id,enc->qual[num].eid)
+ 
+detail
+	enc->qual[pos].fname = trim(p.name_first)
+	enc->qual[pos].lname = trim(p.name_last)
+	enc->qual[pos].mname = trim(p.name_middle)
+	enc->qual[pos].dob = format(p.birth_dt_tm,'MM/DD/YYYY;;q')
+	enc->qual[pos].mrn = cnvtstring(pa.alias)
+	enc->qual[pos].ssn = format(cnvtstring(pa2.alias),"###-##-####")
+	case (uar_get_code_display(p.sex_cd))
+		of "Male":
+			enc->qual[pos].sex = "M"
+		of "Female":
+			enc->qual[pos].sex = "F"
+	endcase
+	enc->qual[pos].pat_addr1 = trim(a.street_addr)
+	enc->qual[pos].pat_addr2 = trim(a.street_addr2)
+	enc->qual[pos].pat_city = trim(a.city)
+	enc->qual[pos].pat_st = trim(uar_get_code_display(a.state_cd))
+	enc->qual[pos].pat_zip = a.zipcode
+	enc->qual[pos].pat_phone = cnvtstring(ph.phone_num_key)
+ 
+with nocounter,expand=1
+; call echorecord(enc)
+/**************************************************************
+; Guarantor Info & Employment
+**************************************************************/
+ 
+select into "nl:"
+	p1.name_full_formatted
+	, p1.birth_dt_tm
+	, pa1.alias
+	, a1.street_addr
+	, a1.street_addr2
+	, a1.city
+	, a_state_disp = uar_get_code_display(a1.state_cd)
+	, a1.zipcode
+	, ph1.phone_num_key
+	, relation_disp = uar_get_code_display(epr.related_person_reltn_cd)
+	, o.org_name
+ 
+from
+	  encounter e2
+	, encntr_person_reltn   epr
+	, person   p1
+	, person_alias   pa1
+	, address   a1
+	, phone   ph1
+	, person_org_reltn por
+	, organization o
+	, address   a2
+	, phone   ph2
+ 
+plan e2 where expand(num,1,size(enc->qual,5),e2.encntr_id,enc->qual[num].eid)
+	and e2.active_ind = 1
+join epr
+	where e2.encntr_id = epr.encntr_id
+	and epr.person_reltn_type_cd = def_guar_var
+join p1
+	where epr.related_person_id = p1.person_id
+	and p1.active_ind = 1
+	and p1.name_last_key != "ZZ*" and p1.name_last_key != "XXX*"
+join pa1
+	where p1.person_id = pa1.person_id
+	and pa1.active_ind = 1
+	and pa1.alias_pool_cd = ssn_var;683997.00
+join a1
+	where outerjoin(p1.person_id) = a1.parent_entity_id
+	and a1.active_ind = outerjoin(1)
+	and a1.address_type_cd = outerjoin(home_adr_var);756.00
+join ph1
+	where outerjoin(p1.person_id) = ph1.parent_entity_id
+	and ph1.active_ind = outerjoin(1)
+	and ph1.phone_type_cd = outerjoin(home_phone_var);170.00;
+join por
+	where outerjoin(epr.related_person_id) = por.person_id
+	and por.active_ind = outerjoin(1)
+	and por.person_org_reltn_cd = outerjoin(employer_var)
+join o
+	where outerjoin(por.organization_id) = o.organization_id
+	and o.active_ind = outerjoin(1)
+join a2
+	where outerjoin(o.organization_id) = a2.parent_entity_id
+	and a2.active_ind = outerjoin(1)
+	and a2.address_type_cd = outerjoin(emp_adr_var);756.00
+join ph2
+	where outerjoin(o.organization_id) = ph2.parent_entity_id
+	and ph2.active_ind = outerjoin(1)
+	and ph2.phone_type_cd = outerjoin(emp_phone_var);170.00
+ 
+head e2.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e2.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	enc->qual[pos].guar_name = p1.name_full_formatted
+	enc->qual[pos].guar_ssn = pa1.alias
+	enc->qual[pos].guar_dob = format(p1.birth_dt_tm,'MM/DD/YYYY;;q')
+	enc->qual[pos].guar_rel = uar_get_code_display(epr.related_person_reltn_cd)
+	enc->qual[pos].guar_addr1 = a1.street_addr
+	enc->qual[pos].guar_addr2 = a1.street_addr2
+	enc->qual[pos].guar_city = a1.city
+	enc->qual[pos].guar_st = uar_get_code_display(a1.state_cd)
+	enc->qual[pos].guar_zip = a1.zipcode
+	enc->qual[pos].guar_phone = ph1.phone_num
+	enc->qual[pos].guar_emp = o.org_name
+	enc->qual[pos].guar_emp_addr1 = a2.street_addr
+	enc->qual[pos].guar_emp_addr2 = a2.street_addr2
+	enc->qual[pos].guar_emp_city = a2.city
+	enc->qual[pos].guar_emp_st = uar_get_code_display(a2.state_cd)
+	enc->qual[pos].guar_emp_zip = a2.zipcode
+	enc->qual[pos].guar_emp_phone = ph2.phone_num
+ 
+with nocounter,expand=1
+;call echorecord(enc)
+/**************************************************************
+; Insurances1 & Verification
+**************************************************************/
+ 
+select into "nl:"
+	e6.encntr_id
+	, epr1.health_plan_id
+	, epr1.person_plan_reltn_id
+	, epr1.active_ind
+	, epr1.priority_seq
+	, h.health_plan_id
+	, h.plan_name
+	, epr1.verify_dt_tm
+	, epr1.verify_prsnl_id
+	, e_info_type_disp = uar_get_code_display(e7.info_type_cd)
+	, e7.long_text_id
+	, l.long_text
+	, p2.name_full_formatted
+ 
+from
+	encounter   e6
+	, encntr_plan_reltn   epr1
+	, prsnl p2
+	, health_plan   h
+	, encntr_info   e7
+	, long_text   l
+ 
+plan e6 where expand(num,1,cnt,e6.encntr_id,enc->qual[num].eid)
+join epr1 where e6.encntr_id = epr1.encntr_id
+	and epr1.active_ind = 1
+	and epr1.priority_seq = 1
+join p2 where epr1.verify_prsnl_id = p2.person_id
+join h where epr1.health_plan_id = h.health_plan_id
+	and h.active_ind = 1
+join e7 where outerjoin(e6.encntr_id) = e7.encntr_id
+and e7.info_type_cd = outerjoin(comment_var);1169.00
+join l where outerjoin(e7.long_text_id) = l.long_text_id
+and l.long_text_id != outerjoin(0.0)
+ 
+head e6.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e6.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	enc->qual[pos].ins1_code = h.health_plan_id
+ 	enc->qual[pos].ins1_name = h.plan_name
+ 	enc->qual[pos].ins_ver_req_dt = format(epr1.verify_dt_tm,'MM/DD/YYYY HH:MM:SS')
+ 	enc->qual[pos].ins_ver_requestor = p2.name_full_formatted
+ 	enc->qual[pos].ins_ver_req_notes = replace(replace(l.long_text,concat(char(13),char(10))," ",0),char(9)," ",0)
+ 
+with nocounter,expand=1
+;call echorecord(enc)
+/**************************************************************
+; Insurances2 & Verification
+**************************************************************/
+ 
+select into "nl:"
+	e3.encntr_id
+	, epr2.priority_seq
+	, h2.health_plan_id
+	, h2.plan_name
+ 
+from
+	encounter   e3
+	, encntr_plan_reltn   epr2
+	, health_plan   h2
+ 
+plan e3 where expand(num,1,size(enc->qual,5),e3.encntr_id,enc->qual[num].eid)
+join epr2 where outerjoin(e3.encntr_id) = epr2.encntr_id
+	and epr2.active_ind = outerjoin(1)
+	and epr2.priority_seq = outerjoin(2)
+join h2 where outerjoin(epr2.health_plan_id) = h2.health_plan_id
+	and h2.active_ind = outerjoin(1)
+ 
+head e3.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e3.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	if(epr2.priority_seq = 2)
+ 		enc->qual[pos].ins2_code = h2.health_plan_id
+ 		enc->qual[pos].ins2_name = h2.plan_name
+ 	else
+ 		enc->qual[pos].ins2_code = 0
+ 		enc->qual[pos].ins2_name = ""
+ 	endif
+ 
+with nocounter,expand=1
+;call echorecord(enc)
+/**************************************************************
+; Authorization Info
+**************************************************************/
+ 
+select into "nl:"
+from
+ 	encounter   e5
+	, authorization   au
+	, long_text   l2
+ 
+plan e5 where expand(num,1,size(enc->qual,5),e5.encntr_id,enc->qual[num].eid)
+join au where e5.encntr_id = au.encntr_id
+join l2 where au.comment_id = l2.long_text_id
+	and l2.long_text_id != 0.0
+ 
+head e5.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e5.encntr_id,enc->qual[num].eid)
+ 
+detail
+	enc->qual[pos].auth_req_dt = format(au.auth_obtained_dt_tm,'MM/DD/YYYY HH:MM:SS')
+ 	enc->qual[pos].auth_req_ack = uar_get_code_display(au.cert_status_cd)
+ 	enc->qual[pos].auth_start_dt = format(au.service_beg_dt_tm,'MM/DD/YYYY;;q')
+ 	enc->qual[pos].auth_end_dt =format(au.service_end_dt_tm,'MM/DD/YYYY;;q')
+ 	enc->qual[pos].auth_num = au.auth_nbr
+ 	enc->qual[pos].auth_notes = replace(replace(l2.long_text,concat(char(13),char(10))," ",0),char(9)," ",0)
+ 
+with nocounter,expand=1
+/**************************************************************
+;Diagnosis Primary and Secondary
+**************************************************************/
+ 
+select into "nl:"
+	d.encntr_id
+	, d_diag_type_disp = uar_get_code_display(d.diag_type_cd)
+	, d.clinical_diag_priority
+	, n.source_identifier
+	, n.source_string
+	, d_diag_type_disp = uar_get_code_display(d1.diag_type_cd)
+	, d1.clinical_diag_priority
+	, n1.source_identifier
+	, n1.source_string
+ 
+from
+	diagnosis   d
+	, nomenclature   n
+	, diagnosis   d1
+	, nomenclature   n1
+ 
+plan d where expand(num,1,size(enc->qual,5),d.encntr_id,enc->qual[num].eid)
+	and d.active_ind = 1
+	and d.clinical_diag_priority in (0,1)
+join n where d.nomenclature_id = n.nomenclature_id
+	and n.active_ind = 1
+join d1 where outerjoin(d.encntr_id) = d1.encntr_id
+	and d1.active_ind = outerjoin(1)
+	and d1.clinical_diag_priority = outerjoin(2)
+join n1 where d1.nomenclature_id = n1.nomenclature_id
+	and n1.active_ind = 1
+ 
+head d.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),d.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	enc->qual[pos].pdx = n.source_identifier
+ 	enc->qual[pos].sec_dx = n1.source_identifier
+ 
+with nocounter,expand=1
+/**************************************************************
+;MS-DRG
+**************************************************************/
+ 
+select distinct
+	d3.encntr_id
+	, d_severity_of_illness_disp = uar_get_code_display(d3.severity_of_illness_cd)
+	, n3.source_identifier
+	, n3.source_string
+ 
+from
+	drg   d3
+	, nomenclature   n3
+ 
+plan d3 where expand(num,1,size(enc->qual,5),d3.encntr_id,enc->qual[num].eid)
+and d3.active_ind = 1
+and d3.source_vocabulary_cd = drg_var;4326105.0
+join n3 where d3.nomenclature_id = n3.nomenclature_id
+and n3.active_ind = 1
+ 
+head d3.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),d3.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	enc->qual[pos].drg = n3.source_identifier
+ 	enc->qual[pos].severity_illness = uar_get_code_display(d3.severity_of_illness_cd)
+ 
+with nocounter,expand=1
+;call echorecord(enc)
+/**************************************************************
+; Agency Information
+**************************************************************/
+select distinct into "nl:"
+	pc.organization_id
+	, o.org_name
+ 
+from
+	pft_encntr   p
+	, pft_encntr_collection_reltn   pe
+	, pft_collection_agency   pc
+	, organization   o
+ 
+plan p where expand(num,1,size(enc->qual,5),p.encntr_id,enc->qual[num].eid)
+join pe where p.pft_encntr_id = pe.pft_encntr_id
+join pc where pe.parent_entity_id = pc.pft_collection_agency_id
+join o where pc.organization_id = o.organization_id
+ 
+head p.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),p.encntr_id,enc->qual[num].eid)
+ 
+detail
+	enc->qual[pos].agency_code = pc.organization_id
+	enc->qual[pos].agency_desc = o.org_name
+ 
+with nocounter, separator=" ", format
+ 
+/**************************************************************
+; Account Balances (Chgs, Pymt, Adj)
+**************************************************************/
+ 
+ select distinct into "nl:"
+	pe.pft_encntr_alias
+	, pe.charge_balance
+	, pe.chrg_bal_dr_cr_flag
+	, pe.adjustment_balance
+	, pe.adj_bal_dr_cr_flag
+	, pe.applied_payment_balance
+	, pe.balance
+	, pe.pat_bal_fwd
+	, br.bill_nbr_disp
+	, br.corsp_activity_id
+	, bhr.total_billed_amount
+	, bhr.fin_class_cd
+from
+	pft_encntr   pe
+	,benefit_order bo
+    ,bo_hp_reltn bhr
+    ,bill_reltn brn
+    ,bill_rec br
+plan pe where expand(num,1,size(enc->qual,5),pe.encntr_id,enc->qual[num].eid)
+	and pe.active_ind = 1
+join bo where bo.pft_encntr_id = pe.pft_encntr_id
+	and bo.active_ind = 1
+join bhr where bhr.benefit_order_id = bo.benefit_order_id
+	and bhr.active_ind = 1
+	and bhr.total_billed_amount != 0
+join brn where brn.parent_entity_id = bhr.bo_hp_reltn_id
+        and brn.parent_entity_name = "BO_HP_RELTN"
+        and brn.active_ind = 1
+join br where br.corsp_activity_id = brn.corsp_activity_id
+	and br.active_ind = 1
+	and (br.bill_nbr_disp_key != " "
+		and br.bill_nbr_disp_key != ""
+		and br.bill_nbr_disp != ""
+		and br.bill_nbr_disp != " ")
+order by
+		pe.billing_entity_id
+		,br.bill_nbr_disp_key
+ 
+head pe.encntr_id
+	pcn_cnt = 0
+	pos = locateval(num,1,cnt,pe.encntr_id,enc->qual[num].eid)
+	stat = alterlist(enc->qual[pos].pcn_qual,20);dna
+ 
+head br.bill_nbr_disp;rfv.claim_nbr_ident
+	pcn_cnt = pcn_cnt +1
+	if(mod(pcn_cnt,20)=1 )
+		stat = alterlist(enc->qual[pos].pcn_qual,pcn_cnt+20)
+	endif
+ 
+detail
+ 	enc->qual[pos].pcn_qual[pcn_cnt].tot_chg =
+ 		evaluate(bhr.total_billed_dr_cr_flag,2,(bhr.total_billed_amount*-(1)),bhr.total_billed_amount)
+ 	enc->qual[pos].pcn_qual[pcn_cnt].tot_adj =
+ 		evaluate(bhr.total_adj_dr_cr_flag,2,(bhr.total_adj_amount*-(1)),bhr.total_adj_amount)
+ 	enc->qual[pos].pcn_qual[pcn_cnt].acct_bal = pe.balance
+ 	enc->qual[pos].pcn_qual[pcn_cnt].patctrlnum = br.bill_nbr_disp
+ 
+foot report
+	stat = alterlist(enc->qual[pos].pcn_qual,pcn_cnt)
+ 
+with nocounter, expand = 1
+;call echorecord(enc)
+ 
+/**************************************************************
+; Account Balances (Pymt, Adj)
+**************************************************************/
+SELECT into "NL:"
+ 
+ pr.amount
+ 
+FROM
+	Pft_encntr   pe
+	, pft_trans_reltn   pr
+	, trans_log   t
+	, encounter   e
+ 
+Plan pe
+              Where expand(num,1,size(enc->qual,5),pe.encntr_id,enc->qual[num].eid)
+              And pe.active_ind = 1
+Join pr
+              Where pr.parent_entity_id = pe.pft_encntr_id
+              And pr.active_ind = 1
+Join t
+              Where t.activity_id = pr.activity_id
+              And t.total_trans_amount != 0
+              And t.active_ind = 1
+              And t.trans_type_cd in (10982.0,10978.0);<adjustment>,<payment>)
+              And t.active_ind = 1
+Join e
+              Where e.encntr_id = pe.encntr_id
+              And e.active_ind = 1
+              And e.beg_effective_dt_tm < sysdate
+              And e.end_effective_dt_tm > sysdate
+ 
+order by
+    pe.pft_encntr_id
+    ,t.trans_sub_type_cd
+    ,pr.created_dt_tm desc
+ 
+head pe.encntr_id
+	pcn_cnt2 = 0
+	pos = locateval(num,1,cnt,pe.encntr_id,enc->qual[num].eid)
+	stat = alterlist(enc->qual[pos].pcn_qual,20);dna
+ 
+head pr.parent_entity_id
+	pcn_cnt2 = pcn_cnt2 +1
+	if(mod(pcn_cnt2,20)=1 )
+		stat = alterlist(enc->qual[pos].pcn_qual,pcn_cnt2+20)
+	endif
+ 
+detail
+	if (t.trans_sub_type_cd in (copay_var,pat_pay_var))
+		enc->qual[pos].pcn_qual[pcn_cnt2].tot_pat_pay = pr.amount
+    elseif (t.trans_sub_type_cd in (com_ins_pay_var,medicaid_pay_var,medicare_pay_var,workcomp_ins_pay_var))
+		enc->qual[pos].pcn_qual[pcn_cnt2].tot_ins_pay = pr.amount
+	elseif (t.trans_reason_cd = 269785961.0)
+		enc->qual[pos].pcn_qual[pcn_cnt2].exp_not_allowed = pr.amount
+	endif
+		enc->qual[pos].pcn_qual[pcn_cnt2].exp_reimb =
+			evaluate(pe.chrg_bal_dr_cr_flag,2,(pe.charge_balance*-(1)),pe.charge_balance)
+				 - enc->qual[pos].pcn_qual[pcn_cnt2].exp_not_allowed
+ 
+ 
+foot report
+	stat = alterlist(enc->qual[pos].pcn_qual,pcn_cnt2)
+ 
+with nocounter, expand = 1
+;call echorecord(enc)
+/**************************************************************
+;Write Output
+**************************************************************/
+select into value(veracity_pai_file)
+	PattAcctNo = enc->qual[d1.seq].fin
+	, PCN = enc->qual[d1.seq].pcn_qual[d2.seq].patctrlnum
+	, MRN = enc->qual[d1.seq].mrn
+	, EntityID = enc->qual[d1.seq].entity_id
+	, EntityName = substring(1,20,enc->qual[d1.seq].entity_name)
+	, PatFName = substring(1,20,enc->qual[d1.seq].fname)
+	, PatMI = substring(1,20,enc->qual[d1.seq].mname)
+	, PatLName = substring(1,20,enc->qual[d1.seq].lname)
+	, PatAdd1 = substring(1,20,enc->qual[d1.seq].pat_addr1)
+	, PatAdd2 = substring(1,20,enc->qual[d1.seq].pat_addr2)
+	, PatCity = substring(1,20,enc->qual[d1.seq].pat_city)
+	, PatSt = substring(1,20,enc->qual[d1.seq].pat_st)
+	, PatZip = substring(1,5,enc->qual[d1.seq].pat_zip)
+	, PatPhone = substring(1,20,enc->qual[d1.seq].pat_phone)
+	, PatSSN = enc->qual[d1.seq].ssn
+	, PatDOB = enc->qual[d1.seq].dob
+	, PatGen = enc->qual[d1.seq].sex
+	, GuarName = substring(1,20,enc->qual[d1.seq].guar_name)
+	, GuarSSN = enc->qual[d1.seq].guar_ssn
+	, GuarDOB = enc->qual[d1.seq].guar_dob
+	, GuarRel = substring(1,20,enc->qual[d1.seq].guar_rel)
+	, GuarAdd1 = substring(1,20,enc->qual[d1.seq].guar_addr1)
+	, GuarAdd2 = substring(1,20,enc->qual[d1.seq].guar_addr2)
+	, GuarCity = substring(1,20,enc->qual[d1.seq].guar_city)
+	, GuarSt = substring(1,20,enc->qual[d1.seq].guar_st)
+	, GuarZip = substring(1,5,enc->qual[d1.seq].guar_zip)
+	, GuarPhone = substring(1,20,enc->qual[d1.seq].guar_phone)
+	, GuarWorkPhone = "" ;same as guar_emp_phone
+	, GuarEmp = substring(1,20,enc->qual[d1.seq].guar_emp)
+	, GuarEmpAdd1 = substring(1,20,enc->qual[d1.seq].guar_emp_addr1)
+	, GuarEmpAdd2 = substring(1,20,enc->qual[d1.seq].guar_emp_addr2)
+	, GuarEmpCity = substring(1,20,enc->qual[d1.seq].guar_emp_city)
+	, GuarEmpSt = substring(1,20,enc->qual[d1.seq].guar_emp_st)
+	, GuarEmpZip = substring(1,5,enc->qual[d1.seq].guar_emp_zip)
+	, GuarEmpPhone = substring(1,20,enc->qual[d1.seq].guar_emp_phone)
+	, TtlChgs = format(enc->qual[d1.seq].pcn_qual[d2.seq].tot_chg,"###########.##;l")
+	, ExpReimb = format(enc->qual[d1.seq].pcn_qual[d2.seq].exp_reimb,"###########.##;l")
+	, PrimPayExpNotAllow = format(enc->qual[d1.seq].pcn_qual[d2.seq].exp_not_allowed,"###########.##;l")
+	, TtlInsPayments = format(enc->qual[d1.seq].pcn_qual[d2.seq].tot_ins_pay,"###########.##;l")
+	, TtlPatPayments = format(enc->qual[d1.seq].pcn_qual[d2.seq].tot_pat_pay,"###########.##;l")
+	, TtlAdjustments = format(enc->qual[d1.seq].pcn_qual[d2.seq].tot_adj,"###########.##;l")
+	, AcctBal = format(enc->qual[d1.seq].pcn_qual[d2.seq].acct_bal,"###########.##;l")
+	, PatBal = format(enc->qual[d1.seq].pcn_qual[d2.seq].pat_bal,"###########.##;l")
+	, PrimPayAcctBal = ""
+	, InsVerifReqDateTime = enc->qual[d1.seq].ins_ver_req_dt
+	, InsVerifReqNotes = enc->qual[d1.seq].ins_ver_req_notes
+	, InsVerifRequestor = enc->qual[d1.seq].ins_ver_requestor
+	, RegistrarID = enc->qual[d1.seq].registrar_id
+	, CoderID = enc->qual[d1.seq].coder_id
+	, Ins1Code = enc->qual[d1.seq].ins1_code
+	, Ins1Name = substring(1,50,enc->qual[d1.seq].ins1_name)
+	, Ins2Code = enc->qual[d1.seq].ins2_code
+	, Ins2Name = substring(1,50,enc->qual[d1.seq].ins2_name)
+	, FinClassCode = enc->qual[d1.seq].fin_class_cd
+	, CurFinClassName = enc->qual[d1.seq].fin_class_name
+	, AuthRequestor = "" ;enc->qual[d1.seq].auth_requestor
+	, AuthReqDT = enc->qual[d1.seq].auth_req_dt
+	, AuthReqAck = enc->qual[d1.seq].auth_req_ack
+	, AuthStartDate = enc->qual[d1.seq].auth_start_dt
+	, AuthEndDate = enc->qual[d1.seq].auth_end_dt
+	, AuthApprNo = enc->qual[d1.seq].auth_num
+	, AuthNotes = enc->qual[d1.seq].auth_notes
+	, PatientType = substring(1,20,enc->qual[d1.seq].pat_type)
+	, ServiceType = enc->qual[d1.seq].svc_type
+	, ServiceTypeDesc = substring(1,20,enc->qual[d1.seq].svc_type_desc)
+	, ServiceLocCode = enc->qual[d1.seq].svc_loc_cd
+	, ServiceLodDesc = substring(1,20,enc->qual[d1.seq].svc_loc_desc)
+	, AttendPhysCode = enc->qual[d1.seq].attend_phys_cd
+	, AttendPhysName = substring(1,20,enc->qual[d1.seq].attend_phys_name)
+	, DRG = enc->qual[d1.seq].drg
+	, APRDRG = ""; MRMC doesn't use APRDRG
+	, APRDRGDESC = ""; MRMC doesn't use APRDRG
+	, SOI = enc->qual[d1.seq].severity_illness
+	, PrimDxCode = enc->qual[d1.seq].pdx
+	, SecDxCode = enc->qual[d1.seq].sec_dx
+	, AdmitDate = enc->qual[d1.seq].admit_dt
+	, DischargeDate = enc->qual[d1.seq].disch_dt
+	, DischargeDepartID = enc->qual[d1.seq].depart_id
+	, DischargeDepartName = substring(1,40,enc->qual[d1.seq].depart_name)
+	, LOS = enc->qual[d1.seq].len_stay
+	, RootCause = enc->qual[d1.seq].root_cause
+	, AgencyCode = enc->qual[d1.seq].agency_code
+	, AgencyName = enc->qual[d1.seq].agency_desc
+ 
+from
+    (dummyt d1 with seq=value(size(enc->qual,5)))
+    ,(dummyt d2 with seq=1)
+ 
+plan d1
+    where maxrec(d2,size(enc->qual[d1.seq].pcn_qual,5))
+join d2 where enc->qual[d1.seq].pcn_qual[d2.seq].tot_chg != 0.00
+ 
+head report
+    line1 = build("PattAcctNo|","PCN|","MRN|","EntityID|","EntityName|","PatFName|","PatMI|","PatLName|"
+	,"PatAdd1|","PatAdd2|","PatCity|","PatSt|","PatZip|","PatPhone|","PatSSN|","PatDOB|","PatGen|"
+	,"GuarName|","GuarSSN|","GuarDOB|","GuarRel|","GuarAdd1|","GuarAdd2|","GuarCity|","GuarSt|","GuarZip|"
+	,"GuarPhone|","GuarWorkPhone|","GuarEmp|","GuarEmpAdd1|","GuarEmpAdd2|","GuarEmpCity|","GuarEmpSt|"
+	,"GuarEmpZip|","GuarEmpPhone|","TtlChgs|","ExpReimb|","PrimPayExpNotAllow|","TtlInsPayments|"
+	,"TtlPatPayments|","TtlAdjustments|","AcctBal|","PatBal|","PrimPayAcctBal|","InsVerifReqDateTime|"
+	,"InsVerifReqNotes|","InsVerifRequestor|","RegistrarID|","CoderID|","Ins1Code|","Ins1Name|","Ins2Code|"
+	,"Ins2Name|","FinClassCode|","CurFinClassName|","AuthRequestor|","AuthReqDT|","AuthReqAck|","AuthStartDate|"
+	,"AuthEndDate|","AuthApprNo|","AuthNotes|","PatientType|","ServiceType|","ServiceTypeDesc|","ServiceLocCode|"
+	,"ServiceLodDesc|","AttendPhysCode|","AttendPhysName|","DRG|","APRDRG|","APRDRGDESC|","SOI|","PrimDxCode|"
+	,"SecDxCode|","AdmitDate|","DischargeDate|","DischargeDepartID|","DischargeDepartName|","LOS|","RootCause|"
+	,"AgencyCode|","AgencyName")
+ 
+    col 0 line1
+    row+1
+detail
+    line2 = build(PattAcctNo,"|",PCN,"|",MRN,"|",EntityID,"|",EntityName,"|",PatFName,"|",PatMI,"|",PatLName
+ 	,"|",PatAdd1,"|",PatAdd2,"|",PatCity,"|",PatSt,"|",PatZip,"|",PatPhone,"|",PatSSN,"|",PatDOB,"|",PatGen
+ 	,"|",GuarName,"|",GuarSSN,"|",GuarDOB,"|",GuarRel,"|",GuarAdd1,"|",GuarAdd2,"|",GuarCity,"|",GuarSt,"|",GuarZip
+	,"|",GuarPhone,"|",GuarWorkPhone,"|",GuarEmp,"|",GuarEmpAdd1,"|",GuarEmpAdd2,"|",GuarEmpCity,"|",GuarEmpSt
+	,"|",GuarEmpZip,"|",GuarEmpPhone,"|",TtlChgs,"|",ExpReimb,"|",PrimPayExpNotAllow,"|",TtlInsPayments
+	,"|",TtlPatPayments,"|",TtlAdjustments,"|",AcctBal,"|",PatBal,"|",PrimPayAcctBal,"|",InsVerifReqDateTime
+	,"|",InsVerifReqNotes,"|",InsVerifRequestor,"|",RegistrarID,"|",CoderID,"|",Ins1Code,"|",Ins1Name,"|",Ins2Code
+	,"|",Ins2Name,"|",FinClassCode,"|",CurFinClassName,"|",AuthRequestor,"|",AuthReqDT,"|",AuthReqAck,"|",AuthStartDate
+	,"|",AuthEndDate,"|",AuthApprNo,"|",AuthNotes,"|",PatientType,"|",ServiceType,"|",ServiceTypeDesc,"|",ServiceLocCode
+	,"|",ServiceLodDesc,"|",AttendPhysCode,"|",AttendPhysName,"|",DRG,"|",APRDRG,"|",APRDRGDESC,"|",SOI,"|",PrimDxCode
+	,"|",SecDxCode,"|",AdmitDate,"|",DischargeDate,"|",DischargeDepartID,"|",DischargeDepartName
+	,"|",LOS,"|",RootCause,"|",AgencyCode,"|",AgencyName)
+ 
+	col 0 line2
+    row+1
+ 
+with nocounter,maxcol=5000,format=variable,separator="|",time=3900,outerjoin = d1
+ 
+end
+go
+ 
