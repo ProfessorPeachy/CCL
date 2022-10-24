@@ -1,0 +1,79 @@
+drop program 1_TRANS_ALIAS go
+create program 1_TRANS_ALIAS
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+ 
+with OUTDEV
+ 
+;001		Amelia Jamison		The first field had non-ascii characters and text crossed rows
+;								so I cleaned it up, threw it in a record strucutre and the output it that way.
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+free record rec
+record rec
+(
+	1 cnt			= i4
+	1 aliases[*]
+		2 alias			= vc
+		2 transaction		= vc
+		2 sub_type		= vc
+		2 type			= vc
+		2 dr_cr			= vc
+)
+ 
+;transaction alias extract
+select into $outdev
+	 alias= check(pta.pft_trans_alias,char(32),char(126)) ;TRIM(pta.pft_trans_alias,3)
+	,transaction = uar_get_code_display(pta.trans_reason_cd)
+	,sub_type = uar_get_code_display(pta.trans_sub_type_cd)
+	,type = uar_get_code_display(pta.trans_type_cd)
+	,dr_cr = evaluate(pta.dr_cr_flag,2, "Credit", 1, "Debit")
+from
+pft_trans_alias pta
+where pta.active_ind = 1
+order by transaction
+head report
+    rec->cnt = 0
+    stat = alterlist(rec->aliases, 100)
+detail
+	rec->cnt = rec->cnt+1
+ 
+	;rec->cnt = acnt
+    if(mod(rec->cnt,99) = 1 and rec->cnt != 1)
+      stat = alterlist(rec->aliases, rec->cnt + 99)
+      ;call echo(build2("new size" , size(rec->aliases),5))
+    endif
+ 
+	rec->aliases[rec->cnt].alias 		= check(pta.pft_trans_alias,char(32),char(126))
+	rec->aliases[rec->cnt].transaction 	= uar_get_code_display(pta.trans_reason_cd)
+	rec->aliases[rec->cnt].sub_type		= uar_get_code_display(pta.trans_sub_type_cd)
+	rec->aliases[rec->cnt].type			= uar_get_code_display(pta.trans_type_cd)
+	rec->aliases[rec->cnt].dr_cr		= evaluate(pta.dr_cr_flag,2, "Credit", 1, "Debit")
+foot report
+	stat = alterlist(rec->aliases,rec->cnt)
+with nocounter,separator = " "
+ 
+ 
+select into $outdev
+	 pft_trans_alias= trim(substring(1,200,rec->aliases[d1.seq].alias),3)
+	,transaction	= trim(substring(1,200,rec->aliases[d1.seq].transaction),3)
+	,sub_type		= trim(substring(1,200,rec->aliases[d1.seq].sub_type),3)
+	,type			= trim(substring(1,200,rec->aliases[d1.seq].type),3)
+	,dr_cr			= trim(substring(1,10,rec->aliases[d1.seq].dr_cr),3)
+from
+	(dummyt d1 with seq = value(size(rec->aliases,5)))
+plan d1
+	where d1.seq > 0
+with nocounter ,format, separator = " "
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 
