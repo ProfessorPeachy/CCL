@@ -1,0 +1,628 @@
+drop program 1_340b_proxsysrx go
+create program 1_340b_proxsysrx
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Beginning Date" = ""
+	, "Select Ending Date  Time" = ""
+ 
+with OUTDEV, S_BEG_DT, S_END_DT
+ 
+ 
+;set this to adjust the file name for a bulk load
+declare bulk_load_flag = i2 with constant(1), protect
+ 
+call echo(build2("bulk_load_flag ", bulk_load_flag))
+ 
+;declare filedate			  		= vc with noconstant(format(cnvtdatetime($S_BEG_DT),"YYYY_MM;;D")), protect
+ 
+declare filedate_begin			  = vc with noconstant(format(cnvtdatetime($S_BEG_DT),"YYYY_MM;;D")), protect
+declare filedate_end			  = vc with noconstant(format(cnvtdatetime($S_END_DT),"YYYY_MM;;D")), protect
+ 
+call echo(filedate_begin)
+ 
+ 
+;;*** RECORD STRUCTURES BEGIN ****************************************************************************
+free record m_rec
+record m_rec
+(
+  1 erx[*]
+    2 f_encntr_id           = f8
+    2 f_person_id           = f8
+    2 f_order_id            = f8
+    2 s_order_date          = vc
+    2 f_catalog_cd          = f8
+    2 s_catalog_disp        = vc
+    2 s_pharm_id            = vc  ;internal ID from order details
+    2 s_pharm_npi           = vc
+    2 s_store_name          = vc
+    2 s_store_addr1         = vc
+    2 s_store_addr2         = vc
+    2 s_store_city          = vc
+    2 s_store_state         = vc
+    2 s_store_zip           = vc
+    2 f_pres_id             = f8  ;provider prsnl id, prescriber (pres)
+    2 s_pres_dea            = vc
+    2 s_pres_dea_type_id    = vc
+    2 s_pres_npi            = vc
+    2 s_pres_npi_type_id    = vc
+    2 s_pres_spec           = vc
+    2 s_pres_name_first     = vc
+    2 s_pres_name_mid       = vc
+    2 s_pres_name_last      = vc
+    2 s_pres_clinic_name    = vc
+    2 s_fac_code            = vc
+    2 s_fac_name            = vc
+    2 s_loc_of_svc          = vc
+    2 s_hrsa_id             = vc
+    2 s_term_id             = vc
+    2 s_pat_name_first      = vc
+    2 s_pat_name_mid        = vc
+    2 s_pat_name_last       = vc
+    2 s_pat_suffix		    = vc
+    2 s_pat_gender          = vc
+    2 s_pat_dob             = vc
+    2 s_pat_ph_home         = vc
+    2 s_pat_ph_work         = vc
+    2 s_pat_ph_cell         = vc
+    2 s_pat_addr1           = vc
+    2 s_pat_addr2           = vc
+    2 s_pat_city            = vc
+    2 s_pat_state           = vc
+    2 s_pat_zip             = vc
+    2 s_pat_ssn             = vc
+    2 s_pat_fin             = vc
+    2 s_pat_mrn             = vc
+    2 s_pat_type            = vc
+    2 s_med_desc            = vc
+    2 s_med_code            = vc  ;NDC
+    2 s_med_qual            = vc  ;NDC - literally "NDC"
+    2 s_med_qty             = vc
+    2 s_med_subs_cd         = vc
+    2 s_med_strength = vc
+    2 s_med_strength		= vc
+    2 s_med_strengthdose	= vc
+    2 s_med_strengthdose_unit = vc
+    2 s_med_dt_writ         = vc
+    2 s_med_dx_qual         = vc
+    2 s_med_dx_cd           = vc
+    2 s_med_refill_nbr      = vc
+ 
+  ;facilities for looking up 340b id
+  1 fac[*]
+    2 s_dispkey             = vc
+    2 s_disp                = vc
+    2 f_cd                  = f8
+    2 s_340bid              = vc
+) with protect
+ 
+free record frec
+record frec
+(
+  1 file_desc     = w8
+  1 file_offset   = i4
+  1 file_dir      = i4
+  1 file_name     = vc
+  1 file_buf      = vc
+)
+ 
+if (validate(reply->status_data[1].status) = 0)
+  record reply
+  (
+    1 status_data[1]
+      2 status = c1
+  )
+endif
+ 
+;default status to F, make the script force it to S
+set reply->status_data[1].status = "F"
+ 
+ 
+ 
+;*** RECORD STRUCTURES END ******************************************************************************
+ 
+;*** DECLARE VARIABLES BEGIN ****************************************************************************
+;CONSTANTS
+declare mf_CS319_FIN_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2930"))
+declare mf_CS319_MRN_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!8021"))
+declare mf_CS8_AUTH_CD          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2628"))
+declare mf_CS8_MODIFIED_CD      = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2636"))
+declare mf_CS8_ALTERED_CD       = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!16901"))
+declare mf_CS48_ACTIVE_CD       = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2669"))
+declare mf_CS6004_ORDERED_CD    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3102"))
+declare mf_CS6000_PHARM_CD      = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3079"))
+;home CKI.CODEVALUE!4017
+declare mf_CS43_HOME_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4017")) ;HOME
+;declare mf_CS43_HOME_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4000022570")) ;primary home
+declare mf_CS43_WORK_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!9598"))
+declare mf_CS43_CELL_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2510010055"))
+call echo(build2("mf_CS43_HOME_CD: ", mf_CS43_HOME_CD))
+call echo(build2("mf_CS43_WORK_CD: ", mf_CS43_WORK_CD))
+call echo(build2("mf_CS43_CELL_CD: ", mf_CS43_CELL_CD))
+declare mf_CS212_HOME_CD        = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4018"))
+call echo(build2("mf_CS212_HOME_CD: ", mf_CS212_HOME_CD))
+declare mf_CS4_SSN_CD           = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2626"))
+call echo(build2("mf_CS4_SSN_CD: ", mf_CS4_SSN_CD))
+declare mf_CS6003_ORDER_CD      = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3094"))
+call echo(build2("mf_CS6003_ORDER_CD: ", mf_CS6003_ORDER_CD))
+declare mf_CS16449_PHARM_ID_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY", 16449, "ROUTINGPHARMACYID"))
+call echo(build2("mf_CS16449_PHARM_ID_CD: ", mf_CS16449_PHARM_ID_CD))
+declare mf_CS320_DEA_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!9850"))
+declare mf_CS320_NPI_CD         = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2160654021"))
+call echo(build2("mf_CS320_DEA_CD: ", mf_CS320_DEA_CD))
+call echo(build2("mf_CS320_NPI_CD: ", mf_CS320_NPI_CD))
+declare mf_CS6011_RX_MNEM_CD    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!5384"))
+call echo(build2("mf_CS6011_RX_MNEM_CD: ", mf_CS6011_RX_MNEM_CD))
+declare mf_CS11000_NDC_CD       = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3295"))
+call echo(build2("mf_CS11000_NDC_CD: ", mf_CS11000_NDC_CD))
+declare mf_CS16449_DISP_QTY_CD  = f8 with protect, constant(uar_get_code_by("DISPLAYKEY", 16449, "DISPENSEQUANTITY"))
+call echo(build2("mf_CS16449_DISP_QTY_CD: ", mf_CS16449_DISP_QTY_CD))
+declare mf_CS16449_TOT_REFILL_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY", 16449, "TOTAL REFILLS"))
+call echo(build2("mf_CS16449_TOT_REFILL_CD: ", mf_CS16449_TOT_REFILL_CD))
+ 
+ 
+ 
+;NON-CONSTANTS
+declare ms_beg_dt_tm          = vc with protect, noconstant(trim($s_beg_dt))
+declare ms_end_dt_tm          = vc with protect, noconstant(trim($s_end_dt))
+declare ms_tmp                = vc with protect, noconstant(" ")
+;declare ml_exp                = i4 with protect, noconstant(0)
+declare ml_idx                = i4 with protect, noconstant(0)
+declare ml_loc                = i4 with protect, noconstant(0)
+declare ml_loop               = i4 with protect, noconstant(0)
+declare ml_cnt                = i4 with protect, noconstant(0)
+declare mf_rem_space          = f8 with protect, noconstant(0.0)
+ 
+if (bulk_load_flag = 0)
+	declare ms_file_name      = vc with protect, noconstant(concat("maur_rx_report_",filedate_begin,".csv"))
+else
+	declare ms_file_name	  = vc with protect, noconstant(concat("maur_rx_report_",filedate_begin,"_to_", filedate_end,".csv"))
+endif
+ 
+ 
+call echo(build2("ms_file_name: ", ms_file_name))
+;*** DECLARE VARIABLES END ******************************************************************************
+ 
+;*** INCLUDE FILES BEGIN ********************************************************************************
+%i cust_script:maur_tn_pharmreq_3202501.inc
+;*** INCLUDE FILES END **********************************************************************************
+ 
+;*** MAIN PROGRAM BEGIN *********************************************************************************
+;validate inputs
+if (textlen(trim(ms_beg_dt_tm, 3)) = 0)
+	;call echo("if")
+  set ms_beg_dt_tm = trim(format(datetimefind(cnvtlookbehind("1,D", sysdate), "D", "B", "B"), "dd-mmm-yyyy hh:mm;;d"), 3)
+  set ms_end_dt_tm = trim(format(datetimefind(cnvtlookbehind("1,D", sysdate), "D", "E", "E"), "dd-mmm-yyyy hh:mm;;d"), 3)
+else
+	;call echo("else")
+  set ms_beg_dt_tm = concat(ms_beg_dt_tm, " 00:00:00")
+  set ms_end_dt_tm = concat(ms_end_dt_tm, " 23:59:59")
+endif
+call echo(build2("ms_beg_dt_tm: ", ms_beg_dt_tm))
+call echo(build2("ms_end_dt_tm: ", ms_end_dt_tm))
+ 
+;get facility list
+select into "nl:"
+from code_value cv
+where
+  (cv.display_key in ("MAURY","MARSHALL","LHC","MRMCCANCERCTR","LEWISBURGFP","PEDS","PRIMECARE","SURGERY","HOMESERVICES")
+    and cv.cdf_meaning = "FACILITY"
+  )
+  or
+  (cv.display_key in ("WOMENSCENTERRADSERVICEAREA","PAVSURGERYCTR","PAVPACU")
+    and cv.cdf_meaning in ("NURSEUNIT", "SRVAREA", "AMBULATORY")
+  )
+  and cv.active_ind = 1
+order cv.display_key
+head report
+  pl_cnt = 0
+head cv.display_key
+  pl_cnt += 1
+  call alterlist(m_rec->fac, pl_cnt)
+ 
+  m_rec->fac[pl_cnt].f_cd = cv.code_value
+  m_rec->fac[pl_cnt].s_disp = trim(cv.display, 3)
+  m_rec->fac[pl_cnt].s_dispkey = trim(cv.display_key, 3)
+ 
+  case (cv.display_key)
+    ;maury locations
+    of "MAURY":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-00"
+    of "MRMCCANCERCTR":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-01"
+    of "SURGERY":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-02"
+    of "PAVSURGERYCTR":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-03"
+    of "PAVPACU":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-05"
+    of "WOMENSCENTERRADSERVICEAREA":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-06"
+    of "HOMESERVICES":
+      m_rec->fac[pl_cnt].s_340bid = "RRC440073-07"
+    ;marshall locations
+    of "MARSHALL":
+      m_rec->fac[pl_cnt].s_340bid = "CAH441309-00"
+ 
+    ;lewis locations
+    of "LHC":
+      m_rec->fac[pl_cnt].s_340bid = "CHC26598-00"
+    of "PRIMECARE":
+      m_rec->fac[pl_cnt].s_340bid = "CHC26598-01"
+    of "PEDS":
+      m_rec->fac[pl_cnt].s_340bid = "CHC26598-02"
+    of "LEWISBURGFP":
+      m_rec->fac[pl_cnt].s_340bid = "CHC26598-03"
+    of "HOMESERVICES":
+      m_rec->fac[pl_cnt].s_340bid = "CHC26598-04"
+  endcase
+with nocounter
+ 
+;get orders
+select into $OUTDEV; "nl:"
+o.order_id, o.order_mnemonic, od.*
+from
+  orders o,
+  order_action oa,
+  encounter e,
+  encntr_loc_hist elh,
+  person_name pn1,
+  person p,
+  person_name pn2,
+  encntr_alias ea1,
+  encntr_alias ea2,
+  order_detail od
+plan o
+;	where o.encntr_id > 0
+;	and o.catalog_type_cd = mf_CS6000_PHARM_CD
+;	and o.active_ind = 1
+;	and o.orig_order_dt_tm between cnvtdatetime(ms_beg_dt_tm) and cnvtdatetime(ms_end_dt_tm)
+  where o.orig_order_dt_tm between cnvtdatetime(ms_beg_dt_tm) and cnvtdatetime(ms_end_dt_tm)
+    and o.orig_ord_as_flag = 1  ;prescription
+    and o.catalog_type_cd = mf_CS6000_PHARM_CD
+    and o.active_ind = 1
+join oa
+  where oa.order_id = o.order_id
+    and oa.action_type_cd = mf_CS6003_ORDER_CD
+;join oa
+;  where oa.order_id = o.order_id
+;  and oa.action_sequence > 0
+;  and oa.action_type_cd = mf_CS6003_ORDER_CD
+join e
+  where e.encntr_id = o.encntr_id
+join elh
+  where elh.encntr_id = o.encntr_id
+    and oa.action_dt_tm between elh.beg_effective_dt_tm and elh.end_effective_dt_tm
+    and elh.active_ind = 1
+join pn1
+  where pn1.person_id = oa.order_provider_id
+    and pn1.active_ind = 1
+    and pn1.end_effective_dt_tm > sysdate
+join p
+  where p.person_id = o.person_id
+join pn2
+  where pn2.person_id = p.person_id
+    and pn2.active_ind = 1
+    and pn2.end_effective_dt_tm > sysdate
+join ea1
+  where ea1.encntr_id = o.encntr_id
+    and ea1.active_ind = 1
+    and ea1.end_effective_dt_tm > sysdate
+    and ea1.encntr_alias_type_cd = mf_CS319_FIN_CD
+join ea2
+  where ea2.encntr_id = o.encntr_id
+    and ea2.active_ind = 1
+    and ea2.end_effective_dt_tm > sysdate
+    and ea2.encntr_alias_type_cd = mf_CS319_MRN_CD
+join od
+  where od.order_id = o.order_id
+  AND (od.oe_field_id in (mf_CS16449_PHARM_ID_CD, mf_CS16449_DISP_QTY_CD, mf_CS16449_TOT_REFILL_CD)
+  	OR OD.oe_field_meaning IN ("STRENGTHDOSE", "STRENGTHDOSEUNIT")
+  )
+order o.order_id, od.oe_field_id, od.updt_dt_tm desc
+;WITH NOCOUNTER,FORMAT,SEPARATOR = " "
+head report
+  pl_cnt = 0
+head o.order_id
+  pl_cnt += 1
+  if (pl_cnt > size(m_rec->erx, 5))
+    call alterlist(m_rec->erx, pl_cnt + 100)
+  endif
+ 
+  m_rec->erx[pl_cnt].f_encntr_id          = o.encntr_id
+  m_rec->erx[pl_cnt].s_pat_type			  = uar_get_code_display(e.encntr_type_cd)
+  m_rec->erx[pl_cnt].f_person_id          = o.person_id
+  m_rec->erx[pl_cnt].f_order_id           = o.order_id
+  m_rec->erx[pl_cnt].s_order_date         = trim(format(o.orig_order_dt_tm, "MM/DD/YYYY;;d"), 3)
+  m_rec->erx[pl_cnt].f_catalog_cd         = o.catalog_cd
+  m_rec->erx[pl_cnt].s_catalog_disp       = trim(uar_get_code_display(o.catalog_cd), 3)
+ 
+  ;prescriber
+  m_rec->erx[pl_cnt].f_pres_id = oa.order_provider_id
+  m_rec->erx[pl_cnt].s_pres_name_first    = trim(pn1.name_first, 3)
+  m_rec->erx[pl_cnt].s_pres_name_mid      = trim(pn1.name_middle, 3)
+  m_rec->erx[pl_cnt].s_pres_name_last     = trim(pn1.name_last, 3)
+ 
+  ;loc
+  m_rec->erx[pl_cnt].s_fac_code = trim(cnvtstring(elh.loc_facility_cd), 3)
+  m_rec->erx[pl_cnt].s_fac_name = trim(uar_get_code_display(elh.loc_facility_cd), 3)
+ 
+  ;340bid based on location - mostly facility but some are outside of that
+  if (trim(uar_get_code_display(elh.loc_nurse_unit_cd), 3) = "Pav PACU")
+    ml_idx = locateval(ml_loc, 1, size(m_rec->fac, 5), elh.loc_nurse_unit_cd, m_rec->fac[ml_loc].f_cd)
+  elseif (trim(uar_get_code_display(elh.location_cd), 3) = "Surgery Center Pavilion")
+    ml_idx = locateval(ml_loc, 1, size(m_rec->fac, 5), elh.location_cd, m_rec->fac[ml_loc].f_cd)
+  elseif (trim(uar_get_code_display(elh.location_cd), 3) = "Women's Center Rad Service Area")
+    ml_idx = locateval(ml_loc, 1, size(m_rec->fac, 5), elh.location_cd, m_rec->fac[ml_loc].f_cd)
+  else
+    ml_idx = locateval(ml_loc, 1, size(m_rec->fac, 5), elh.loc_facility_cd, m_rec->fac[ml_loc].f_cd)
+  endif
+ 
+  if (ml_idx > 0)
+    m_rec->erx[pl_cnt].s_hrsa_id = m_rec->fac[ml_idx].s_340bid
+  endif
+ 
+  m_rec->erx[pl_cnt].s_loc_of_svc = trim(uar_get_code_display(e.loc_nurse_unit_cd), 3)
+ 
+  ;patient
+  m_rec->erx[pl_cnt].s_pat_name_first     = trim(pn2.name_first, 3)
+  m_rec->erx[pl_cnt].s_pat_name_mid       = trim(pn2.name_middle, 3)
+  m_rec->erx[pl_cnt].s_pat_name_last      = trim(pn2.name_last, 3)
+  m_rec->erx[pl_cnt].s_pat_suffix		  = trim(pn2.name_suffix, 3)
+  m_rec->erx[pl_cnt].s_pat_gender         = trim(uar_get_code_display(p.sex_cd), 3)
+  m_rec->erx[pl_cnt].s_pat_dob            = trim(format(p.birth_dt_tm, "MM/DD/YYYY;;d"), 3)
+  m_rec->erx[pl_cnt].s_pat_fin            = trim(ea1.alias, 3)
+  m_rec->erx[pl_cnt].s_pat_mrn            = trim(ea2.alias, 3)
+ 
+  ;med
+  m_rec->erx[pl_cnt].s_med_desc           = trim(uar_get_code_display(o.catalog_cd), 3)
+;  m_rec->erx[pl_cnt].s_med_code           = "";ndc
+;  m_rec->erx[pl_cnt].s_med_qual           = "NDC"
+;  m_rec->erx[pl_cnt].s_med_subs_cd        =
+  m_rec->erx[pl_cnt].s_med_dt_writ        = trim(format(o.orig_order_dt_tm, "MM/DD/YYYY;;d"), 3)
+;  m_rec->erx[pl_cnt].s_med_dx_qual        =
+;  m_rec->erx[pl_cnt].s_med_dx_cd          =
+ 
+head od.oe_field_id
+  case (od.oe_field_id)
+    of mf_CS16449_PHARM_ID_CD:
+      m_rec->erx[pl_cnt].s_pharm_id = trim(od.oe_field_display_value, 3)
+ 
+    of mf_CS16449_DISP_QTY_CD:
+      m_rec->erx[pl_cnt].s_med_qty = trim(od.oe_field_display_value, 3)
+ 
+    of mf_CS16449_TOT_REFILL_CD:
+      m_rec->erx[pl_cnt].s_med_refill_nbr = trim(od.oe_field_display_value, 3)
+  endcase
+ 
+head od.oe_field_meaning
+	case (od.oe_field_meaning)
+	of "STRENGTHDOSE":
+		m_rec->erx[pl_cnt].s_med_strengthdose =  trim(od.oe_field_display_value, 3)
+	of "STRENGTHDOSEUNIT":
+		m_rec->erx[pl_cnt].s_med_strengthdose_unit		 = trim(od.oe_field_display_value, 3)
+	endcase
+foot o.order_id
+	m_rec->erx[pl_cnt].s_med_strength = concat(m_rec->erx[pl_cnt].s_med_strengthdose," ",m_rec->erx[pl_cnt].s_med_strengthdose_unit)
+foot report
+  call alterlist(m_rec->erx, pl_cnt)
+with nocounter, check
+ 
+;get prescriber DEA, NPI, specialty (pos), clinic (no can do)
+select into "nl:"
+from
+  (dummyt d with seq = value(size(m_rec->erx, 5))), ;I don't like dummys either, but this could be a big list, and locateval
+  prsnl pr,                                         ;performance is absolutely terrible on a big list unless it's sorted
+  prsnl_alias pa
+plan d
+  where m_rec->erx[d.seq].f_pres_id > 0.0
+join pr
+  where pr.person_id = m_rec->erx[d.seq].f_pres_id
+join pa
+  where pa.person_id = pr.person_id
+    and pa.active_ind = 1
+    and pa.end_effective_dt_tm > sysdate
+    and pa.prsnl_alias_type_cd in (mf_CS320_DEA_CD, mf_CS320_NPI_CD)
+order d.seq, pr.person_id, pa.prsnl_alias_type_cd
+head d.seq
+  m_rec->erx[d.seq].s_pres_spec = trim(uar_get_code_display(pr.position_cd), 3)
+ 
+head pa.prsnl_alias_type_cd
+  if (pa.prsnl_alias_type_cd = mf_CS320_DEA_CD)
+    m_rec->erx[d.seq].s_pres_dea = trim(pa.alias, 3)
+    m_rec->erx[d.seq].s_pres_dea_type_id = "1"
+  elseif (pa.prsnl_alias_type_cd = mf_CS320_NPI_CD)
+    m_rec->erx[d.seq].s_pres_npi = trim(pa.alias, 3)
+    m_rec->erx[d.seq].s_pres_npi_type_id = "1"
+  endif
+;  s_pres_clinic_name    = vc
+with nocounter, check
+ 
+;get the NDC for the med
+select into "nl:"
+from
+  (dummyt d with seq = value(size(m_rec->erx, 5))),  ;see note above about using dummyt
+  order_catalog oc,
+  order_catalog_synonym ocs,
+  med_identifier mi
+plan d
+join oc
+  where oc.catalog_cd = m_rec->erx[d.seq].f_catalog_cd
+    and oc.active_ind = 1
+    and oc.catalog_type_cd = mf_CS6000_PHARM_CD
+join ocs
+  where ocs.catalog_cd = oc.catalog_cd
+    and ocs.catalog_type_cd = mf_CS6000_PHARM_CD
+    and ocs.active_ind = 1
+    and ocs.mnemonic_type_cd = mf_CS6011_RX_MNEM_CD
+join mi
+  where mi.item_id = ocs.item_id
+    and mi.med_identifier_type_cd = mf_CS11000_NDC_CD
+    and mi.med_product_id != 0  ;required to get primary ndc
+    and mi.sequence = 1
+    and mi.active_ind = 1
+order d.seq, oc.primary_mnemonic, ocs.mnemonic, mi.value
+head d.seq
+  m_rec->erx[d.seq].s_med_code = trim(mi.value, 3)  ;NDC
+  m_rec->erx[d.seq].s_med_qual = "NDC"
+with nocounter, check
+ 
+;get the pharmacy information based on the pharm_id from order_details
+select into "nl:"
+from (dummyt d with seq = value(size(m_rec->erx, 5)))
+where size(m_rec->erx[d.seq].s_pharm_id) > 0
+order m_rec->erx[d.seq].s_pharm_id
+head report
+  ml_cnt = 0
+detail
+  ml_cnt += 1
+  if (ml_cnt > size(pharmrequest->ids, 5))
+    call alterlist(pharmrequest->ids, ml_cnt + 50)
+  endif
+ 
+  pharmrequest->ids[ml_cnt].id = m_rec->erx[d.seq].s_pharm_id
+foot report
+  call alterlist(pharmrequest->ids, ml_cnt)
+with nocounter
+ 
+if (ml_cnt > 0) ;ids were added to the list
+  set stat = tdbexecute(3202004, 3202004, 3202501, "REC", pharmrequest, "REC", pharmreply)
+ ;call echorecord(pharmreply)
+  ;loop through the reply and add the values back to the record
+  for (ml_loop = 1 to size(m_rec->erx, 5))
+    set ml_idx = locateval(ml_loc, 1, size(pharmreply->pharmacies, 5),
+                   m_rec->erx[ml_loop].s_pharm_id, pharmreply->pharmacies[ml_loc].id)
+ 
+;    if (ml_loop < 50)
+;      call echo(build2("ml_loop: ", trim(cnvtstring(ml_loop)), " ml_idx: ", trim(cnvtstring(ml_idx))))
+;    endif
+ 
+    ;store name
+    set m_rec->erx[ml_loop].s_store_name = trim(pharmreply->pharmacies[ml_idx].pharmacy_name, 3)
+    ;address
+    if (size(pharmreply->pharmacies[ml_idx].primary_business_address.street_address_lines, 5) > 0)
+      set m_rec->erx[ml_loop].s_store_addr1
+        = trim(pharmreply->pharmacies[ml_idx].primary_business_address.street_address_lines[1].street_address_line, 3)
+    endif
+    if (size(pharmreply->pharmacies[ml_idx].primary_business_address.street_address_lines, 5) > 1)
+      set m_rec->erx[ml_loop].s_store_addr2
+        = trim(pharmreply->pharmacies[ml_idx].primary_business_address.street_address_lines[2].street_address_line, 3)
+    endif
+ 
+    ;city, state, zip
+    set m_rec->erx[ml_loop].s_store_city = trim(pharmreply->pharmacies[ml_idx].primary_business_address.city, 3)
+    set m_rec->erx[ml_loop].s_store_state = trim(pharmreply->pharmacies[ml_idx].primary_business_address.state, 3)
+    set m_rec->erx[ml_loop].s_store_zip = trim(pharmreply->pharmacies[ml_idx].primary_business_address.postal_code, 3)
+  endfor ;if pharm_id not blank
+endif
+ 
+select into $outdev
+rx_order_id 				= trim(cnvtstring(m_rec->erx[d1.seq].f_order_id ),3)
+,rx_order_date 				= m_rec->erx[d1.seq].s_order_date
+,rx_order_location			= m_rec->erx[d1.seq].s_fac_name
+,pres_clinic				= m_rec->erx[d1.seq].s_pres_clinic_name
+,pt_mrn						= m_rec->erx[d1.seq].s_pat_mrn
+,pt_first_name				= m_rec->erx[d1.seq].s_pat_name_first
+,pt_middle_name				= m_rec->erx[d1.seq].s_pat_name_mid
+,pt_last_name				= m_rec->erx[d1.seq].s_pat_name_last
+,pt_suffix					= m_rec->erx[d1.seq].s_pat_suffix
+,pt_dob						= m_rec->erx[d1.seq].s_pat_dob
+,pt_patient_type			= m_rec->erx[d1.seq].s_pat_type
+,rx_medication_name			= m_rec->erx[d1.seq].s_med_desc
+,rx_medication_strentgh		= m_rec->erx[d1.seq].s_med_strength
+,rx_ndc_prescribed			= m_rec->erx[d1.seq].s_med_code
+,rx_qty_prescribed			= m_rec->erx[d1.seq].s_med_qty
+,rx_refills_prescribed		= m_rec->erx[d1.seq].s_med_refill_nbr
+,prescriber_npi				= m_rec->erx[d1.seq].s_pres_npi
+,prescriber_first_name		= m_rec->erx[d1.seq].s_pres_name_first
+,prescriber_last_name		= m_rec->erx[d1.seq].s_pres_name_last
+,pharmacy_name				= m_rec->erx[d1.seq].s_store_name
+,pharmacy_npi				= m_rec->erx[d1.seq].s_pharm_npi
+from
+(dummyt d1 with seq=value(size(m_rec->erx,5)))
+plan d1
+where d1.seq > 0
+with nocounter, format, separator = " ", check
+ 
+ 
+;;;write csv file
+declare lpath = vc
+set lpath = logical("CUST_SCRIPT")
+call echo(lpath)
+ 
+;set frec->file_name = concat(lpath,"/",ms_file_name)
+ 
+ 
+set frec->file_name = concat("/cerner/d_p698/data/batch_files/ccl_extracts/proxsysrx/", ms_file_name)
+ 
+;;delete the old file if it exists
+set file_output = frec->file_name
+if (findfile(value(file_output)) )
+	call echo("found and old version of the file, removing it")
+else
+	call echo("did not have to remove the file")
+endif
+ 
+ 
+ 
+;set frec->file_name = concat(lpath,"/",ms_file_name)
+set frec->file_buf = "w"
+set stat = cclio("OPEN", frec)
+;;
+;;;print header
+ 
+set frec->file_buf = concat(
+ 'rx_order_id,rx_order_date,rx_order_location,pt_mrn,pt_first_name,pt_middle_name,pt_last_name,pt_suffix,pt_dob'
+,',pt_patient_type,rx_medication_name,rx_medication_strentgh,rx_ndc_prescribed,rx_qty_prescribed,rx_refills_prescribed'
+,',prescriber_npi,prescriber_first_name,prescriber_last_name,pharmacy_name,pharmacy_npi'
+,char(13), char(10)
+)
+ 
+ 
+set stat = cclio("WRITE", frec)
+;CALL ECHORECORD(FREC)
+ 
+ 
+for (ml_loop = 1 to size(m_rec->erx, 5))
+  set frec->file_buf = concat(trim(cnvtstring(m_rec->erx[ml_loop].f_order_id ),3), ",",
+	m_rec->erx[ml_loop].s_order_date , ",",
+	replace(m_rec->erx[ml_loop].s_fac_name,",","") 				, ",",
+	replace(m_rec->erx[ml_loop].s_pat_mrn,",","") 				, ",",
+	replace(m_rec->erx[ml_loop].s_pat_name_first,",","") 		, ",",
+	replace(m_rec->erx[ml_loop].s_pat_name_mid,",","") 			, ",",
+	replace(m_rec->erx[ml_loop].s_pat_name_last,",","") 		, ",",
+	replace(m_rec->erx[ml_loop].s_pat_suffix,",","")			, ",",
+	m_rec->erx[ml_loop].s_pat_dob , ",",
+	m_rec->erx[ml_loop].s_pat_type, ",",
+	replace(m_rec->erx[ml_loop].s_med_desc,",","")				, ",",
+	replace(m_rec->erx[ml_loop].s_med_strength,",","")			, ",",
+	replace(m_rec->erx[ml_loop].s_med_code,",","")				, ",",
+	replace(m_rec->erx[ml_loop].s_med_qty,",","")				, ",",
+	replace(m_rec->erx[ml_loop].s_med_refill_nbr,",","")		, ",",
+	replace(m_rec->erx[ml_loop].s_pres_npi,",","")				, ",",
+	replace(m_rec->erx[ml_loop].s_pres_name_first,",","")		, ",",
+	replace(m_rec->erx[ml_loop].s_pres_name_last,",","")		, ",",
+	replace(m_rec->erx[ml_loop].s_store_name,",","")			, ",",
+	replace(m_rec->erx[ml_loop].s_pharm_npi ,",",""),
+	char(13), char(10))
+	set stat = cclio("WRITE", frec)
+endfor
+ 
+;close the file
+set stat = cclio("CLOSE", frec)
+set reply->status_data[1].status = "S"
+;*** MAIN PROGRAM END ***********************************************************************************
+ 
+IF ( findfile(frec->file_name) )
+	call echo(build2("found file: ", frec->file_name))
+ELSE
+	CALL ECHO(CONCAT("FILE NOT FOUND: ", frec->file_name))
+ENDIF
+ 
+#EXIT_SCRIPT
+ 
+call echo(build2("recsize: ", size(m_rec->erx, 5)))
+;call echorecord(m_rec)
+free record m_rec
+ 
+end go
