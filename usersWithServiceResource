@@ -1,0 +1,45 @@
+Re: Audit for which users have a service resource? 
+While I cannot claim to have authored this code, I find this audit very useful.  There are lines in it where you could focus down to a particular USERNAME, ORGANIZATION_ID, or SERVICE_RESOURCE_CD value.
+ 
+SELECT
+p.name_full_formatted
+, person_id = p.person_id
+, position = uar_get_code_display(p.position_cd)
+, service_resource = uar_get_code_display(sr.service_resource_cd)
+, resource_type = uar_get_code_display(sr.service_resource_type_cd)
+, org_name = o.org_name
+, o.organization_id
+, sr.service_resource_cd
+, updated_by = pu.name_full_formatted
+, updated_on = psrr.updt_dt_tm
+FROM
+prsnl p
+, prsnl_service_resource_reltn psrr
+, service_resource sr
+, organization o
+, code_value cv
+, prsnl pu
+Plan p where p.active_ind = 1
+;and p.person_id = XXXXXXXX
+;and p.name_first_key = "FNAME"
+;and p.name_last_key = "LNAME"
+Join psrr where psrr.prsnl_id = p.person_id
+Join sr where sr.active_ind = 1
+and sr.service_resource_cd = psrr.service_resource_cd
+;and sr.service_resource_cd = XXXXXXXX
+Join cv where cv.active_ind = 1
+and cv.code_value = sr.service_resource_cd
+and cv.cdf_meaning = "BENCH"
+or cv.cdf_meaning = "INSTRUMENT"
+or cv.cdf_meaning = "SUBSECTION"
+or cv.cdf_meaning = "SECTION"
+Join o where o.active_ind = 1
+and o.organization_id = sr.organization_id
+;and o.organization_id = XXXXXXXXX
+;and o.org_name = "enter org name here"
+Join pu where pu.person_id = psrr.updt_id
+ORDER BY
+org_name
+, resource_type
+, service_resource
+ 
