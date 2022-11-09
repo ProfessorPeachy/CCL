@@ -1,0 +1,4 @@
+SELECT ag.APPLICATION_GROUP_ID 
+, position = UAR_GET_CODE_DISPLAY(ag.position_cd) 
+, application = a.description 
+, in_groups = grp.display ;;; LISTAGG(grp.display, ", ") ;;; OVER(PARTITION BY pos.display ORDER BY grp.display) FROM APPLICATION_GROUP ag ...
