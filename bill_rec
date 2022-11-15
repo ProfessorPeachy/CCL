@@ -1,0 +1,25 @@
+
+SELECT 
+
+PAYER_CONTROL_NUMBER = BR.payor_ctrl_nbr_txt
+INDEX2 = BR.bt_cond_result_id
+,INDEX3 = BR.batch_event_id
+,INDEX4 = BR.gen_reason_cd
+,INDEX4_DISP = UAR_GET_CODE_DISPLAY(BR.gen_reason_cd)
+
+,INDEX5 =br.image_flag
+,INDEX6_1 = br.billing_entity_id
+,INDEX6_2 = br.bill_status_cd
+,INDEX6_2_DISP = UAR_GET_CODE_DISPLAY(br.bill_status_cd)
+,INDEX7 = BR.gen_dt_tm
+,INDEX 8 = 
+,INDEX9
+,XIF4 = br.bill_nbr_disp_key
+,XIF5 = br.bill_nbr_disp
+,XPK1 = br.corsp_activity_id
+,XPK2 = br.bill_vrsn_nbr
+FROM BILL_REC BR
+
+PLAN BR
+WHERE BR.gen_dt_tm >= CNVTDATETIME(CURDATE-1,CURTIME3)
+AND BR.gen_dt_tm <= CNVTDATETIME(CURDATE,CURTIME3)
