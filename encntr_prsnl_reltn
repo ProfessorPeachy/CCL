@@ -1,0 +1,24 @@
+select 
+e.beg_effective_dt_tm
+,uar_get_code_display(E.med_service_cd)
+,uar_get_code_display(E.refer_facility_cd)
+,uar_get_code_display(E.refer_to_unit_staff_cd)
+,E.referral_rcvd_dt_tm
+,uar_get_code_display(E.referral_source_cd)
+,E.referring_comment
+,PRSNL_RELTN = uar_get_code_display(epr.encntr_prsnl_r_cd)
+,* from encounter e
+	,ENCNTR_PRSNL_RELTN EPR
+	,PERSON P
+	,PRSNL PR
+
+plan e
+where e.encntr_id =   7779311
+join epr
+    WHERE epr.encntr_id = E.encntr_id
+join p
+  where p.person_id = epr.prsnl_person_id
+    and p.active_ind = 1
+JOIN PR
+	WHERE PR.person_id = P.person_id
+	AND PR.physician_ind = 1
