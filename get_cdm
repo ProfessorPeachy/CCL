@@ -1,0 +1,56 @@
+select P.name_full_formatted
+,ENCNTR_BEGIN_DATE =  E.beg_effective_dt_tm
+, P.deceased_dt_tm
+;, E.encntr_id
+;,ENCOUNTER_TYPE =  UAR_GET_CODE_DISPLAY(E.encntr_type_cd) 
+;,ENCOUNTER_CREATE_DATE = E.create_dt_tm
+;,E.create_prsnl_id
+,O.order_id
+,O.order_detail_display_line
+,O.order_mnemonic
+,O.orig_order_dt_tm
+,CDM = bi.key6
+,C.service_dt_tm
+,C.charge_description
+,c.active_status_dt_tm
+,c.activity_dt_tm
+,c.* from 
+person p
+,ENCOUNTER E
+,ORDERS O
+,CHARGE C
+, bill_item_modifier bi
+plan p
+where p.person_id IN (13049182,   12815558.00)
+JOIN E
+WHERE E.person_id = P.person_id
+AND E.beg_effective_dt_tm >= CNVTDATETIME(CURDATE-200,CURTIME3)
+JOIN O
+WHERE O.encntr_id = E.encntr_id
+AND O.order_mnemonic = "*PSO*"
+JOIN C
+WHERE C.encntr_id = O.encntr_id
+join bi
+where bi.bill_item_id = c.bill_item_id
+and bi.active_ind = 1
+AND BI.KEY6 IN ("406907441", "406907409")
+and bi.beg_effective_dt_tm < sysdate
+and bi.end_effective_dt_tm > sysdate
+and bi.key1_id in  (select t.tier_cell_value_id
+					from tier_matrix t
+					where t.tier_group_cd = c.tier_group_cd
+					and t.active_ind = 1
+					and t.beg_effective_dt_tm < sysdate
+					and t.end_effective_dt_tm > sysdate
+					and t.tier_cell_type_cd = 3580.00);	CDM_SCHED
+ORDER BY E.person_id, E.beg_effective_dt_tm ASC
+WITH TIME = 10, MAXREC = 2000, FORMAT(DATE, "@SHORTDATETIME")
+;AND E.encntr_id = 106264821
+
+;SELECT * FROM ENCOUNTER E
+;PLAN E
+;WHERE E.encntr_id = 
+
+;SELECT * FROM ENCOUNTER E
+;PLAN E
+;WHERE E.encntr_id =106264821
