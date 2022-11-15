@@ -1,0 +1,64 @@
+select distinct p.name_full_formatted
+from
+bo_hp_reltn bhp,
+benefit_order bo,
+pft_encntr pe,
+encounter e,
+person p
+plan bhp
+where bhp.fin_class_cd =      684153.00;self_pay_cd
+and bhp.priority_seq = 1
+and bhp.active_ind = 1
+and bhp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+and bhp.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+join bo
+where bo.benefit_order_id = bhp.benefit_order_id
+and bo.active_ind = 1
+and bo.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+and bo.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+join pe
+where pe.pft_encntr_id = bo.pft_encntr_id
+and pe.active_ind = 1
+join e
+where e.encntr_id = pe.encntr_id
+and e.financial_class_cd =      684153.00;self_pay_cd
+and e.reg_dt_tm > cnvtdatetime("01-JAN-2022 00:00:00")
+and e.reg_dt_tm < cnvtdatetime("02-JUN-2022 23:59:59")
+join p
+where p.person_id = e.person_id
+order p.name_full_formatted
+
+
+
+
+select distinct p.name_full_formatted
+from
+bo_hp_reltn bhp,
+benefit_order bo,
+pft_encntr pe,
+encounter e,
+person p
+plan e
+	where and e.reg_dt_tm > cnvtdatetime("01-JAN-2022 00:00:00")
+	and e.reg_dt_tm < cnvtdatetime("02-JUN-2022 23:59:59")
+	and e.financial_class_cd =      684153.00;self_pay_cd
+join pe
+where pe.encntr_id = e.encntr_id
+;where pe.pft_encntr_id = bo.pft_encntr_id
+and pe.active_ind = 1	
+join bo
+where bo.pft_encntr_id = pe.pft_encntr_id
+;where bo.benefit_order_id = bhp.benefit_order_id
+and bo.active_ind = 1
+and bo.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+and bo.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+join bhp
+	where bhp.benefit_order_id = bo.benefit_order_id
+	and bhp.fin_class_cd =      684153.00;self_pay_cd
+	and bhp.priority_seq = 1
+	and bhp.active_ind = 1
+	and bhp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+	and bhp.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+join p
+where p.person_id = e.person_id
+order p.name_full_formatted
