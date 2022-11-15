@@ -1,0 +1,13 @@
+SELECT 
+TRANSACTION_ALIAS = TA.transaction_alias
+,TA.transaction_reason
+,TA.transaction_sub_type
+,TA.transaction_type
+FROM RC_D_TRANSACTION_ALIAS	TA
+WHERE TA.active_ind = 1
+ORDER BY TA.transaction_alias
+
+;SELECT COUNT(*) FROM TRANSACTION_ALIAS 	
+SELECT * FROM DM_COLUMNS_DOC DM
+PLAN DM
+WHERE dm.column_name = "TRANSACTION_ALIAS"
