@@ -1,0 +1,8 @@
+
+select uar_get_code_display(e.loc_facility_cd), * from 
+encntr_alias ea
+,encounter e
+plan ea
+where ea.alias = "202950660"
+join e
+where ea.encntr_id = e.encntr_id
