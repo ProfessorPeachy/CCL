@@ -1,0 +1,7 @@
+SELECT UAR_GET_CODE_DISPLAY(OA.org_alias_type_cd), OA.org_alias_type_cd, UAR_GET_CODE_DISPLAY(OA.alias_pool_cd),* 
+FROM  ORGANIZATION_ALIAS OA
+,organization o
+plan oa
+WHERE OA.org_alias_type_cd =       4045119.00;	Organization NPI
+join o
+where o.organization_id = oa.organization_id
