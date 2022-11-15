@@ -1,0 +1,84 @@
+select 
+;    sea.action_dt_tm
+;    l.location_cd
+;    ,uar_get_code_display(l.location_cd)
+    e.encntr_id
+    ,s1.sch_appt_id
+    ,reg_status = uar_get_code_display(e.encntr_status_cd)
+    ,p.name_full_formatted
+    ,appt_date = format(s1.beg_dt_tm,"MM/dd/yyyy")
+    ,e.loc_facility_cd
+    ,LOC = UAR_GET_CODE_DISPLAY(E.loc_facility_cd)
+ ;   ,opr_var
+;    ,$LOCATION
+;    ,event = sea.action_meaning
+from
+	sch_appt           s1
+    ,sch_appt           s2	
+    ,prsnl              pr2  
+    ,person             p      
+    ,encounter          e    
+    ;,sch_event_action    sea    
+;;    ,prsnl              pr1
+;;    ,sch_location       l
+;    ,encntr_alias       ea
+;    ,sch_event          se
+;    ,prsnl              pr1
+plan s1
+    ;where s1.beg_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+   where s1.beg_dt_tm between cnvtdatetime("01-JUN-2022 00:00") and cnvtdatetime("26-OCT-2022 23:59")
+ ;  where parser(date_parser_str)			;001
+  ;  and s1.encntr_id = 12345
+;    where s1.beg_dt_tm between cnvtdatetime(cnvtdate(09202021),0)
+;                           and cnvtdatetime(cnvtdate(09272021),2359) 
+      and s1.role_meaning = "PATIENT"
+      and s1.person_id > 0
+      and s1.active_ind = 1
+      and s1.version_dt_tm >= sysdate
+
+join s2
+    where s2.sch_event_id = S1.sch_event_id;sea.sch_event_id
+      and s2.role_meaning = "RESOURCE"
+      and s2.active_ind = 1
+join pr2
+    where pr2.person_id = s2.person_id
+      and pr2.active_ind = 1
+join p
+    where p.person_id = s1.person_id
+      and p.active_ind = 1
+join e
+    where e.encntr_id = s1.encntr_id
+      and e.active_ind = 1
+      ;and operator(e.loc_facility_cd,opr_var,$LOCATION)
+   ;   AND E.loc_facility_cd = 2554062839 ;MRMC WOUND CARE
+  ;    and e.loc_facility_cd =   4179460449.00 ;MRMG ENT
+;      and e.loc_facility_cd = 21250403.0
+;join ea
+;    where ea.encntr_id = e.encntr_id
+;      and ea.encntr_alias_type_cd in (1079.0
+;                                      ,1077.0
+;                                      )
+;      and ea.active_ind = 1
+;join se
+;    where se.sch_event_id = s1.sch_event_id
+;      and se.version_dt_tm >= sysdate
+;      and se.active_ind = 1
+;join sea
+;    where sea.sch_event_id = s1.sch_event_id
+;      and sea.schedule_id   = s1.schedule_id
+;join pr1
+;    where pr1.person_id = sea.action_prsnl_id
+;      and pr1.active_ind = 1
+; 
+;order by
+;    sea.updt_dt_tm desc
+;    ,s1.sch_appt_id
+
+
+SELECT E.encntr_id, E.beg_effective_dt_tm, UAR_GET_CODE_DISPLAY(E.loc_facility_cd), E.loc_facility_cd 
+FROM ENCOUNTER E
+PLAN E
+WHERE E.beg_effective_dt_tm between cnvtdatetime("01-OCT-2022 00:00") and cnvtdatetime("26-OCT-2022 23:59")    
+;AND E.loc_facility_cd = 2554062839 ;MRMC WOUND CARE
+and e.active_ind = 1
+WITH TIME = 30
