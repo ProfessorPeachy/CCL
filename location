@@ -1,0 +1,25 @@
+SELECT cv.code_value
+, cv.display
+,LOCATION_TYPE = UAR_GET_CODE_DISPLAY(l.location_type_cd)
+, L.organization_id
+,a.street_addr
+,a.street_addr2
+,a.city
+,state = uar_get_code_display(a.state_cd)
+,a.zipcode
+
+ FROM 
+	code_value cv
+	,location l
+	,ADDRESS A
+plan l
+	where l.location_type_cd = 772.00 ;Ambulatory code from CS 222
+	and l.active_ind = 1
+join cv
+	where cv.code_value = l.location_cd
+	and cv.active_ind = 1
+join a
+	where a.parent_entity_id = l.organization_id
+	and a.parent_entity_name = "ORGANIZATION"
+	and a.address_type_cd in(754.0 )
+	and a.active_ind = 1
