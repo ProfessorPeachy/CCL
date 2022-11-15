@@ -1,0 +1,47 @@
+select
+tc.tracking_group_cd
+,Ti.encntr_id
+;e.encntr_id, tc.tracking_group_cd
+,location = uar_get_code_display(tl.location_cd)
+,unit = uar_get_code_display(tl.loc_nurse_unit_cd)
+,room = uar_get_code_display( tl.loc_room_cd)
+,bed = uar_get_code_display( tl.loc_bed_cd)
+,tl.location_cd, tl.loc_nurse_unit_cd, tl.loc_room_cd, tl.loc_bed_cd
+,tc.checkin_dt_tm "@SHORTDATETIME"
+,tl.arrive_dt_tm "@SHORTDATETIME"
+,tl.depart_dt_tm "@SHORTDATETIME"
+,tl.depart_id
+     FROM 
+     tracking_checkin 	tc
+     ,tracking_item 	ti
+;     ,person 			p
+;     ,encounter 		e
+     ,tracking_locator 	tl
+     ,encntr_loc_hist 	elh
+      PLAN tc
+       WHERE tc.checkin_dt_tm >= cnvtdatetime(curdate-2,curtime3)
+	        AND tc.checkin_dt_tm <= cnvtdatetime(curdate,curtime)
+	        AND tc.tracking_group_cd=  2553748107.00;dtrackinggroupcd
+	        AND tc.active_ind=1
+       JOIN ti
+	       WHERE ti.tracking_id=tc.tracking_id
+	        AND ti.active_ind=1
+	        AND TI.encntr_id =     107444197.00
+;       JOIN p
+;       WHERE p.person_id=ti.person_id
+;     	   AND p.active_ind=1
+;       JOIN e
+;	       WHERE e.encntr_id=ti.encntr_id
+;	        AND e.active_ind=1
+       JOIN tl
+       		WHERE tl.tracking_id=tc.tracking_id
+	join elh 
+	where elh.encntr_id = ti.encntr_id
+	and elh.location_cd = tl.location_cd
+;		where elh.loc_bed_cd = tl.loc_bed_cd
+;		or elh.loc_room_cd = tl.loc_room_cd
+;		or elh.loc_nurse_unit_cd = tl.loc_nurse_unit_cd
+;		and elh.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+		and elh.active_ind = 1     
+     ORDER BY ti.encntr_id, tc.tracking_id, elh.beg_effective_dt_tm, elh.end_effective_dt_tm
+     with maxrec = 1000, time = 10
