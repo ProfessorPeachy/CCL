@@ -1,0 +1,106 @@
+    SELECT *
+     FROM (billing_entity be ),
+      (be_org_reltn bor ),
+      (organization o ),
+      (prsnl_org_reltn por ),
+      (code_value cv )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (bor
+      WHERE (bor.billing_entity_id = be.billing_entity_id )
+      AND (bor.active_ind = true ) )
+      JOIN (o
+      WHERE (o.organization_id = bor.organization_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (por
+      WHERE (por.organization_id = o.organization_id )
+      AND (por.person_id = 14936853 )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+     ORDER BY o.organization_id
+     
+     
+   SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (account a ),
+      (pft_acct_reltn par ),
+      (organization o ),
+      (prsnl_org_reltn por ),
+      (code_value cv )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (a
+      WHERE (a.billing_entity_id = be.billing_entity_id )
+      AND (a.active_ind = true )
+      AND (a.acct_sub_type_cd = cs20849_client_cd ) )
+      JOIN (par
+      WHERE (par.acct_id = a.acct_id )
+      AND (par.active_ind = true )
+      AND (par.parent_entity_name = "ORGANIZATION" ) )
+      JOIN (o
+      WHERE (o.organization_id = par.parent_entity_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+      JOIN (por
+      WHERE (por.organization_id = o.organization_id )
+      AND (por.person_id = reqinfo->updt_id )
+      AND (por.active_ind = true )
+      AND (por.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+      AND (por.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+      JOIN (cv
+      WHERE (cv.code_value = por.confid_level_cd ) )
+     ORDER BY o.organization_id
+     HEAD o.organization_id
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = cv
+      .collation_seq
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ELSE
+    SELECT INTO "nl:"
+     FROM (billing_entity be ),
+      (account a ),
+      (pft_acct_reltn par ),
+      (organization o )
+     PLAN (be
+      WHERE (be.active_ind = true ) )
+      JOIN (a
+      WHERE (a.billing_entity_id = be.billing_entity_id )
+      AND (a.active_ind = true )
+      AND (a.acct_sub_type_cd = cs20849_client_cd ) )
+      JOIN (par
+      WHERE (par.acct_id = a.acct_id )
+      AND (par.active_ind = true )
+      AND (par.parent_entity_name = "ORGANIZATION" ) )
+      JOIN (o
+      WHERE (o.organization_id = par.parent_entity_id )
+      AND (o.active_ind = true )
+      AND (o.logical_domain_id = organizationlogicaldomainid ) )
+     ORDER BY o.organization_id
+     HEAD o.organization_id
+      organizationcount = (organizationcount + 1 ) ,
+      IF ((mod (organizationcount ,20 ) = 1 ) ) stat = alterlist (authorizedorganizations->
+        organizations ,(organizationcount + 19 ) )
+      ENDIF
+      ,authorizedorganizations->organizations[organizationcount ].organizationid = o.organization_id
+      ,authorizedorganizations->organizations[organizationcount ].confidentialitylevel = 99
+     FOOT REPORT
+      stat = alterlist (authorizedorganizations->organizations ,organizationcount )
+     WITH nocounter
+    ;end select
+   ENDIF
+   CALL echo (format (cnvtdatetime (curdate ,curtime3 ) ,"hhmmsscc;3;M" ) )
+   CALL logmessage ("getAuthorizedClientOrganizations" ,"Exiting..." ,log_debug )
+   RETURN (true )
+  END ;Subroutine
+ ENDIF     
