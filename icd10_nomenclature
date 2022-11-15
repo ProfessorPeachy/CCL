@@ -1,0 +1,6 @@
+select N.source_string_keycap, N.source_identifier, uar_get_code_display(N.source_vocabulary_cd)
+,n.source_vocabulary_cd
+ from nomenclature n
+ where n.source_vocabulary_cd =          19350056.00 ;   19350056.00	ICD-10-CM
+ and n.source_identifier = "N18.6"
+with maxrec = 100
