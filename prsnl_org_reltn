@@ -1,0 +1,15 @@
+select PERSONNEL_UPDATED = PR.name_full_formatted, O.org_name, POR.updt_dt_tm, UPDATED_BY = PR2.name_full_formatted
+,POR.updt_id, POR.* from prsnl pr
+,PRSNL_ORG_RELTN POR
+,ORGANIZATION O
+,PRSNL PR2
+plan pr
+where pr.name_first_key = "JOHN"
+AND PR.name_last_key = "DOE"
+JOIN POR
+WHERE POR.person_id = PR.person_id
+JOIN O
+WHERE O.organization_id = POR.organization_id
+JOIN PR2
+WHERE PR2.person_id = POR.updt_id
+ORDER POR.updt_dt_tm DESC
