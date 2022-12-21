@@ -1,0 +1,19 @@
+Generally, when using a nested select with the MAX() function to get the most recent occurrence you need to use the same qualifications 
+in the nested select that are used in the outer select. So, you may need to add qualifications on the event_cd to your inner selects. 
+Something like:
+
+
+FROM
+    ENCOUNTER   E
+    , (LEFT JOIN PERSON P ON (E.PERSON_ID=P.person_id))
+    , (LEFT JOIN CLINICAL_EVENT CE ON (CE.encntr_id=E.encntr_id AND CE.EVENT_CD IN (4182400945.00,4182231637.00) /*P-level code*/
+            AND CE.clinsig_updt_dt_tm=(SELECT MAX(EV1.CLINSIG_UPDT_DT_TM)
+                FROM CLINICAL_EVENT EV1
+                WHERE EV1.person_id=CE.PERSON_ID
+                    AND ev1.EVENT_CD IN (4182400945.00,4182231637.00)))) ;<<<<<< 
+    , (LEFT JOIN CLINICAL_EVENT CE1 ON (CE1.encntr_id=E.encntr_id AND CE1.event_cd=4170283427.00     /*H-level code*/
+                AND CE1.CLINSIG_UPDT_DT_TM=(SELECT MAX(EV2.CLINSIG_UPDT_DT_TM)
+                FROM CLINICAL_EVENT EV2
+                WHERE EV2.PERSON_ID=CE1.PERSON_ID
+                    AND ev2.event_cd=4170283427.00  )));<<<<<<<<<<<
+    , ENCNTR_ALIAS   EA
