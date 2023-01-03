@@ -1,0 +1,24 @@
+select distinct
+  financial_class_id =
+	  if (d.seq=1) "1.0"
+	  	else cnvtstring(fc.rc_d_financial_class_id,19,2)
+	  endif
+  ,display = 
+	  if (d.seq=1) 
+	  	"Unassigned Financial Class"
+	  else 
+	  	trim(fc.financial_class,3)
+	  endif
+  ,sortkey = 
+	  if (d.seq=1) 
+	  	"Unassigned Financial Class" ;uar_i18ngetmessage(hi18n,"Val1","All (*)")
+	  else 
+	  	cnvtupper(trim(fc.financial_class,3))
+	  endif
+  from 
+  	(dummyt d  with seq = 2)
+	,rc_d_financial_class fc
+  plan d
+  join fc
+  	where fc.active_ind=1
+  order by d.seq, sortkey  
