@@ -1,0 +1,1985 @@
+DROP PROGRAM maur_pft_custom_token_v2 :dba GO
+CREATE PROGRAM maur_pft_custom_token_v2 :dba
+ 
+;execute maur_pft_custom_token_v2 with replace("REQUESTXML", "tempREQUESTXML"),REPLACE("REQUEST","tempREQUEST")
+CALL ECHO("INSIDE TOKEN SCRIPT")
+CALL ECHORECORD(REQUEST)
+;CALL ECHORECORD(REQUESTXML)
+ 
+FREE RECORD REQUESTXML
+record REQUESTXML
+(
+1  status_data[1]
+    2 status 			= vc
+1  tokenname  =  C20
+ 
+)
+ 
+set REQUESTXML->tokenname = "tempREQUESTXML TOKEN AMELIA"
+ 
+SET request->params[1].param_name = "P_PFTENCNTR"
+ 
+ CALL echo (build ("Custom Token Script Version = 2.41" ) )
+ CALL echo (build ("PBM Token=" ,requestxml->tokenname ) )
+ DECLARE encounterid = f8 WITH protect ,noconstant (0.0 )
+ DECLARE pftencntrid = f8 WITH protect ,noconstant (getfinancialencounterfromrequest (0 ) )
+ DECLARE global_double = f8 WITH protect ,noconstant (0.0 )
+ DECLARE global_string = vc WITH protect ,noconstant ("BLANK" )
+ DECLARE global_date = f8 WITH protect ,noconstant (0.0 )
+ DECLARE global_boolean = i2 WITH protect ,noconstant (false )
+ DECLARE search_string = vc WITH protect ,noconstant ("" )
+ DECLARE search_string_from = vc WITH protect ,noconstant ("" )
+ DECLARE search_string_to = vc WITH protect ,noconstant ("" )
+ IF ((pftencntrid != 0.0 ) )
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+   HEAD REPORT
+    encounterid = pe.encntr_id
+   WITH nocounter
+  ;end select
+ ENDIF
+ SUBROUTINE  (getfinancialencounterfromrequest (void =i2 ) =f8 )
+  CALL logmessage ("getFinancialEncounterFromRequest" ,"Entering..." ,log_debug )
+  DECLARE foundpftencntrid = f8 WITH protect ,noconstant (0.0 )
+  DECLARE idx = i4 WITH protect ,noconstant (0 )
+  DECLARE cnt = i4 WITH protect ,noconstant (size (request->params ,5 ) )
+  DECLARE pcnt = i4 WITH protect ,noconstant (0 )
+  FOR (idx = 1 TO cnt )
+   IF ((trim (request->params[idx ].param_name ) = trim ("P_PFTENCNTR" ) ) )
+    IF ((request->params[pcnt ].double_value > 0.0 ) )
+     RETURN (request->params[pcnt ].double_value )
+    ENDIF
+   ENDIF
+  ENDFOR
+  CALL logmessage ("getFinancialEncounterFromRequest" ,"Did not find pft_encntr_id. Exiting..." ,
+   log_debug )
+  RETURN (0.0 )
+ END ;Subroutine
+ IF ((requestxml->tokenname = "ActivityType:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (14 ,(textlen (requestxml->tokenname ) - 13 ) ,requestxml->tokenname
+   )
+  CALL echo (build ("ActivityType=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.activity_type_cd IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 106 )
+     AND (cv.display = search_string ) ) ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "AgencyType" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (pft_encntr_collection_reltn pecr ),
+    (pft_collection_agency pca ),
+    (pft_encntr pe ),
+    (encounter e )
+   PLAN (pecr
+    WHERE (pecr.pft_encntr_id = pftencntrid )
+    AND (pecr.active_ind = 1 )
+    AND (pecr.return_dt_tm = null ) )
+    JOIN (pca
+    WHERE (pca.pft_collection_agency_id = pecr.parent_entity_id )
+    AND (pca.active_ind = 1 ) )
+    JOIN (pe
+    WHERE (pe.pft_encntr_id = pecr.pft_encntr_id )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY pecr.return_dt_tm DESC
+   HEAD REPORT
+    global_string = uar_get_code_display (pca.agency_type_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "AgencyAssignedCurrent" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (pft_encntr_collection_reltn pecr ),
+    (pft_collection_agency pca ),
+    (organization o ),
+    (encounter e )
+   PLAN (pecr
+    WHERE (pecr.pft_encntr_id = pftencntrid )
+    AND (pecr.active_ind = 1 )
+    AND (pecr.return_dt_tm = null )
+    AND (pecr.send_back_reason_cd = 0.0 ) )
+    JOIN (pca
+    WHERE (pca.pft_collection_agency_id = pecr.parent_entity_id )
+    AND (pca.active_ind = 1 ) )
+    JOIN (o
+    WHERE (o.organization_id = pca.organization_id )
+    AND (o.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.organization_id = o.organization_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY pecr.updt_dt_tm
+   HEAD REPORT
+    global_string = o.org_name
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "AppointmentType" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (sch_appt sa ),
+    (sch_booking sb ),
+    (encounter e )
+   PLAN (sa
+    WHERE (sa.encntr_id = encounterid )
+    AND (sa.active_ind = 1 )
+    AND (sa.encntr_id != 0.00 ) )
+    JOIN (sb
+    WHERE (sb.booking_id = sa.booking_id )
+    AND (sb.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = sa.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (sb.appt_type_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "AttendingPhysician" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encntr_prsnl_reltn epr ),
+    (prsnl pl ),
+    (encounter e )
+   PLAN (epr
+    WHERE (epr.encntr_id = encounterid )
+    AND (epr.encntr_prsnl_r_cd = value (uar_get_code_by ("MEANING" ,333 ,"ATTENDDOC" ) ) )
+    AND (epr.manual_create_ind = 0 )
+    AND (epr.end_effective_dt_tm >= cnvtdatetime (sysdate ) ) )
+    JOIN (pl
+    WHERE (pl.person_id = epr.prsnl_person_id )
+    AND (pl.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = epr.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = trim (pl.name_full_formatted ,3 )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "AttendingPhysicianMissingNPI" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encntr_prsnl_reltn epr ),
+    (prsnl_alias pa ),
+    (encounter e )
+   PLAN (epr
+    WHERE (epr.encntr_id = encounterid )
+    AND (epr.encntr_prsnl_r_cd = value (uar_get_code_by ("MEANING" ,333 ,"ATTENDDOC" ) ) )
+    AND (epr.manual_create_ind = 0 )
+    AND (epr.end_effective_dt_tm >= cnvtdatetime (sysdate ) ) )
+    JOIN (pa
+    WHERE (pa.person_id = Outerjoin(epr.prsnl_person_id ))
+    AND (pa.prsnl_alias_type_cd = Outerjoin(value (uar_get_code_by ("MEANING" ,320 ,"NPI" ) ) ))
+    AND (pa.end_effective_dt_tm >= Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (pa.prsnl_alias_id = null ) )
+    JOIN (e
+    WHERE (e.encntr_id = epr.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "CDM:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (5 ,(textlen (requestxml->tokenname ) - 4 ) ,requestxml->tokenname )
+  CALL echo (build ("CDM:" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge_mod cm ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.field1_id IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 14002 )
+     AND (cv.cdf_meaning = "CDM_SCHED" )
+     AND (cv.active_ind = 1 ) ) ) )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    IF ((cm.field6 = search_string ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "ChrgSvcDtOutOfBoundsNonRecur" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 )
+    AND (pe.recur_ind = 0 ) )
+    JOIN (pc
+    WHERE (pc.pft_encntr_id = pe.pft_encntr_id )
+    AND (pc.active_ind = 1 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("DISPLAYKEY" ,13028 ,"DEBIT" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY c.service_dt_tm
+   DETAIL
+    IF (((cnvtdate (e.pre_reg_dt_tm ) + 0 ) != null ) )
+     IF ((datetimecmp (cnvtdatetimeutc (c.service_dt_tm ,2 ) ,cnvtdatetimeutc (e.pre_reg_dt_tm ,2 )
+      ) < 0 ) ) global_boolean = true
+     ENDIF
+    ELSE
+     IF ((datetimecmp (cnvtdatetimeutc (c.service_dt_tm ,2 ) ,cnvtdatetimeutc (e.reg_dt_tm ,2 ) ) <
+     0 ) ) global_boolean = true
+     ENDIF
+    ENDIF
+    ,
+    IF (((cnvtdate (e.disch_dt_tm ) + 0 ) != null ) )
+     IF ((datetimecmp (cnvtdatetimeutc (c.service_dt_tm ,2 ) ,cnvtdatetimeutc (e.disch_dt_tm ,2 ) )
+     > 0 ) ) global_boolean = true
+     ENDIF
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "DaysLastFinancialEncntrInAcct" ) )
+  SET global_double = 0.0
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe1 ),
+    (pft_encntr pe2 ),
+    (encounter e1 ),
+    (encounter e2 )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (pe2
+    WHERE (pe2.acct_id = pe1.acct_id )
+    AND (pe2.pft_encntr_id != pe1.pft_encntr_id )
+    AND (pe2.active_ind = 1 ) )
+    JOIN (e1
+    WHERE (e1.encntr_id = pe1.encntr_id )
+    AND (e1.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e1.active_ind = 1 ) )
+    JOIN (e2
+    WHERE (e2.encntr_id = pe2.encntr_id )
+    AND (e2.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e2.active_ind = 1 ) )
+   ORDER BY pe2.beg_effective_dt_tm DESC
+   HEAD REPORT
+    global_double = datetimediff (pe1.beg_effective_dt_tm ,pe2.beg_effective_dt_tm )
+   WITH nocounter
+  ;end select
+  CALL adddouble (global_double )
+  CALL echo (build (requestxml->tokenname ,global_double ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "DischargeDisposition" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.active_ind = 1 )
+    AND ((e.disch_dt_tm + 0 ) != null )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (e.disch_disposition_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "DX:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (4 ,6 ,requestxml->tokenname )
+  CALL echo (build ("DX=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge_mod cm ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    IF ((cm.field6 = search_string ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "FacilityDisplayName" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (e.loc_facility_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "HCPCS:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (7 ,5 ,requestxml->tokenname )
+  CALL echo (build ("HCPCS:" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge_mod cm ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.field1_id IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 14002 )
+     AND (cv.cdf_meaning = "HCPCS" )
+     AND (cv.active_ind = 1 ) ) ) )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    IF ((cm.field6 = search_string ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "InterFacilityStartEncounter" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encounter e1 ),
+    (encounter e2 )
+   PLAN (e1
+    WHERE (e1.encntr_id = encounterid )
+    AND (e1.encntr_type_class_cd = value (uar_get_code_by ("DISPLAYKEY" ,69 ,"INPATIENT" ) ) )
+    AND (e1.disch_dt_tm = null )
+    AND (e1.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e1.active_ind = 1 ) )
+    JOIN (e2
+    WHERE (e2.person_id = e1.person_id )
+    AND (e2.active_ind = 1 )
+    AND (e2.encntr_id != e1.encntr_id )
+    AND (e2.med_service_cd = value (uar_get_code_by ("DISPLAYKEY" ,34 ,"INTERFACILITY" ) ) )
+    AND (e2.reg_dt_tm >= e1.reg_dt_tm )
+    AND (e2.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) ) )
+   HEAD REPORT
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "MedicalService" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (e.med_service_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "MedicalServiceChange:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (22 ,textlen (requestxml->tokenname ) ,requestxml->tokenname )
+  CALL echo (build ("MedicalServiceChange:" ,search_string ) )
+  SET search_string_from = substring (1 ,(findstring ("-" ,search_string ,0 ) - 1 ) ,search_string )
+  CALL echo (build ("MedicalServiceChangeFrom:" ,search_string_from ) )
+  SET search_string_to = substring ((findstring ("-" ,search_string ,0 ) + 1 ) ,textlen (
+    search_string ) ,search_string )
+  CALL echo (build ("MedicalServiceChangeTo:" ,search_string_to ) )
+  SELECT INTO "nl:"
+   FROM (encntr_loc_hist elh1 ),
+    (encntr_loc_hist elh2 )
+   PLAN (elh1
+    WHERE (elh1.encntr_id = encounterid )
+    AND (elh1.active_ind = 1 )
+    AND (elh1.med_service_cd IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 34 )
+     AND (cv.active_ind = 1 )
+     AND (cv.display_key = patstring (concat (search_string_from ,"*" ) ) ) ) ) ) )
+    JOIN (elh2
+    WHERE (elh2.encntr_id = elh1.encntr_id )
+    AND (elh2.med_service_cd IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 34 )
+     AND (cv.active_ind = 1 )
+     AND (cv.display_key = patstring (concat (search_string_to ,"*" ) ) ) ) ) )
+    AND (elh2.beg_effective_dt_tm >= elh1.beg_effective_dt_tm ) )
+   ORDER BY elh1.updt_dt_tm ,
+    elh2.updt_dt_tm
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "Modifier:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (10 ,2 ,requestxml->tokenname )
+  CALL echo (build ("Modifier=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge_mod cm ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.field1_id IN (
+    (SELECT
+     code_value
+     FROM (code_value )
+     WHERE (code_set = 14002 )
+     AND (cdf_meaning = "MODIFIER" )
+     AND (active_ind = 1 ) ) ) )
+    AND (cm.field3_id = value (uar_get_code_by ("DISPLAYKEY" ,17769 ,search_string ) ) )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "NoOfPaymentsOnOpenFPP" ) )
+  SET global_double = 0.0
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (encounter ),
+    (pft_pay_plan_pe_reltn ppppr ),
+    (pft_payment_plan ppp ),
+    (benefit_order bo ),
+    (bo_hp_reltn bhr ),
+    (pft_trans_reltn ptr ),
+    (trans_log tl ),
+    (dummyt d )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (ppppr
+    WHERE (ppppr.pft_encntr_id = pe.pft_encntr_id )
+    AND (ppppr.active_ind = 1 ) )
+    JOIN (ppp
+    WHERE (ppp.pft_payment_plan_id = ppppr.pft_payment_plan_id )
+    AND (ppp.active_ind = 1 )
+    AND (ppp.current_plan_status_cd != value (uar_get_code_by ("MEANING" ,26673 ,"PAIDINFULL" ) ) )
+    )
+    JOIN (bo
+    WHERE (bo.pft_encntr_id = ppppr.pft_encntr_id )
+    AND NOT ((bo.bo_status_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"CANCELLED" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"INVALID" ) ) ) ) )
+    AND (bo.active_ind = 1 ) )
+    JOIN (bhr
+    WHERE (bhr.benefit_order_id = bo.benefit_order_id )
+    AND NOT ((bhr.bo_hp_status_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"CANCELLED" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"INVALID" ) ) ) ) )
+    AND (bhr.active_ind = 1 ) )
+    JOIN (ptr
+    WHERE (ptr.benefit_order_id = bhr.bo_hp_reltn_id )
+    AND (ptr.active_ind = 1 )
+    AND (ptr.trans_type_cd = value (uar_get_code_by ("DISPLAYKEY" ,18649 ,"PAYMENT" ) ) )
+    AND (ptr.parent_entity_name = "PFTENCNTR" ) )
+    JOIN (tl
+    WHERE (tl.activity_id = ptr.activity_id )
+    AND (tl.active_ind = 1 )
+    AND (tl.trans_sub_type_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,20549 ,"PATIENTPAYMENT" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,20549 ,"COPAY" ) ) ) )
+    AND NOT (EXISTS (
+    (SELECT
+     1
+     FROM (trans_trans_reltn ttr )
+     WHERE (ttr.parent_activity_id = tl.activity_id )
+     AND (ttr.trans_reltn_reason_cd = value (uar_get_code_by ("DISPLAYKEY" ,25753 ,"REVERSAL" ) ) )
+    ) ) ) )
+    JOIN (d
+    WHERE (tl.post_dt_tm >= cnvtdate (ppp.begin_plan_dt_tm ) ) )
+   ORDER BY pe.pft_encntr_id
+   HEAD tl.activity_id
+    global_double +=1
+   WITH nocounter
+  ;end select
+  CALL adddouble (global_double )
+  CALL echo (build (requestxml->tokenname ,global_double ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "OrderingPhysicianID:*" ) )
+  SET global_boolean = false
+  SET search_string = trim (substring (21 ,15 ,requestxml->tokenname ) ,3 )
+  CALL echo (build ("OrderingPhysicianID:" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    IF ((c.ord_phys_id = cnvtreal (search_string ) ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientAge" ) )
+  SET global_double = 0.0
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person p )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (p
+    WHERE (p.person_id = e.person_id )
+    AND (p.active_ind = 1 ) )
+   DETAIL
+    age_str = cnvtage2 (p.birth_dt_tm ) ,
+    global_double = cnvtreal (substring (1 ,2 ,age_str ) )
+   WITH nocounter
+  ;end select
+  CALL adddouble (global_double )
+  CALL echo (build (requestxml->tokenname ,global_double ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientAddressCounty" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (address a )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (a
+    WHERE (a.parent_entity_id = e.person_id )
+    AND (a.parent_entity_name = "PERSON" )
+    AND (a.active_ind = 1 )
+    AND (a.county_cd != 0.0 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (a.county_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientEmployerName" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person_org_reltn po )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (po
+    WHERE (po.person_id = e.person_id )
+    AND (po.active_ind = 1 )
+    AND (po.person_org_reltn_cd = value (uar_get_code_by ("MEANING" ,338 ,"EMPLOYER" ) ) )
+    AND (po.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (po.priority_seq = 1 ) )
+   HEAD REPORT
+    global_string = po.ft_org_name
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientEmployerOrStudentID" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person_org_reltn po )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (po
+    WHERE (po.person_id = e.person_id )
+    AND (po.active_ind = 1 )
+    AND (po.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (trim (po.person_org_nbr ,3 ) != "" )
+    AND (po.priority_seq = 1 ) )
+   HEAD REPORT
+    global_string = po.person_org_nbr
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientEmploymentStatus" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person_org_reltn po )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (po
+    WHERE (po.person_id = e.person_id )
+    AND (po.active_ind = 1 )
+    AND (po.person_org_reltn_cd = value (uar_get_code_by ("MEANING" ,338 ,"EMPLOYER" ) ) )
+    AND (po.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (po.priority_seq = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (po.empl_status_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PatientSchoolName" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person_org_reltn po )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (po
+    WHERE (po.person_id = e.person_id )
+    AND (po.active_ind = 1 )
+    AND (po.person_org_reltn_cd = value (uar_get_code_by ("MEANING" ,338 ,"SCHOOL" ) ) )
+    AND (po.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (po.priority_seq = 1 ) )
+   HEAD REPORT
+    global_string = po.ft_org_name
+   WITH nocounter
+  ;end select
+  IF ((global_string = "BLANK" ) )
+   SELECT INTO "nl:"
+    FROM (encounter e ),
+     (person_org_reltn po ),
+     (address a )
+    PLAN (e
+     WHERE (e.encntr_id = encounterid )
+     AND (e.active_ind = 1 ) )
+     JOIN (po
+     WHERE (po.person_id = e.person_id )
+     AND (po.active_ind = 1 )
+     AND (po.end_effective_dt_tm >= cnvtdatetime (sysdate ) ) )
+     JOIN (a
+     WHERE (a.parent_entity_id = po.person_org_reltn_id )
+     AND (a.active_ind = 1 )
+     AND (a.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+     AND (a.parent_entity_name = "PERSON_ORG_RELTN" ) )
+    HEAD REPORT
+     global_string = a.street_addr4
+    WITH nocounter
+   ;end select
+  ENDIF
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PerformingPhysicianID:*" ) )
+  SET global_boolean = false
+  SET search_string = trim (substring (23 ,15 ,requestxml->tokenname ) ,3 )
+  CALL echo (build ("PerformingPhysicianID:" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    IF ((cnvtint (search_string ) = 0 ) )
+     IF ((c.perf_phys_id = cnvtreal (search_string ) )
+     AND (c.verify_phys_id = cnvtreal (search_string ) ) ) global_boolean = true
+     ENDIF
+    ELSE
+     IF ((((c.perf_phys_id = cnvtreal (search_string ) ) ) OR ((c.verify_phys_id = cnvtreal (
+      search_string ) ) )) ) global_boolean = true
+     ENDIF
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PersonDeceased" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person p )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (p
+    WHERE (p.person_id = e.person_id )
+    AND (p.active_ind = 1 )
+    AND (p.deceased_dt_tm != null ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "PreService" ) )
+  SET global_boolean = false
+  SELECT DISTINCT INTO "nl:"
+   pe.pft_encntr_id
+   FROM (pft_encntr pe ),
+    (encounter e ),
+    (pft_trans_reltn ptr ),
+    (trans_log tl ),
+    (dummyt d )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (ptr
+    WHERE (ptr.parent_entity_id = pe.pft_encntr_id )
+    AND (ptr.parent_entity_name = "PFTENCNTR" )
+    AND (ptr.active_ind = 1 ) )
+    JOIN (tl
+    WHERE (tl.activity_id = ptr.activity_id )
+    AND (tl.trans_type_cd IN (
+    (SELECT
+     code_value
+     FROM (code_value )
+     WHERE (code_set = 18649 )
+     AND (cdf_meaning = "PAYMENT" ) ) ) )
+    AND (tl.active_ind = 1 ) )
+    JOIN (d
+    WHERE (tl.post_dt_tm < e.disch_dt_tm ) )
+   ORDER BY pe.pft_encntr_id
+   HEAD REPORT
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "ReferringPhysician" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (encntr_prsnl_reltn epr ),
+    (prsnl pr ),
+    (encounter e )
+   PLAN (epr
+    WHERE (epr.encntr_id = encounterid )
+    AND (epr.encntr_prsnl_r_cd = value (uar_get_code_by ("MEANING" ,333 ,"REFERDOC" ) ) )
+    AND (epr.active_ind = 1 )
+    AND (epr.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (epr.expiration_ind = 0 ) )
+    JOIN (pr
+    WHERE (pr.person_id = epr.prsnl_person_id )
+    AND (pr.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = epr.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = pr.name_full_formatted
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "REV:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (5 ,4 ,requestxml->tokenname )
+  CALL echo (build ("REV=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge_mod cm ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.field1_id IN (
+    (SELECT
+     code_value
+     FROM (code_value )
+     WHERE (code_set = 14002 )
+     AND (cdf_meaning = "REVENUE" )
+     AND (active_ind = 1 ) ) ) )
+    AND (cm.field3_id = value (uar_get_code_by ("DISPLAYKEY" ,20769 ,search_string ) ) )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "ServiceResourceDepartment:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (27 ,(textlen (requestxml->tokenname ) - 26 ) ,requestxml->tokenname
+   )
+  CALL echo (build ("ServiceResourceDepartment=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.department_cd IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 221 )
+     AND (cv.display = patstring (build (search_string ,"*" ) ) )
+     AND (cv.cdf_meaning = "DEPARTMENT" ) ) ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "ServiceResourceSection:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (24 ,(textlen (requestxml->tokenname ) - 23 ) ,requestxml->tokenname
+   )
+  CALL echo (build ("ServiceResourceSection=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.section_cd IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 221 )
+     AND (cv.display = patstring (build (search_string ,"*" ) ) )
+     AND (cv.cdf_meaning IN ("SURGAREA" ,
+     "SECTION" ) ) ) ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "SPLateCharge" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (encounter e )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.combined_into_id = 0.00 )
+    AND (pe.last_stmt_dt_tm = null ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    IF ((pe.last_charge_dt_tm > pe.last_stmt_dt_tm ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "RoomAndBedCountMismatch" ) )
+  SET global_boolean = true
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (encounter e ),
+    (pft_encntr pe ),
+    (charge c ),
+    (charge_mod cm )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.offset_ind = 0 )
+    AND (pc.active_ind = 1 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.activity_type_cd = value (uar_get_code_by ("DISPLAYKEY" ,106 ,"PERSONMANAGEMENT" ) ) ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.active_ind = 1 )
+    AND (cm.field1_id IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 14002 )
+     AND (cv.cdf_meaning = "REVENUE" )
+     AND (cv.active_ind = 1 ) ) ) )
+    AND (cm.field3_id IN (
+    (SELECT
+     cv.code_value
+     FROM (code_value cv )
+     WHERE (cv.code_set = 20769 )
+     AND (cv.active_ind = 1 )
+     AND (cnvtint (cv.display ) BETWEEN 100 AND 219 ) ) ) )
+    AND (cm.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (cm.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+    JOIN (pe
+    WHERE (pe.pft_encntr_id = pc.pft_encntr_id )
+    AND (pe.combined_into_id = 0.00 )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.inpatient_admit_dt_tm != null )
+    AND (e.disch_dt_tm != null )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    expectedroomandbedcount = (cnvtdate (e.disch_dt_tm ) - cnvtdate (e.inpatient_admit_dt_tm ) ) ,
+    IF ((expectedroomandbedcount = 0 ) ) expectedroomandbedcount = 1
+    ENDIF
+    ,numcharges = 0
+   DETAIL
+    numcharges +=c.item_quantity
+   FOOT REPORT
+    IF ((expectedroomandbedcount = numcharges ) ) global_boolean = false
+    ELSE global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "StatementCycle" ) )
+  SET global_string = "BLANK"
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (statement_cycle sc ),
+    (encounter e )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (sc
+    WHERE (sc.statement_cycle_id = pe.statement_cycle_id )
+    AND (sc.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   HEAD REPORT
+    global_string = uar_get_code_display (sc.statement_cycle_cd )
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "TIER:*" ) )
+  SET global_boolean = false
+  SET search_string = substring (6 ,(textlen (requestxml->tokenname ) - 5 ) ,requestxml->tokenname )
+  CALL echo (build ("TIER=" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (pft_charge pc ),
+    (charge c ),
+    (encounter e )
+   PLAN (pc
+    WHERE (pc.pft_encntr_id = pftencntrid )
+    AND (pc.active_ind = 1 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg IN (100 ,
+    999 ) )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.tier_group_cd = value (uar_get_code_by ("DISPLAY" ,13035 ,search_string ) ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = c.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   DETAIL
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "TotalChargesFinancialEncounter" ) )
+  SET global_double = 0.0
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (pft_charge pc ),
+    (charge c )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 )
+    AND (pe.combined_into_id = 0.0 ) )
+    JOIN (pc
+    WHERE (pc.pft_encntr_id = pe.pft_encntr_id )
+    AND (pc.active_ind = 1 )
+    AND (pc.offset_ind = 0 ) )
+    JOIN (c
+    WHERE (c.charge_item_id = pc.charge_item_id )
+    AND (c.active_ind = 1 )
+    AND (c.charge_type_cd = value (uar_get_code_by ("MEANING" ,13028 ,"DR" ) ) )
+    AND (c.process_flg = 100 )
+    AND (c.offset_charge_item_id = 0.0 ) )
+   DETAIL
+    global_double +=c.item_extended_price
+   WITH nocounter
+  ;end select
+  CALL adddouble (global_double )
+  CALL echo (build (requestxml->tokenname ,global_double ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "TwoMidnightRule" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (time_zone_r tz ),
+    (dummyt d )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_type_cd IN (
+    (SELECT
+     code_value
+     FROM (code_value )
+     WHERE (code_set = 71 )
+     AND (cdf_meaning = "INPATIENT" ) ) ) )
+    AND (e.financial_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,354 ,"SELFPAY" ) ) )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.disch_dt_tm != null )
+    AND (e.active_ind = 1 ) )
+    JOIN (tz
+    WHERE (tz.parent_entity_id = e.loc_facility_cd )
+    AND (tz.parent_entity_name = "LOCATION" ) )
+    JOIN (d
+    WHERE (datetimecmp (datetimezoneutc (e.disch_dt_tm ,datetimezonebyname (tz.time_zone ) ,1 ) ,
+     datetimezoneutc (e.reg_dt_tm ,datetimezonebyname (tz.time_zone ) ,1 ) ) < 3 ) )
+   ORDER BY e.encntr_id
+   HEAD e.encntr_id
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+ ENDIF
+ IF ((requestxml->tokenname = "UdfPersonLevel:*" ) )
+  SET global_string = "BLANK"
+  SET search_string = substring (16 ,(textlen (requestxml->tokenname ) - 15 ) ,requestxml->tokenname
+   )
+  CALL echo (build ("UdfPersonLevel:" ,search_string ) )
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (person_info pi ),
+    (code_value cv )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (pi
+    WHERE (pi.person_id = e.person_id )
+    AND (pi.active_ind = 1 )
+    AND (pi.end_effective_dt_tm >= cnvtdatetime (sysdate ) )
+    AND (pi.info_type_cd = value (uar_get_code_by ("MEANING" ,355 ,"USERDEFINED" ) ) )
+    AND (pi.info_sub_type_cd = value (uar_get_code_by ("DISPLAYKEY" ,356 ,search_string ) ) ) )
+    JOIN (cv
+    WHERE (cv.code_value = pi.value_cd ) )
+   HEAD REPORT
+    global_string = cv.display_key
+   WITH nocounter
+  ;end select
+  CALL addstring (global_string )
+  CALL echo (build (requestxml->tokenname ,global_string ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "VFCSTATUS" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (immunization_modifier im )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (im
+    WHERE (im.person_id = e.person_id ) )
+   HEAD REPORT
+    IF ((im.vfc_status_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,30741 ,"MEDICAID" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,30741 ,"NOTINSURED" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,30741 ,"UNDERINSURED" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,30741 ,"UNIQUESTATEPROGRAM" ) ) ) ) ) global_boolean =
+     true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "DOCUMENTTYPE:*" ) )
+  SET global_boolean = false
+  DECLARE tokenname_textlen = i4 WITH noconstant (0 ) ,protect
+  SET tokenname_textlen = textlen (trim (requestxml->tokenname ,3 ) )
+  SET search_string = substring (14 ,tokenname_textlen ,trim (requestxml->tokenname ,3 ) )
+  SELECT INTO "nl:"
+   FROM (blob_reference br ),
+    (encounter e )
+   PLAN (br
+    WHERE (br.parent_entity_name = "ENCOUNTER" )
+    AND (br.parent_entity_id = encounterid )
+    AND (br.blob_type_cd = value (uar_get_code_by ("DISPLAYKEY" ,26820 ,search_string ) ) )
+    AND (br.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime ) )
+    AND (br.valid_from_dt_tm > cnvtdatetime ((curdate - 1 ) ,curtime ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = br.parent_entity_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY br.parent_entity_id ,
+    br.valid_until_dt_tm DESC
+   HEAD REPORT
+    IF ((br.valid_until_dt_tm != 0 ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "TotalChrgBalance" ) )
+  SET global_double = 0.0
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (encounter e )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY pe.pft_encntr_id
+   HEAD REPORT
+    IF ((pe.chrg_bal_dr_cr_flag = 1 ) ) global_double = pe.charge_balance
+    ELSEIF ((pe.chrg_bal_dr_cr_flag = 2 ) ) global_double = (pe.charge_balance * - (1 ) )
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL adddouble (global_double )
+  CALL echo (build (requestxml->tokenname ,global_double ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "CHARITYENCOUNTERS" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (encntr_plan_reltn epr ),
+    (health_plan hp ),
+    (encounter e )
+   PLAN (epr
+    WHERE (epr.encntr_id = encounterid )
+    AND (epr.active_ind = 1 ) )
+    JOIN (hp
+    WHERE (hp.health_plan_id = epr.health_plan_id )
+    AND (hp.plan_name IN ("CHARITY PENDING" ,
+    "CHARITY" ) ) )
+    JOIN (e
+    WHERE (e.encntr_id = epr.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY epr.encntr_id
+   HEAD REPORT
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "ChargeDTRange" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (charge c ),
+    (encounter e ),
+    (time_zone_r tz ),
+    (dummyt d )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.active_ind = 1 )
+    AND (e.encntr_type_cd != value (uar_get_code_by ("DISPLAYKEY" ,71 ,"HISTORY" ) ) )
+    AND (e.disch_dt_tm != null )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (tz
+    WHERE (tz.parent_entity_id = e.loc_facility_cd )
+    AND (tz.parent_entity_name = "LOCATION" ) )
+    JOIN (c
+    WHERE (c.encntr_id = e.encntr_id )
+    AND (c.active_ind = 1 )
+    AND (c.service_dt_tm > e.disch_dt_tm )
+    AND (c.offset_charge_item_id = 0.0 )
+    AND (c.process_flg = 100 ) )
+    JOIN (d
+    WHERE (datetimecmp (datetimezoneutc (c.service_dt_tm ,datetimezonebyname (tz.time_zone ) ,1 ) ,
+     datetimezoneutc (e.disch_dt_tm ,datetimezonebyname (tz.time_zone ) ,1 ) ) > 0 ) )
+   ORDER BY e.encntr_id
+   HEAD e.encntr_id
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "TRANSALIAS:*" ) )
+  SET global_boolean = false
+  DECLARE tokenname_textlen = i4 WITH noconstant (0 ) ,protect
+  SET tokenname_textlen = textlen (trim (requestxml->tokenname ,3 ) )
+  SET search_string = substring (12 ,tokenname_textlen ,trim (requestxml->tokenname ,3 ) )
+  DECLARE additional_logic_ind = i2 WITH noconstant (0 ) ,protect
+  DECLARE primary_self_pay_ready_to_bill = i2 WITH noconstant (0 ) ,protect
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (benefit_order bo ),
+    (bo_hp_reltn bhr ),
+    (encounter e ),
+    (billing_entity be ),
+    (pft_trans_reltn ptr ),
+    (trans_log tl ),
+    (pft_trans_alias pta )
+   PLAN (pta
+    WHERE (pta.pft_trans_alias = search_string )
+    AND (pta.trans_type_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,18649 ,"ADJUSTMENT" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,18649 ,"PAYMENT" ) ) ) )
+    AND (pta.active_ind = 1 ) )
+    JOIN (tl
+    WHERE (tl.trans_alias_id = pta.pft_trans_alias_id )
+    AND (tl.active_ind = 1 )
+    AND (tl.trans_reason_cd != value (uar_get_code_by ("DISPLAYKEY" ,18937 ,"REVERSAL" ) ) )
+    AND NOT (EXISTS (
+    (SELECT
+     1
+     FROM (trans_trans_reltn ttr )
+     WHERE (ttr.parent_activity_id = tl.activity_id )
+     AND (ttr.trans_reltn_reason_cd = value (uar_get_code_by ("DISPLAYKEY" ,25753 ,"REVERSAL" ) ) )
+    ) ) ) )
+    JOIN (ptr
+    WHERE (ptr.activity_id = tl.activity_id )
+    AND (ptr.active_ind = 1 )
+    AND (ptr.parent_entity_name = "PFTENCNTR" ) )
+    JOIN (pe
+    WHERE (pe.pft_encntr_id = ptr.parent_entity_id )
+    AND (pe.active_ind = 1 )
+    AND (pe.pft_encntr_status_cd = value (uar_get_code_by ("DISPLAYKEY" ,24269 ,"ACTIVE" ) ) )
+    AND (pe.balance != 0.0 )
+    AND (pe.pft_encntr_id = pftencntrid ) )
+    JOIN (be
+    WHERE (be.billing_entity_id = pe.billing_entity_id )
+    AND (be.active_ind = 1 ) )
+    JOIN (bo
+    WHERE (bo.pft_encntr_id = pe.pft_encntr_id )
+    AND (bo.active_ind = 1 ) )
+    JOIN (bhr
+    WHERE (bhr.benefit_order_id = bo.benefit_order_id )
+    AND (bhr.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+   ORDER BY pe.pft_encntr_id ,
+    bhr.priority_seq ,
+    bhr.bo_hp_status_cd
+   HEAD pe.pft_encntr_id
+    additional_logic_ind = 0 ,primary_self_pay_ready_to_bill = false
+   HEAD bhr.priority_seq
+    null
+   HEAD bhr.bo_hp_status_cd
+    IF ((bhr.fin_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,354 ,"SELFPAY" ) ) )
+    AND (additional_logic_ind IN (2 ,
+    0 ) ) )
+     IF ((bhr.bo_hp_status_cd = value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"COMPLETE" ) ) ) )
+      additional_logic_ind = 2
+     ELSE additional_logic_ind = 1
+     ENDIF
+    ELSEIF ((bhr.priority_seq = 1 )
+    AND (bhr.fin_class_cd = value (uar_get_code_by ("DISPLAYKEY" ,354 ,"SELFPAY" ) ) )
+    AND (bhr.bo_hp_status_cd = value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"READYTOBILL" ) ) ) )
+     primary_self_pay_ready_to_bill = true
+    ENDIF
+   FOOT  bhr.bo_hp_status_cd
+    null
+   FOOT  bhr.priority_seq
+    null
+   FOOT  pe.pft_encntr_id
+    IF ((additional_logic_ind = 2 )
+    AND (bhr.fin_class_cd = value (uar_get_code_by ("DISPLAYKEY" ,354 ,"SELFPAY" ) ) )
+    AND (bhr.bo_hp_status_cd = value (uar_get_code_by ("DISPLAYKEY" ,24451 ,"READYTOBILL" ) ) )
+    AND (primary_self_pay_ready_to_bill = false ) ) global_boolean = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "CODINGUPDATES" ) )
+  SET global_boolean = false
+  FREE RECORD coding_updt_temp
+  RECORD coding_updt_temp (
+    1 encntr_id = f8
+    1 pft_encntr_id = f8
+    1 pft_encntr_alias = vc
+    1 submit_dt_tm = dq8
+    1 diag_ind = i2
+    1 proc_ind = i2
+    1 drg_ind = i2
+  )
+  SELECT INTO "nl:"
+   FROM (coding_hist ch ),
+    (pft_encntr pe ),
+    (benefit_order bo ),
+    (bo_hp_reltn bhr ),
+    (bill_reltn brel ),
+    (bill_rec br ),
+    (encounter e )
+   PLAN (pe
+    WHERE (pe.encntr_id = encounterid )
+    AND (pe.active_ind = 1 )
+    AND (pe.recur_ind = 0 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (bo
+    WHERE (bo.pft_encntr_id = pe.pft_encntr_id )
+    AND (bo.active_ind = 1 ) )
+    JOIN (bhr
+    WHERE (bhr.benefit_order_id = bo.benefit_order_id )
+    AND (bhr.active_ind = 1 )
+    AND (bhr.priority_seq = 1 ) )
+    JOIN (brel
+    WHERE (brel.parent_entity_id = bhr.bo_hp_reltn_id )
+    AND (brel.active_ind = 1 ) )
+    JOIN (br
+    WHERE (br.corsp_activity_id = brel.corsp_activity_id )
+    AND (br.bill_status_cd IN (value (uar_get_code_by ("DISPLAYKEY" ,18935 ,"TRANSMITTED" ) ) ,
+    value (uar_get_code_by ("DISPLAYKEY" ,18935 ,"SUBMITTED" ) ) ) )
+    AND (br.active_ind = 1 ) )
+    JOIN (ch
+    WHERE (ch.encntr_id = pe.encntr_id )
+    AND (ch.active_ind = 1 )
+    AND (ch.completed_dt_tm >= br.submit_dt_tm )
+    AND (ch.completed_dt_tm BETWEEN cnvtdatetime ((curdate - 1 ) ,0 ) AND cnvtdatetime (sysdate ) )
+    AND (ch.end_effective_dt_tm = cnvtdatetime ("31-DEC-2100 00:00:00.00" ) ) )
+   ORDER BY pe.encntr_id
+   HEAD pe.encntr_id
+    coding_updt_temp->encntr_id = pe.encntr_id ,coding_updt_temp->pft_encntr_alias = pe
+    .pft_encntr_alias ,coding_updt_temp->pft_encntr_id = pe.pft_encntr_id ,coding_updt_temp->
+    submit_dt_tm = br.submit_dt_tm
+   WITH nocounter
+  ;end select
+  SELECT INTO "nl:"
+   FROM (coding_hist ch ),
+    (diagnosis d )
+   PLAN (ch
+    WHERE (ch.encntr_id = coding_updt_temp->encntr_id )
+    AND (ch.completed_dt_tm >= cnvtdatetime (coding_updt_temp->submit_dt_tm ) )
+    AND (ch.completed_dt_tm BETWEEN cnvtdatetime ((curdate - 1 ) ,0 ) AND cnvtdatetime (sysdate ) )
+    AND (ch.end_effective_dt_tm = cnvtdatetime ("31-DEC-2100 00:00:00.00" ) ) )
+    JOIN (d
+    WHERE (d.encntr_id = ch.encntr_id )
+    AND (d.active_ind = 1 )
+    AND (d.nomenclature_id != 0 ) )
+   ORDER BY ch.encntr_id ,
+    d.active_status_dt_tm DESC
+   HEAD ch.encntr_id
+    IF ((datetimediff (ch.completed_dt_tm ,d.active_status_dt_tm ,5 ) <= 0.00 ) ) coding_updt_temp->
+     diag_ind = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  SELECT INTO "nl:"
+   FROM (coding_hist ch ),
+    (procedure p )
+   PLAN (ch
+    WHERE (ch.encntr_id = coding_updt_temp->encntr_id )
+    AND (ch.completed_dt_tm >= cnvtdatetime (coding_updt_temp->submit_dt_tm ) )
+    AND (ch.completed_dt_tm BETWEEN cnvtdatetime ((curdate - 1 ) ,0 ) AND cnvtdatetime (sysdate ) )
+    AND (ch.end_effective_dt_tm = cnvtdatetime ("31-DEC-2100 00:00:00.00" ) ) )
+    JOIN (p
+    WHERE (p.encntr_id = ch.encntr_id )
+    AND (p.active_ind = 1 )
+    AND (p.nomenclature_id != 0 ) )
+   ORDER BY ch.encntr_id ,
+    p.active_status_dt_tm DESC
+   HEAD ch.encntr_id
+    IF ((datetimediff (ch.completed_dt_tm ,p.active_status_dt_tm ,5 ) <= 0.00 ) ) coding_updt_temp->
+     proc_ind = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  SELECT INTO "nl:"
+   FROM (coding_hist ch ),
+    (drg dg )
+   PLAN (ch
+    WHERE (ch.encntr_id = coding_updt_temp->encntr_id )
+    AND (ch.completed_dt_tm >= cnvtdatetime (coding_updt_temp->submit_dt_tm ) )
+    AND (ch.completed_dt_tm BETWEEN cnvtdatetime ((curdate - 1 ) ,0 ) AND cnvtdatetime (sysdate ) )
+    AND (ch.end_effective_dt_tm = cnvtdatetime ("31-DEC-2100 00:00:00.00" ) ) )
+    JOIN (dg
+    WHERE (dg.encntr_id = ch.encntr_id )
+    AND (dg.active_ind = 1 )
+    AND (dg.nomenclature_id != 0 ) )
+   ORDER BY ch.encntr_id ,
+    dg.active_status_dt_tm DESC
+   HEAD ch.encntr_id
+    IF ((datetimediff (ch.completed_dt_tm ,dg.active_status_dt_tm ,5 ) <= 0.00 ) ) coding_updt_temp->
+     drg_ind = true
+    ENDIF
+   WITH nocounter
+  ;end select
+  IF (((coding_updt_temp->drg_ind ) OR (((coding_updt_temp->proc_ind ) OR (coding_updt_temp->diag_ind
+   )) )) )
+   SET global_boolean = true
+  ENDIF
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+ ENDIF
+ IF ((requestxml->tokenname = "IntegratePhysNotesBills" ) )
+  DECLARE 14250_resource_cd = f8 WITH constant (uar_get_code_by_cki ("CKI.CODEVALUE!8847" ) ) ,
+  protect
+  SELECT INTO "nl:"
+   FROM (sch_appt s ),
+    (sch_resource sr )
+   PLAN (s
+    WHERE (s.encntr_id = encounterid )
+    AND (s.encntr_id > 0 )
+    AND (s.sch_role_cd = 14250_resource_cd ) )
+    JOIN (sr
+    WHERE (sr.resource_cd = s.resource_cd )
+    AND (sr.person_id != 0.0 ) )
+   WITH nocounter
+  ;end select
+  IF ((curqual = 0 ) )
+   SET global_boolean = false
+   CALL addboolean (global_boolean )
+   GO TO exit_script
+  ENDIF
+  SET global_boolean = true
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (clinical_event ce )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (ce
+    WHERE (ce.person_id = e.person_id )
+    AND (ce.encntr_id = e.encntr_id )
+    AND (ce.valid_until_dt_tm = cnvtdatetime ("31-DEC-2100" ) )
+    AND (ce.event_cd IN (
+    (SELECT
+     cvg.child_code_value
+     FROM (code_value_group cvg )
+     WHERE (cvg.parent_code_value = value (uar_get_code_by ("DISPLAYKEY" ,100056 ,
+       "CPMPHYSICIANNOTESHOLDCLAIM" ) ) )
+     AND (cvg.code_set = 72 ) ) ) )
+    AND (ce.result_status_cd IN (value (uar_get_code_by ("MEANING" ,8 ,"AUTH" ) ) ,
+    value (uar_get_code_by ("MEANING" ,8 ,"MODIFIED" ) ) ,
+    value (uar_get_code_by ("MEANING" ,8 ,"ALTERED" ) ) ) ) )
+   ORDER BY ce.event_cd
+   HEAD REPORT
+    global_boolean = false
+   WITH nocounter ,orahintcbo ("index(ce xie9clinical_event)" )
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "POWERTRIAL" ) )
+  SET global_boolean = false
+  SELECT INTO "NL:"
+   FROM (encounter e ),
+    (charge c )
+   PLAN (e
+    WHERE (e.encntr_id = encounterid )
+    AND (e.encntr_class_cd != value (uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL" ) ) )
+    AND (e.active_ind = 1 ) )
+    JOIN (c
+    WHERE (c.encntr_id = e.encntr_id )
+    AND (c.active_ind = 1 )
+    AND (c.research_acct_id != 0.00 ) )
+   HEAD REPORT
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "MULTIEMPROCEDURE" ) )
+  SET global_boolean = false
+  DECLARE 106_procedures_at_cd = f8 WITH constant (uar_get_code_by ("DISPLAYKEY" ,106 ,
+    "AMBULATORYPROCEDURES" ) ) ,protect
+  DECLARE 106_eval_mgmt_at_cd = f8 WITH constant (uar_get_code_by ("DISPLAYKEY" ,106 ,
+    "EVALUATIONANDMANAGEMENT" ) ) ,protect
+  DECLARE 14002_cpt_cd = f8 WITH constant (uar_get_code_by ("DISPLAYKEY" ,14002 ,"CPT" ) ) ,protect
+  DECLARE 14002_hcpcs_cd = f8 WITH constant (uar_get_code_by ("DISPLAYKEY" ,14002 ,"HCPCS" ) ) ,
+  protect
+  SELECT INTO "nl:"
+   FROM (charge c ),
+    (charge c2 ),
+    (pft_encntr pe )
+   PLAN (c
+    WHERE (c.encntr_id = encounterid )
+    AND (c.active_ind = 1 )
+    AND (c.offset_charge_item_id IN (0.0 ,
+    null ) )
+    AND (((c.activity_type_cd IN (106_procedures_at_cd ,
+    106_eval_mgmt_at_cd ) ) ) OR (EXISTS (
+    (SELECT
+     cm.charge_item_id
+     FROM (charge_mod cm )
+     WHERE (cm.charge_item_id = c.charge_item_id )
+     AND (cm.field1_id IN (14002_cpt_cd ,
+     14002_hcpcs_cd ) )
+     AND (cm.field6 IN ("90460" ,
+     "90461" ,
+     "90471" ,
+     "90472" ,
+     "90473" ,
+     "90474" ,
+     "96360" ,
+     "96361" ,
+     "96372" ,
+     "96401" ,
+     "G0008" ,
+     "G0009" ,
+     "G0010" ) ) ) ) ))
+    AND NOT ((c.order_id IN (null ,
+    0 ) ) ) )
+    JOIN (c2
+    WHERE (c2.encntr_id = c.encntr_id )
+    AND (c2.active_ind = 1 )
+    AND (c2.charge_item_id != c.charge_item_id )
+    AND (c2.offset_charge_item_id IN (0.0 ,
+    null ) )
+    AND (((c2.activity_type_cd IN (106_procedures_at_cd ,
+    106_eval_mgmt_at_cd ) ) ) OR (EXISTS (
+    (SELECT
+     cm2.charge_item_id
+     FROM (charge_mod cm2 )
+     WHERE (cm2.charge_item_id = c.charge_item_id )
+     AND (cm2.field1_id IN (14002_cpt_cd ,
+     14002_hcpcs_cd ) )
+     AND (cm2.field6 IN ("90460" ,
+     "90461" ,
+     "90471" ,
+     "90472" ,
+     "90473" ,
+     "90474" ,
+     "96360" ,
+     "96361" ,
+     "96372" ,
+     "96401" ,
+     "G0008" ,
+     "G0009" ,
+     "G0010" ) ) ) ) ))
+    AND (c2.order_id != c.order_id )
+    AND (datetimecmputc (c.service_dt_tm ,c2.service_dt_tm ,0 ) = 0 ) )
+    JOIN (pe
+    WHERE (pe.encntr_id = c.encntr_id )
+    AND (pe.active_ind = 1 ) )
+   ORDER BY c.encntr_id
+   HEAD c.encntr_id
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "IME" ) )
+  SET global_boolean = false
+  SELECT INTO "NL:"
+   FROM (pft_encntr pe ),
+    (benefit_order bo ),
+    (bo_hp_reltn bhr ),
+    (bill_reltn brn ),
+    (bill_rec br )
+   PLAN (pe
+    WHERE (pe.pft_encntr_id = pftencntrid )
+    AND (pe.active_ind = 1 )
+    AND (pe.balance > 0.00 ) )
+    JOIN (bo
+    WHERE (bo.pft_encntr_id = pe.pft_encntr_id )
+    AND (bo.active_ind = 1 ) )
+    JOIN (bhr
+    WHERE (bhr.benefit_order_id = bo.benefit_order_id )
+    AND (bhr.active_ind = 0 )
+    AND (bhr.reltn_type_cd = value (uar_get_code_by ("MEANING" ,4002034 ,"IME BILLING" ) ) )
+    AND (bhr.bo_hp_status_cd != value (uar_get_code_by ("MEANING" ,24451 ,"INVALID" ) ) ) )
+    JOIN (brn
+    WHERE (brn.parent_entity_id = bhr.bo_hp_reltn_id )
+    AND (brn.parent_entity_name = "BO_HP_RELTN" )
+    AND (brn.active_ind = 1 ) )
+    JOIN (br
+    WHERE (br.corsp_activity_id = brn.corsp_activity_id )
+    AND (br.active_ind = 1 )
+    AND (br.bill_status_cd = value (uar_get_code_by ("MEANING" ,18935 ,"PENDING" ) ) )
+    AND (br.bill_status_reason_cd = value (uar_get_code_by ("MEANING" ,22089 ,"CORRECT REQ" ) ) )
+    AND (br.bill_type_cd = value (uar_get_code_by ("MEANING" ,21749 ,"HCFA_1450" ) ) ) )
+   ORDER BY pe.pft_encntr_id
+   HEAD pe.pft_encntr_id
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "IEF" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   FROM (pft_encntr pe ),
+    (encounter e ),
+    (benefit_order bo ),
+    (bo_hp_reltn bhr ),
+    (bill_reltn brn ),
+    (bill_rec br )
+   PLAN (pe
+    WHERE (pe.pft_encntr_alias = pftencntrid )
+    AND (pe.active_ind = 1 ) )
+    JOIN (e
+    WHERE (e.encntr_id = pe.encntr_id )
+    AND (e.active_ind = 1 )
+    AND (e.disch_dt_tm = null ) )
+    JOIN (bo
+    WHERE (bo.pft_encntr_id = pe.pft_encntr_id )
+    AND (bo.active_ind = 1 ) )
+    JOIN (bhr
+    WHERE (bhr.benefit_order_id = bo.benefit_order_id )
+    AND (bhr.active_ind = 1 ) )
+    JOIN (brn
+    WHERE (brn.parent_entity_id = bhr.bo_hp_reltn_id )
+    AND (brn.parent_entity_name = "BO_HP_RELTN" ) )
+    JOIN (br
+    WHERE (br.corsp_activity_id = brn.corsp_activity_id )
+    AND (br.interim_bill_flag IN (1.00 ,    2.00 ,    3.00 ) )
+    AND (br.active_ind = 1 )
+    AND (br.bill_status_cd = value (uar_get_code_by ("MEANING" ,18935 ,"PENDING" ) ) )
+    AND (br.bill_status_reason_cd = value (uar_get_code_by ("MEANING" ,22089 ,"CORRECT REQ" ) ) ) )
+   ORDER BY pe.pft_encntr_id
+   HEAD pe.pft_encntr_id
+    global_boolean = true
+   WITH nocounter
+  ;end select
+  CALL addboolean (global_boolean )
+  CALL echo (build (requestxml->tokenname ,global_boolean ) )
+  GO TO exit_script
+ ENDIF
+ IF ((requestxml->tokenname = "SUSPENDEDCHARGE" ) )
+  SET global_boolean = false
+  SELECT INTO "nl:"
+   cm.charge_item_id
+   FROM (charge c ),
+    (charge_mod cm )
+   PLAN (c
+    WHERE (c.process_flg = 1 )
+    AND ((c.active_ind + 0 ) = 1 )
+    AND (c.encntr_id = encounterid ) )
+    JOIN (cm
+    WHERE (cm.charge_item_id = c.charge_item_id )
+    AND (cm.charge_mod_type_cd = value (uar_get_code_by ("MEANING" ,13019 ,"SUSPENSE" ) ) )
+    AND (cm.active_ind = 1 ) )
+   WITH maxqual (c ,1 )
+  ;end select
+  IF ((curqual > 0 ) )
+   SET global_boolean = true
+  ENDIF
+  CALL addboolean (global_boolean )
+  GO TO exit_script
+ ENDIF
+ 
+IF ((requestxml->tokenname = "HP_SEQUENCE:*" ) )
+	SET global_boolean = false
+  	SET search_string = substring (5 ,(textlen (requestxml->tokenname ) - 4 ) ,requestxml->tokenname )
+  	CALL echo (build ("HP_SEQUENCE:" ,search_string ) )
+ 
+  	SELECT INTO "nl:"
+  		EPR.priority_seq, HP.plan_name
+   	FROM
+   		 encntr_plan_reltn epr
+    	,health_plan hp
+		,encounter e
+   	PLAN epr
+   		WHERE 	epr.encntr_id = encounterid
+    	AND 	epr.active_ind = 1
+    JOIN hp
+    	WHERE 	hp.health_plan_id = epr.health_plan_id
+    JOIN e
+	    WHERE 	e.encntr_id = epr.encntr_id
+	    AND 	e.encntr_class_cd != value(uar_get_code_by ("DISPLAYKEY" ,321 ,"HISTORICAL"))
+	    AND 	e.active_ind = 1
+   	ORDER BY epr.encntr_id
+   	HEAD REPORT
+        IF (EPR.priority_seq = search_string )
+        	global_boolean = true
+    	ENDIF
+   		WITH nocounter
+  	;end select
+  	CALL addboolean (global_boolean )
+  	CALL echo (build (requestxml->tokenname ,global_boolean ) )
+ 
+  	GO TO exit_script
+ENDIF
+ 
+#exit_script
+END GO
+ 
