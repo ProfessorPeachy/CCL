@@ -1,0 +1,76 @@
+DROP PROGRAM AMJ_REQUEST_REPLY_TEST :dba GO
+CREATE PROGRAM AMJ_REQUEST_REPLY_TEST :dba
+ 
+ 
+
+FREE RECORD tempREQUEST
+record tempREQUEST
+(
+1  status_data[1]
+    2 status 			= vc
+1 params[1]
+	2 param_name		= vc
+	2 double_value		= f8
+)
+ 
+SET tempREQUEST->params[1].param_name = "tempREQUEST 1234 AMELIA" 
+
+
+execute maur_pft_custom_token_v2 with REPLACE(REQUEST,tempREQUEST)
+
+
+;FREE RECORD tempREQUESTXML
+;record tempREQUESTXML
+;(
+;1  status_data[1]
+;    2 status 			= vc
+;1  tokenname  =  C20
+; 
+;)
+;
+;set tempREQUESTXML->tokenname = "tempREQUESTXML TOKEN AMELIA"
+
+
+;DECLARE IDX = I4 WITH noconstant (1), protect
+;;DECLARE IDX = PCNT WITH noconstant (1), protect
+ 
+;DECLARE encounterid = f8 WITH protect ,noconstant (0.0 ), protect
+;DECLARE pftencntrid = f8 WITH protect ,noconstant (getfinancialencounterfromrequest (0 ) ), protect
+ 
+DECLARE REPLY_JSON = VC
+ 
+;execute maur_pft_custom_token_v2 with replace("REQUESTXML", "tempREQUESTXML"),REPLACE("REQUEST","tempREQUEST")
+
+;execute maur_pft_custom_token_v2 with replace("REQUESTXML", "tempREQUESTXML") 
+;request TEMP_REQUEST (
+;;FILL IN WITH CERNER TDB REQUEST INFO OR translate script to identify paramaters
+;
+;
+;
+;
+;)
+;
+;
+;recored TEMP_REPLY (
+;;FILL IN WITH CERNER TDB REPLY INFO OR translate script to identify paramaters
+;
+;
+;)
+;
+;
+;for(i=1 to numbercalls)
+;
+;
+; 	     set TEMP_REQUEST->xxxx = CV1
+; 	     execute cerner_script_name with replace("REQUEST", "TEMP_REQUEST"),
+; 	     replace("REPLY", "TEMP_REPLY")
+;
+;
+;;;Check reply for errors or do what you need to do with it
+;
+;
+;;reinitilize reply ; if your request isnt overwritten each time do the same for temp_request.
+;set stat = initrec(TEMP_REPLY)
+;endfor
+END GO
+ 
