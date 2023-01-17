@@ -1,0 +1,25 @@
+drop program 1_dt_nbr go
+create program 1_dt_nbr
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Start Date" = "CURDATE"
+	, "End Date" = "CURDATE" 
+
+with OUTDEV, sdate, edate
+
+set start_dt = cnvtdate2($sdate,"DD-MMM-YYYY")
+set end_dt = cnvtdate2($edate,"DD-MMM-YYYY")
+
+
+select into $outdev 
+o.dt_nbr
+, o.date_str
+, start_date = start_dt
+, end_date = end_dt
+from omf_date o
+where o.dt_nbr between start_dt and end_dt
+with format, separator=" "
+
+end
+go
