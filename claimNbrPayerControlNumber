@@ -1,0 +1,46 @@
+;select br.bill_nbr_disp, br.payor_ctrl_nbr_txt, * from bill_rec br
+;where br.bill_nbr_disp_key = "3011744400" ;claim number
+;with time = 30, maxrec = 100
+;
+;select 
+;error_status = uar_get_code_display(btf.error_status_cd)
+;,claim_nbr = btf.bill_nbr_disp
+;,btf.ar_account_id
+;,btf.batch_trans_file_id
+;,btf.sequence_nbr
+;,btf.payor_cntrl_nbr_txt
+;,A.billing_entity_id
+;,BTF.bill_vrsn_nbr
+;,BTF.trans_type_cd
+;,trans_type = uar_get_code_display(btf.trans_type_cd)
+;,trans_sub_type = uar_get_code_display(btf.trans_subtype_cd)
+;,trans_reason = uar_get_code_display(btf.trans_reason_cd)
+;,payment_method = uar_get_code_display(btf.payment_method_cd)
+;,BTF.post_dt_tm
+;,BTF.updt_dt_tm
+;,btf.payment_num_desc
+;,btf.trans_total_amount
+;,btf.payor_cntrl_nbr_txt
+;,btf.sequence_nbr
+;,btf.related_seq_nbr
+;,btf.payor_cntrl_nbr_txt
+;,btf.nontrans_flag
+;,btf.chrg_activity_id
+;,btf.trans_alias_id
+;,btf.edi_adj_group_cd
+;,btf.payor_cntrl_nbr_txt
+;,btf.tendered_amount
+;,btf.pft_line_item_id
+;,btf.trans_group_nbr
+;,btf.pft_encntr_id, btf.encntr_id,btf.parent_entity_id,btf.health_plan_id 
+;,* 
+;from 
+;Batch_trans_file btf
+;,account a
+;plan btf
+;where btf.corsp_activity_id =     1510034994.00
+;join a
+;where a.acct_id = btf.ar_account_id
+;order by btf.sequence_nbr
+;with NOCOUNTER, FORMAT, SEPARATOR = " ",format(DATE, "@SHORTDATETIME")
+;
