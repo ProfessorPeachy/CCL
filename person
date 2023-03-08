@@ -1,0 +1,629 @@
+
+DROP PROGRAM 1_PERSON:DBA GO
+CREATE PROGRAM 1_PERSON:DBA
+
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Select All Patients?" = "0" ;1 gives all records and ignores date prompts
+    , "Start PERSON_ID" = "0"
+    , "End PERSON_ID" = "1000000"
+	, "Inclusive Start date of extract in YYYYMMDD format (or Y=Yesterday)" = "Y" ;leave as default if selecting all (1)
+	, "Exclusive End date of extract in YYYYMMDD format (or T=Today)" = "T" ;leave as default if selecting all (1)
+	, "Logical Domain ID" = "0" ; leave as default if logical domains are not used
+with OUTDEV, selectionType, startPersonID, endPersonID, startPrompt, endPrompt, logicalDomainID
+
+declare pOutDev = c100 with constant($OUTDEV),protect
+declare pSelectionType = c1 with constant($selectionType),protect
+declare pStartPersonID = f8 with noconstant(cnvtreal($startPersonID)),protect
+declare pEndPersonID = f8 with noconstant(cnvtreal($endPersonID)),protect
+declare pStartPrompt = c8 with constant($startPrompt),protect
+declare pEndPrompt = c8 with constant($endPrompt),protect
+declare pLogicalDomainID = f8 with constant(cnvtreal($logicalDomainID)),protect
+
+declare startDay = dq8 with noconstant(cnvtdatetime(curdate-1,0)),protect
+declare endDay = dq8 with noconstant(cnvtdatetime(curdate,0)),protect
+
+if (pStartPrompt != "Y")
+	set startDay = cnvtdatetime(cnvtdate2(pStartPrompt,"YYYYMMDD"),0)
+endif
+if (pEndPrompt != "T")
+	set endDay = cnvtdatetime(cnvtdate2(pEndPrompt,"YYYYMMDD"),0)
+endif
+
+call echo (concat("The date prompts are set between ",format(cnvtdatetime(startDay),"YYYY-MM-DD hh:mm;;d")
+	," to ",format(cnvtdatetime(endDay),"YYYY-MM-DD hh:mm;;d")))
+
+%INCLUDE CUST_SCRIPT:1_MAUR_TN_PROTENUS_COMMON.INC
+
+CALL EMAIL_START("PERSON")
+
+;*** Name the Files
+;*
+declare fnStartDate = vc with constant(format(cnvtdatetime(startDay),"yyyyMMdd;;d"))
+declare fnEndDate = vc with constant(format(cnvtdatetime(endDay),"yyyyMMdd;;d"))
+
+declare cPersonFile = c100 with constant(getFileName("protenusPerson", fnStartDate, fnEndDate)),protect
+declare cPersonAliasFile = c100 with constant(getFileName("protenusPersonAlias", fnStartDate, fnEndDate)),protect
+declare cPersonReltnFile = c100 with constant(getFileName("protenusPersonReltn", fnStartDate, fnEndDate)),protect
+declare cPersonPrsnlReltnFile = c100 with constant(getFileName("protenusPersonPrsnlReltn", fnStartDate, fnEndDate)),protect
+
+record rOut (
+	1 nCnt = i4
+	1 data [*]
+		2 person_id = f8
+		2 name_last = c100
+		2 name_first = c100
+		2 name_middle = c100
+		2 name_full_formatted = c100
+		2 active_ind = i4
+		2 active_status_cd = f8
+
+		2 birth_dt_tm = dq8
+		2 deceased_dt_tm = dq8
+		2 sex_cd = f8
+ 		2 person_type_cd = f8
+ 		2 vip_cd = f8
+ 		2 confid_level_cd = f8
+
+		2 ssn = c40
+
+		2 home_addr1 = c100
+		2 home_addr2 = c100
+		2 home_city = c100
+		2 home_state = c100
+		2 home_country = c100
+		2 home_zip = c10
+
+		2 work_addr1 = c100
+		2 work_addr2 = c100
+		2 work_city = c100
+		2 work_state = c100
+		2 work_country = c100
+		2 work_zip = c10
+
+		2 phone_work = c20
+		2 phone_home = c20
+		2 phone_mobile = c20
+
+		2 employer = c100
+) with protect
+set rOut->nCnt = 1 ; set to one so that first loop of while happens
+
+
+record rContact (
+	1 nCnt = i4
+	1 data [*]
+		2 person_id = f8
+		2 person_person_reltn_id = f8
+		2 person_reltn_cd = f8
+		2 person_reltn_type_cd = f8
+		2 related_person_reltn_cd = f8
+		2 related_person_id = f8
+		2 active_ind = i4
+		2 active_status_cd = f8
+
+		2 name_last = c100
+		2 name_first = c100
+		2 name_middle = c100
+		2 name_full_formatted = c100
+
+		2 birth_dt_tm = dq8
+		2 deceased_dt_tm = dq8
+		2 sex_cd = f8
+ 		2 person_type_cd = f8
+
+		2 ssn = c40
+
+		2 home_addr1 = c100
+		2 home_addr2 = c100
+		2 home_city = c100
+		2 home_state = c100
+		2 home_country = c100
+		2 home_zip = c10
+
+		2 work_addr1 = c100
+		2 work_addr2 = c100
+		2 work_city = c100
+		2 work_state = c100
+		2 work_country = c100
+		2 work_zip = c10
+
+		2 phone_work = c20
+		2 phone_home = c20
+		2 phone_mobile = c20
+
+		2 employer = c100
+) with protect
+set rContact->nCnt = 1 ; set to one so that first loop of while happens
+
+
+declare personRecordCount = i4 with noconstant(0),protect
+declare emailLastId = i4 with noconstant(0),protect
+declare contactRecordCount = i4 with noconstant(0),protect
+
+;values to control the processing of the person file.
+declare stepValue = i4 with noconstant(1000),protect
+declare maxId = f8 with noconstant(0.0),protect
+declare lastId = f8 with noconstant(-1.0),protect
+declare xXx = i4 with noconstant(0),protect ;used for expand statements
+declare lLl = i4 with noconstant(0),protect ;used for locateval statements
+declare firstPatient = f8 with noconstant(-1.0),protect
+declare totalPatients = f8 with noconstant(0.0),protect
+
+;setup parser for selectionType
+declare PARSER_SELECT = c100 with
+	noconstant(' p.updt_dt_tm between cnvtdatetime(startDay) and cnvtdatetime(endDay) '),protect
+
+if (pSelectionType = "1")
+	set PARSER_SELECT = build2(
+	    ' p.person_id between '
+	    ,pStartPersonID
+	    ,' and '
+	    ,pEndPersonID
+	)
+	set lastId = pStartPersonID
+	set firstPatient = pStartPersonID - 1
+	set totalPatients = pEndPersonID - pStartPersonID
+else
+	set totalPatients = 1000000 ;limits max number of patients to extract in with date range to 1 000 000
+endif
+
+
+; get current max value for person.
+select into "nl:"
+	p_max = max(p.person_id)
+from person p
+plan p
+	where PARSER(PARSER_SELECT)
+	and PARSER(replace(PARSER_LOGICAL_DOMAIN_ID,"TABLE_ALIAS","p"))
+detail
+	maxId = p_max
+with nocounter
+
+
+while (lastId < maxId and personRecordCount < totalPatients and rOut->nCnt > 0)
+	set rOut->nCnt = 0
+	set stat = initrec(rOut)
+	set stat = alterlist(rOut->data,stepValue)
+
+ 	; selecting all person records (or past 7 days of records)
+	select into "NL:"
+	from	person p
+	plan p
+		where p.person_id > lastId
+		and PARSER(PARSER_SELECT)
+		and p.person_type_cd != cvPersonFreeText
+		and PARSER(replace(PARSER_LOGICAL_DOMAIN_ID,"TABLE_ALIAS","p"))
+	order by p.person_id
+	detail
+		rOut->nCnt = rOut->nCnt+1
+		rOut->data[rOut->nCnt].person_id = p.person_id
+		rOut->data[rOut->nCnt].name_last = p.name_last
+		rOut->data[rOut->nCnt].name_middle = p.name_middle
+		rOut->data[rOut->nCnt].name_first = p.name_first
+		rOut->data[rOut->nCnt].name_full_formatted = p.name_full_formatted
+		rOut->data[rOut->nCnt].active_ind = p.active_ind
+		rOut->data[rOut->nCnt].active_status_cd = p.active_status_cd
+		rOut->data[rOut->nCnt].birth_dt_tm = p.birth_dt_tm
+		rOut->data[rOut->nCnt].deceased_dt_tm = p.deceased_dt_tm
+		rOut->data[rOut->nCnt].sex_cd = p.sex_cd
+		rOut->data[rOut->nCnt].person_type_cd = p.person_type_cd
+		rOut->data[rOut->nCnt].vip_cd = p.vip_cd
+		rOut->data[rOut->nCnt].confid_level_cd = p.confid_level_cd
+	foot report
+		lastId = p.person_id
+		emailLastId = p.person_id
+	with nocounter, maxrec = value(stepValue)
+
+ 	;selecting home and business addresses for person records.
+	select into "NL:"
+	from	address a
+	plan a
+		where expand(xXx,1,rOut->nCnt,a.parent_entity_id,rOut->data[xXx].person_id)
+		and a.parent_entity_name = "PERSON"
+		and a.address_type_cd in (cvAddressHome,cvAddressWork)
+		and a.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rOut->nCnt,a.parent_entity_id,rOut->data[lLl].person_id)
+		if (a.address_type_cd = cvAddressHome)
+			rOut->data[loc].home_addr1 = a.street_addr
+			rOut->data[loc].home_addr2 = a.street_addr2
+			;if the codified value is not stored then use the free text
+			if (a.city_cd = 0)
+				rOut->data[loc].home_city = a.city
+			else
+				rOut->data[loc].home_city = uar_get_code_display(a.city_cd)
+			endif
+			if (a.state_cd = 0)
+				rOut->data[loc].home_state = a.state
+			else
+				rOut->data[loc].home_state = uar_get_code_display(a.state_cd)
+			endif
+			if (a.country_cd = 0)
+				rOut->data[loc].home_country = a.country
+			else
+				rOut->data[loc].home_country = uar_get_code_display(a.country_cd)
+			endif
+			rOut->data[loc].home_zip = a.zipcode
+		else
+			rOut->data[loc].work_addr1 = a.street_addr
+			rOut->data[loc].work_addr2 = a.street_addr2
+			if (a.city_cd = 0)
+				rOut->data[loc].work_city = a.city
+			else
+				rOut->data[loc].work_city = uar_get_code_display(a.city_cd)
+			endif
+			if (a.state_cd = 0)
+				rOut->data[loc].work_state = a.state
+			else
+				rOut->data[loc].work_state = uar_get_code_display(a.state_cd)
+			endif
+			if (a.country_cd = 0)
+				rOut->data[loc].work_country = a.country
+			else
+				rOut->data[loc].work_country = uar_get_code_display(a.country_cd)
+			endif
+			rOut->data[loc].work_zip = a.zipcode
+		endif
+	with nocounter,expand=1
+
+ 	; adding home, work and mobile phone.  similar to address many types of parent_entities
+	select into "nl:"
+	from	phone p
+	plan p
+		where expand(xXx,1,rOut->nCnt,p.parent_entity_id,rOut->data[xXx].person_id)
+		and p.parent_entity_name = "PERSON"
+		and p.phone_type_cd in (cvPhoneWork,cvPhoneHome,cvPhoneMobile)
+		and p.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rOut->nCnt,p.parent_entity_id,rOut->data[lLl].person_id)
+		if (p.phone_type_cd = cvPhoneWork)
+			rOut->data[loc].phone_work = p.phone_num
+		elseif (p.phone_type_cd = cvPhoneHome)
+			rOut->data[loc].phone_home = p.phone_num
+		else
+			rOut->data[loc].phone_mobile = p.phone_num
+		endif
+	with nocounter,expand=1
+
+ 	; get the ssn.  Other mrns will be output into a different file.
+	select into "nl:"
+	from	person_alias p
+	plan p
+		where expand(xXx,1,rOut->nCnt,p.person_id,rOut->data[xXx].person_id)
+		and p.person_alias_type_cd = cvAliasSSN
+		and p.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rOut->nCnt,p.person_id,rOut->data[lLl].person_id)
+		rOut->data[loc].ssn = p.alias
+	with nocounter,expand=1
+
+
+	select into "nl:"
+	from	person_org_reltn p
+			,organization o
+	plan p
+		where expand(xXx,1,rOut->nCnt,p.person_id,rOut->data[xXx].person_id)
+		and p.person_org_reltn_cd = cvOrgReltnEmployer
+		and p.active_ind = 1
+	join o
+		where o.organization_id = p.organization_id
+	detail
+		loc = locateval(lLl,1,rOut->nCnt,p.person_id,rOut->data[lLl].person_id)
+		rOut->data[loc].employer = o.org_name
+	with nocounter,expand=1
+
+
+	select if(personRecordCount=0)
+		with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1)
+	else
+		with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1),append,noheading
+	endif
+	into value(cPersonFile)
+		person_id = FORMAT(rOut->data[d.seq].person_id,";T(1);")
+		,name_last = replace(rOut->data[d.seq].name_last,'"','""')
+		,name_first = replace(rOut->data[d.seq].name_first,'"','""')
+		,name_middle = replace(rOut->data[d.seq].name_middle,'"','""')
+		,name_full_formatted = replace(rOut->data[d.seq].name_full_formatted,'"','""')
+		,active_ind = rOut->data[d.seq].active_ind
+		,active_status_cd = replace(uar_get_code_display(rOut->data[d.seq].active_status_cd),'"','""')
+		,birth_dt_tm = format(rOut->data[d.seq].birth_dt_tm,"yyyy-MM-dd;;d")
+		,deceased_dt_tm = format(rOut->data[d.seq].deceased_dt_tm,"yyyy-MM-dd;;d")
+		,sex = replace(uar_get_code_display(rOut->data[d.seq].sex_cd),'"','""')
+		,person_type = replace(uar_get_code_display(rOut->data[d.seq].person_type_cd),'"','""')
+		,vip = replace(uar_get_code_display(rOut->data[d.seq].vip_cd),'"','""')
+		,confid_level = replace(uar_get_code_display(rOut->data[d.seq].confid_level_cd),'"','""')
+
+		,home_addr1 = replace(rOut->data[d.seq].home_addr1,'"','""')
+		,home_addr2 = replace(rOut->data[d.seq].home_addr2,'"','""')
+		,home_city = replace(rOut->data[d.seq].home_city,'"','""')
+		,home_state = replace(rOut->data[d.seq].home_state,'"','""')
+		,home_country = replace(rOut->data[d.seq].home_country,'"','""')
+		,home_zip = replace(rOut->data[d.seq].home_zip,'"','""')
+
+		,work_addr1 = replace(rOut->data[d.seq].work_addr1,'"','""')
+		,work_addr2 = replace(rOut->data[d.seq].work_addr2,'"','""')
+		,work_city = replace(rOut->data[d.seq].work_city,'"','""')
+		,work_state = replace(rOut->data[d.seq].work_state,'"','""')
+		,work_country = replace(rOut->data[d.seq].work_country,'"','""')
+		,work_zip = replace(rOut->data[d.seq].work_zip,'"','""')
+
+		,phone_work = replace(rOut->data[d.seq].phone_work,'"','""')
+		,phone_home = replace(rOut->data[d.seq].phone_home,'"','""')
+		,phone_mobile = replace(rOut->data[d.seq].phone_mobile,'"','""')
+
+		,ssn = replace(rOut->data[d.seq].ssn,'"','""')
+		,employer = replace(rOut->data[d.seq].employer,'"','""')
+ 	from	(dummyt d with seq = value(rOut->nCnt))
+ 	plan d
+
+	set personRecordCount = personRecordCount + rOut->nCnt
+endwhile
+
+
+; A person alias file
+select into value(cPersonAliasFile)
+	person_id = FORMAT(p.person_id,";T(1);")
+	,person_alias_type_cd = replace(uar_get_code_display(p.person_alias_type_cd),'"','""')
+	,alias_pool_cd = replace(uar_get_code_display(p.alias_pool_cd),'"','""')
+	,alias = replace(p.alias,'"','""')
+	,active_ind = p.active_ind
+	,active_status_cd = replace(uar_get_code_display(p.active_status_cd),'"','""')
+from
+    person_alias p
+plan p
+	where parser(PARSER_SELECT)
+	and p.person_alias_type_cd = cvAliasMRN
+	and p.active_ind = 1
+	and p.person_id > firstPatient
+    and PARSER(replace(PARSER_LOGICAL_DOMAIN_QUERY,"TABLE_ALIAS","p"))
+order by p.person_id
+with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1)
+
+
+if (pSelectionType = "1")
+	set lastId = pStartPersonID - 1
+else
+	set lastId = -1 ;makes certain that no patients are excluded when using the updt_dt_tm
+endif
+
+
+; get current max value for person_person_reltn.
+select into "nl:"
+	p_max = max(p.person_id)
+from
+    person_person_reltn p
+plan p
+	where PARSER(PARSER_SELECT)
+	and p.active_ind = 1
+    and PARSER(replace(PARSER_LOGICAL_DOMAIN_QUERY,"TABLE_ALIAS","p"))
+detail
+	maxId = p_max
+with nocounter
+
+
+while (lastId < maxId and contactRecordCount < totalPatients and rContact->nCnt > 0)
+	set rContact->nCnt = 0
+	set stat = initrec(rContact)
+	set stat = alterlist(rContact->data,stepValue)
+
+	; A person relationship file
+	select into "nl:"
+	from
+	    person_person_reltn p
+	plan p
+		where p.person_id > lastId
+		and PARSER(PARSER_SELECT)
+		and p.active_ind = 1
+        and PARSER(replace(PARSER_LOGICAL_DOMAIN_QUERY,"TABLE_ALIAS","p"))
+	order by p.person_id
+	detail
+		rContact->nCnt = rContact->nCnt+1
+		rContact->data[rContact->nCnt].person_id = p.person_id
+		rContact->data[rContact->nCnt].person_person_reltn_id = p.person_person_reltn_id
+		rContact->data[rContact->nCnt].person_reltn_cd = p.person_reltn_cd
+		rContact->data[rContact->nCnt].person_reltn_type_cd = p.person_reltn_type_cd
+		rContact->data[rContact->nCnt].related_person_reltn_cd = p.related_person_reltn_cd
+		rContact->data[rContact->nCnt].related_person_id = p.related_person_id
+		rContact->data[rContact->nCnt].active_ind = p.active_ind
+		rContact->data[rContact->nCnt].active_status_cd = p.active_status_cd
+	foot report
+		lastId = p.person_id
+	with nocounter, maxrec = value(stepValue)
+
+
+ 	; get the ssn.  Other mrns will be output into a different file.
+	select into "nl:"
+	from	person p
+	plan p
+		where expand(xXx,1,rContact->nCnt,p.person_id,rContact->data[xXx].related_person_id)
+	detail
+		loc = locateval(lLl,1,rContact->nCnt,p.person_id,rContact->data[lLl].related_person_id)
+		rContact->data[loc].name_last = p.name_last
+		rContact->data[loc].name_first = p.name_first
+		rContact->data[loc].name_middle = p.name_middle
+		rContact->data[loc].name_full_formatted = p.name_full_formatted
+
+		rContact->data[loc].birth_dt_tm = p.birth_dt_tm
+		rContact->data[loc].deceased_dt_tm = p.deceased_dt_tm
+		rContact->data[loc].sex_cd = p.sex_cd
+ 		rContact->data[loc].person_type_cd = p.person_type_cd
+ 	with nocounter,expand=1
+
+
+ 	;selecting home and business addresses for person records.
+	select into "NL:"
+	from	address a
+	plan a
+		where expand(xXx,1,rContact->nCnt,a.parent_entity_id,rContact->data[xXx].related_person_id)
+		and a.parent_entity_name = "PERSON"
+		and a.address_type_cd in (cvAddressHome,cvAddressWork)
+		and a.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rContact->nCnt,a.parent_entity_id,rContact->data[lLl].related_person_id)
+		if (a.address_type_cd = cvAddressHome)
+			rContact->data[loc].home_addr1 = a.street_addr
+			rContact->data[loc].home_addr2 = a.street_addr2
+			;if the codified value is not stored then use the free text
+			if (a.city_cd = 0)
+				rContact->data[loc].home_city = a.city
+			else
+				rContact->data[loc].home_city = uar_get_code_display(a.city_cd)
+			endif
+			if (a.state_cd = 0)
+				rContact->data[loc].home_state = a.state
+			else
+				rContact->data[loc].home_state = uar_get_code_display(a.state_cd)
+			endif
+			if (a.country_cd = 0)
+				rContact->data[loc].home_country = a.country
+			else
+				rContact->data[loc].home_country = uar_get_code_display(a.country_cd)
+			endif
+			rContact->data[loc].home_zip = a.zipcode
+		else
+			rContact->data[loc].work_addr1 = a.street_addr
+			rContact->data[loc].work_addr2 = a.street_addr2
+			if (a.city_cd = 0)
+				rContact->data[loc].work_city = a.city
+			else
+				rContact->data[loc].work_city = uar_get_code_display(a.city_cd)
+			endif
+			if (a.state_cd = 0)
+				rContact->data[loc].work_state = a.state
+			else
+				rContact->data[loc].work_state = uar_get_code_display(a.state_cd)
+			endif
+			if (a.country_cd = 0)
+				rContact->data[loc].work_country = a.country
+			else
+				rContact->data[loc].work_country = uar_get_code_display(a.country_cd)
+			endif
+			rContact->data[loc].work_zip = a.zipcode
+		endif
+	with nocounter,expand=1
+
+ 	; adding home, work and mobile phone.  similar to address many types of parent_entities
+	select into "nl:"
+	from	phone p
+	plan p
+		where expand(xXx,1,rContact->nCnt,p.parent_entity_id,rContact->data[xXx].related_person_id)
+		and p.parent_entity_name = "PERSON"
+		and p.phone_type_cd in (cvPhoneWork,cvPhoneHome,cvPhoneMobile)
+		and p.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rContact->nCnt,p.parent_entity_id,rContact->data[lLl].related_person_id)
+		if (p.phone_type_cd = cvPhoneWork)
+			rContact->data[loc].phone_work = p.phone_num
+		elseif (p.phone_type_cd = cvPhoneHome)
+			rContact->data[loc].phone_home = p.phone_num
+		else
+			rContact->data[loc].phone_mobile = p.phone_num
+		endif
+	with nocounter,expand=1
+
+ 	; get the ssn.  Other mrns will be output into a different file.
+	select into "nl:"
+	from	person_alias p
+	plan p
+		where expand(xXx,1,rContact->nCnt,p.person_id,rContact->data[xXx].related_person_id)
+		and p.person_alias_type_cd = cvAliasSSN
+		and p.active_ind = 1
+	detail
+		loc = locateval(lLl,1,rContact->nCnt,p.person_id,rContact->data[lLl].related_person_id)
+		rContact->data[loc].ssn = p.alias
+	with nocounter,expand=1
+
+
+	select into "nl:"
+	from	person_org_reltn p
+			,organization o
+	plan p
+		where expand(xXx,1,rContact->nCnt,p.person_id,rContact->data[xXx].related_person_id)
+		and p.person_org_reltn_cd = cvOrgReltnEmployer
+		and p.active_ind = 1
+	join o
+		where o.organization_id = p.organization_id
+	detail
+		loc = locateval(lLl,1,rContact->nCnt,p.person_id,rContact->data[lLl].related_person_id)
+		rContact->data[loc].employer = o.org_name
+	with nocounter,expand=1
+
+
+	select if(contactRecordCount=0)
+		with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1)
+	else
+		with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1),append,noheading
+	endif
+	into value(cPersonReltnFile)
+		person_id = FORMAT(rContact->data[d.seq].person_id,";T(1);")
+		,person_person_reltn_id = FORMAT(rContact->data[d.seq].person_person_reltn_id,";T(1);")
+		,person_reltn_cd = replace(uar_get_code_display(rContact->data[d.seq].person_reltn_cd),'"','""')
+		,person_reltn_type_cd = replace(uar_get_code_display(rContact->data[d.seq].person_reltn_type_cd),'"','""')
+		,related_person_reltn_cd = replace(uar_get_code_display(rContact->data[d.seq].related_person_reltn_cd),'"','""')
+		,related_person_id = FORMAT(rContact->data[d.seq].related_person_id,";T(1);")
+		,active_ind = rContact->data[d.seq].active_ind
+		,active_status_cd = replace(uar_get_code_display(rContact->data[d.seq].active_status_cd),'"','""')
+
+		,name_last = replace(rContact->data[d.seq].name_last,'"','""')
+		,name_first = replace(rContact->data[d.seq].name_first,'"','""')
+		,name_middle = replace(rContact->data[d.seq].name_middle,'"','""')
+		,name_full_formatted = replace(rContact->data[d.seq].name_full_formatted,'"','""')
+
+		,birth_dt_tm = format(rContact->data[d.seq].birth_dt_tm,"yyyy-MM-dd;;d")
+		,deceased_dt_tm = format(rContact->data[d.seq].deceased_dt_tm,"yyyy-MM-dd;;d")
+		,sex = replace(uar_get_code_display(rContact->data[d.seq].sex_cd),'"','""')
+		,person_type = replace(uar_get_code_display(rContact->data[d.seq].person_type_cd),'"','""')
+
+		,home_addr1 = replace(rContact->data[d.seq].home_addr1,'"','""')
+		,home_addr2 = replace(rContact->data[d.seq].home_addr2,'"','""')
+		,home_city = replace(rContact->data[d.seq].home_city,'"','""')
+		,home_state = replace(rContact->data[d.seq].home_state,'"','""')
+		,home_country = replace(rContact->data[d.seq].home_country,'"','""')
+		,home_zip = replace(rContact->data[d.seq].home_zip,'"','""')
+
+		,work_addr1 = replace(rContact->data[d.seq].work_addr1,'"','""')
+		,work_addr2 = replace(rContact->data[d.seq].work_addr2,'"','""')
+		,work_city = replace(rContact->data[d.seq].work_city,'"','""')
+		,work_state = replace(rContact->data[d.seq].work_state,'"','""')
+		,work_country = replace(rContact->data[d.seq].work_country,'"','""')
+		,work_zip = replace(rContact->data[d.seq].work_zip,'"','""')
+
+		,phone_work = replace(rContact->data[d.seq].phone_work,'"','""')
+		,phone_home = replace(rContact->data[d.seq].phone_home,'"','""')
+		,phone_mobile = replace(rContact->data[d.seq].phone_mobile,'"','""')
+
+		,ssn = replace(rContact->data[d.seq].ssn,'"','""')
+		,employer = replace(rContact->data[d.seq].employer,'"','""')
+ 	from	(dummyt d with seq = value(rContact->nCnt))
+ 	plan d
+
+	set contactRecordCount = contactRecordCount + rContact->nCnt
+endwhile
+
+
+; A person relationship file
+select into value(cPersonPrsnlReltnFile)
+	person_id = FORMAT(p.person_id,";T(1);")
+	,person_prsnl_reltn_id = FORMAT(p.person_prsnl_reltn_id,";T(1);")
+	,person_prsnl_r_cd = replace(uar_get_code_display(p.person_prsnl_r_cd),'"','""')
+	,prsnl_person_id = FORMAT(p.prsnl_person_id,";T(1);")
+	,active_ind = p.active_ind
+	,active_status_cd = replace(uar_get_code_display(p.active_status_cd),'"','""')
+from
+    person_prsnl_reltn p
+plan p
+	where parser(PARSER_SELECT)
+	and p.prsnl_person_id != 0
+	and p.active_ind = 1
+	and p.person_id > firstPatient
+    and PARSER(replace(PARSER_LOGICAL_DOMAIN_QUERY,"TABLE_ALIAS","p"))
+order by p.person_id
+with nocounter,format,FORMAT = stream, PCFORMAT(^"^, ^,^,1)
+
+#END_PROGRAM
+CALL EMAIL_END("PERSON",personRecordCount,emailLastId)
+call output_report(pOutDev)
+
+END
+GO
