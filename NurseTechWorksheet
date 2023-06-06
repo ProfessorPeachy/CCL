@@ -1,0 +1,930 @@
+/***************************************************************************************************************************
+Program Name:		1_AMJ_TN_NURSETECH_WORKSHEET
+Source Code File:	1_AMJ_TN_NURSETECH_WORKSHEET
+Original Author:	AMELIA SHELTON
+ 
+ 
+Comments:
+ 
+This report is the Nurse Tech Worksheet.
+ 
+****************************************************************************************************************************
+												*MODIFICATION HISTORY*
+****************************************************************************************************************************
+*
+	*Mod	Date			Programmer				Ticket#		Comment
+	*---	------------	------------------		-------		------------------------------------------------------------
+
+***************************************************************************************************************************/
+ 
+DROP PROGRAM 1_AMJ_TN_NURSETECH_WORKSHEET go
+CREATE PROGRAM 1_AMJ_TN_NURSETECH_WORKSHEET
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "FACILITY" = 21250403.00
+	, "ROOM NUMBER" = 0
+ 
+with OUTDEV, FAC, LOC_CD
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare NUTRITIONSERVICES_VAR = f8 with Constant(uar_get_code_by("MEANING",6000,"DIETARY")),protect
+declare DIETARYSUPPLEMENTS_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"DIETARYSUPPLEMENTS")),protect
+declare ACTIVITY_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"ACTIVITY")),protect
+declare CHLORHEXIDINEBATH_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"CHLORHEXIDINEBATH")),protect
+declare SCDS_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"SCDS")),protect
+declare INCENTIVESPIROMETRYNURSING_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"INCENTIVESPIROMETRYNURSING")),protect
+declare DAILYWEIGHT_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"DAILYWEIGHT")),protect
+declare INPROCESS_VAR = f8 with Constant(uar_get_code_by("MEANING",6004,"INPROCESS")),protect
+declare ORDERED_VAR = f8 with Constant(uar_get_code_by("MEANING",6004,"ORDERED")),protect
+declare GLUCOSEMONITORING_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"GLUCOSEMONITORING")),protect
+declare RESUSCITATIONSTATUS_VAR = f8 with Constant(uar_get_code_by("DISPLAYKEY",200,"RESUSCITATIONSTATUS")),protect
+declare PRIMARYCAREPHYSICIAN_VAR = f8 with Constant(uar_get_code_by("MEANING",331,"PCP")),protect
+declare OUTPATIENTINABED_VAR = f8 with Constant(uar_get_code_by("MEANING",71,"OUTPATIENT")),protect
+declare OBSERVATION_VAR = f8 with Constant(uar_get_code_by("MEANING",71,"OBSERVATION")),protect
+declare INPATIENT_VAR = f8 with Constant(uar_get_code_by("MEANING",71,"INPATIENT")),protect
+declare ACTIVE_VAR = f8 with Constant(uar_get_code_by("MEANING",261,"ACTIVE")),protect
+ 
+/**********************************************************************************
+		VARIABLE INITIALIZATION
+**********************************************************************************/
+declare num = i2
+declare cnt = i2
+declare fin_cd = f8
+declare BRADENSCORE_VAR = f8
+declare BRADENQSCORE_VAR = f8
+declare URINARYELIMINATION_VAR = f8
+declare MORSEFALLSCORE_VAR = f8
+declare HUMPTYDUMPTYSCORE_VAR = f8
+declare SENSORYPERCEPTIONBRADEN_VAR = f8
+declare NUTRITIONBRADEN_VAR = f8
+declare MOISTUREBRADEN_VAR = f8
+declare ACTIVITYBRADEN_VAR = f8
+declare FRICTIONANDSHEARBRADEN_VAR = f8
+declare BATHINGADLINDEX_VAR = f8
+declare OXYGENTHERAPY_VAR = f8
+declare LEVELOFCONSCIOUSNESS_VAR = f8
+declare STRICTINTAKEANDOUTPUT_VAR = f8
+declare BEDMOBILITYASSISTANCE_VAR = f8
+ 
+set fin_cd = uar_get_code_by("DISPLAY",263,"FIN")
+set BRADENSCORE_VAR = uar_get_code_by("DISPLAYKEY",72,"BRADENSCORE")
+set BRADENQSCORE_VAR = uar_get_code_by("DISPLAYKEY",72,"BRADENQSCORE")
+set URINARYELIMINATION_VAR = uar_get_code_by("DISPLAYKEY",72,"URINARYELIMINATION")
+set MORSEFALLSCORE_VAR = uar_get_code_by("DISPLAYKEY",72,"MORSEFALLSCORE")
+set HUMPTYDUMPTYSCORE_VAR = uar_get_code_by("DISPLAYKEY",72,"HUMPTYDUMPTYSCORE")
+set SENSORYPERCEPTIONBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"SENSORYPERCEPTIONBRADEN")
+set NUTRITIONBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"NUTRITIONBRADEN")
+set MOISTUREBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"MOISTUREBRADEN")
+set ACTIVITYBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"ACTIVITYBRADEN")
+set MOBILITYBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"MOBILITYBRADEN")
+set FRICTIONANDSHEARBRADEN_VAR = uar_get_code_by("DISPLAYKEY",72,"FRICTIONANDSHEARBRADEN")
+set BATHINGADLINDEX_VAR = uar_get_code_by("DISPLAYKEY",72,"BATHINGADLINDEX")
+set OXYGENTHERAPY_VAR = uar_get_code_by("DISPLAYKEY",72,"OXYGENTHERAPY")
+set LEVELOFCONSCIOUSNESS_VAR = uar_get_code_by("DISPLAYKEY",72,"LEVELOFCONSCIOUSNESS")
+set STRICTINTAKEANDOUTPUT_VAR = uar_get_code_by("DISPLAYKEY",200,"STRICTINTAKEANDOUTPUT")
+set BEDMOBILITYASSISTANCE_VAR = uar_get_code_by("DISPLAYKEY",72,"BEDMOBILITYASSISTANCE")
+set FALLRISKWARRANTED_VAR = uar_get_code_by("DISPLAYKEY",72,"HIGHFALLRISKWARRANTED");001
+/**********************************************************************************
+;		RECORD STRUCTURES
+**********************************************************************************/
+free record nur
+record nur
+	(1 cnt = i4
+	1 qual[*]
+		2 eid = f8
+ 		2 pid = f8
+ 		2 facility = vc
+ 		2 patient_name = vc
+ 		2 finnbr = vc
+ 		2 nurse_unit = vc
+    	2 room = vc
+    	2 bed = vc
+    	2 dob = vc
+    	2 pcp = vc
+    	2 visit_reason = vc
+    	2 res_status = vc
+    	2 glucose_mon = vc
+    	2 daily_wt = vc
+    	2 spirometry = vc
+    	2 scds = vc
+    	2 activity = vc
+    	2 diet = vc
+    	2 diet_supp = vc
+    	2 skin_risk = vc
+    	2 void_method = vc
+    	2 fall_risk = vc
+    	2 braden_sensory = vc
+    	2 braden_nutrition = vc
+    	2 braden_moisture = vc
+    	2 braden_activity = vc
+    	2 braden_mobility = vc
+    	2 braden_friction = vc
+    	2 bath_assist = vc
+    	2 oxygen = vc
+    	2 loc = vc
+/*start mod003*/
+    	2 chlor_bath = vc
+    	2 cardiac_rhythm = vc
+/*end mod003*/
+    	2 strict_intake_output = vc
+    	2 bed_mobility = vc
+    	2 fallrisk_warranted = vc
+ 
+)
+ 
+ 
+ 
+/*********************************************************************************
+;		Inpatinet, Obs & Outpatient in a Bed Patients
+*********************************************************************************/
+;patient information
+SELECT INTO "nl:"
+	patient_name = p.name_full_formatted
+	, facility = uar_get_code_display(e.loc_facility_cd)
+	, nurse_unit = UAR_GET_CODE_DISPLAY(E.LOC_NURSE_UNIT_CD)
+	, room = UAR_GET_CODE_DISPLAY(E.LOC_ROOM_CD)
+	, dob = p.birth_dt_tm
+	, finnbr = ea.alias
+	, bed = UAR_GET_CODE_DISPLAY(E.LOC_BED_CD)
+	, visit_reason = e.REASON_FOR_VISIT
+ 
+FROM
+	encounter   e
+	, encntr_alias   ea
+	, person   p
+ 
+plan e
+ 
+where e.ENCNTR_STATUS_CD =  ACTIVE_VAR
+and e.ENCNTR_TYPE_CD in (OUTPATIENTINABED_VAR,OBSERVATION_VAR,INPATIENT_VAR)  ;(309308.00, 309312.00, 19962820.00)
+and e.loc_facility_cd = $FAC
+;and E.LOC_NURSE_UNIT_CD in ($NUR_UNIT)
+and E.LOC_ROOM_CD in ($LOC_CD)
+ 
+Join p where p.person_id = e.person_id
+ 
+Join ea where ea.encntr_id = e.encntr_id
+ 
+ORDER BY
+	e.encntr_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(nur->qual,100)
+ 
+head e.encntr_id
+ cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(nur->qual,cnt+99)
+    endif
+ 
+ 
+    nur->qual[cnt].eid = e.encntr_id
+    nur->qual[cnt].pid = p.person_id
+    nur->qual[cnt].dob = format(p.birth_dt_tm,"MM/DD/YYYY;;d")
+    nur->qual[cnt].patient_name = p.name_full_formatted
+    nur->qual[cnt].facility = facility
+    nur->qual[cnt].finnbr = finnbr
+    nur->qual[cnt].nurse_unit = nurse_unit
+    nur->qual[cnt].room = room
+    nur->qual[cnt].bed = bed
+ 
+    nur->qual[cnt].visit_reason = visit_reason
+ 
+ 
+ Detail
+ 
+if(ea.encntr_alias_type_cd = 1077.0)
+  nur->qual[cnt].finnbr = ea.alias
+endif
+ 
+ 
+ 
+foot report
+	if(cnt>0)
+		stat = alterlist(nur->qual,cnt)
+		nur->cnt = cnt
+	endif
+ 
+WITH nocounter,time=3600
+ 
+;PCP
+SELECT INTO "nl:"
+	pcp = trim(pcp.name_full_formatted)
+ 
+FROM
+	encounter   e
+	, person   p2
+	, person_prsnl_reltn   ppr
+	, prsnl   pcp
+ 
+Plan E
+where expand(num,1,size(nur->qual,5),e.encntr_id,nur->qual[num].eid)
+Join p2 where p2.person_id = e.person_id
+ 
+JOIN PPR WHERE PPR.PERSON_ID = P2.PERSON_ID
+AND PPR.PERSON_PRSNL_R_CD = PRIMARYCAREPHYSICIAN_VAR ;PCP RELATIONSHIP
+AND ppr.end_effective_dt_tm >= cnvtdate(12312100)
+ 
+JOIN PCP WHERE PCP.PERSON_ID = PPR.PRSNL_PERSON_ID
+AND PCP.ACTIVE_IND = 1
+AND PCP.PHYSICIAN_IND = 1
+ 
+ORDER BY
+	e.encntr_id
+ 
+head e.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),e.encntr_id,nur->qual[num].eid)
+detail
+ 
+ nur->qual[pos].pcp = pcp
+ 
+WITH nocounter,time=3600
+ 
+ 
+;Resusciation Status
+SELECT INTO "nl:"
+	res_status = OD.OE_FIELD_DISPLAY_VALUE
+ 
+ 
+FROM
+	ORDERS   O
+	, ORDER_DETAIL   OD
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   =  RESUSCITATIONSTATUS_VAR ;2958523.00
+ 
+ 
+Join OD WHERE OD.ORDER_ID = O.ORDER_ID
+and OD.OE_FIELD_MEANING = "RESUSCITATIONSTATUS"
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+ 
+;detail - Mod002 dkh
+ 
+ nur->qual[pos].res_status = res_status
+ 
+WITH nocounter,time=3600
+ 
+;Glucose Monitoring Order
+SELECT INTO "nl:"
+	glucose_mon = OD.OE_FIELD_DISPLAY_VALUE
+ 
+FROM
+	ORDERS   O
+	, ORDER_DETAIL   OD
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   = GLUCOSEMONITORING_VAR ;29311237.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+Join OD WHERE OD.ORDER_ID = O.ORDER_ID
+and OD.OE_FIELD_MEANING = "FREQ"
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].glucose_mon = glucose_mon
+ 
+WITH nocounter,time=3600
+ 
+;Daily Weight Order
+SELECT INTO "nl:"
+	daily_wt = "ORDERED"
+ 
+FROM
+	ORDERS   O
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   = DAILYWEIGHT_VAR ;  2696754.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].daily_wt = daily_wt
+ 
+WITH nocounter,time=3600
+ 
+; Strict Intake and Output
+SELECT INTO "nl:"
+	strict_intake_output = "ORDERED"
+ 
+FROM
+	ORDERS   O
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   = STRICTINTAKEANDOUTPUT_VAR
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].strict_intake_output = strict_intake_output
+ 
+WITH nocounter,time=3600
+ 
+;Incentive Spirometry Nursing
+SELECT INTO "nl:"
+	spirometry =  "ORDERED"
+ 
+FROM
+	ORDERS   O
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   =   INCENTIVESPIROMETRYNURSING_VAR ; 3390828.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].spirometry = spirometry
+ 
+WITH nocounter,time=3600
+ 
+;SCDs Order
+SELECT INTO "nl:"
+	scds  =  "ORDERED"
+ 
+FROM
+	ORDERS   O
+ 
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   =   SCDS_VAR ; 2780904593.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].scds = scds
+ 
+WITH nocounter,time=3600
+
+/*start mod003*/ 
+;Chlorhexidine Bath
+;SELECT INTO "nl:"
+;	chlor_bath  =  "ORDERED"
+; 
+;FROM
+;	ORDERS   O
+; 
+; 
+;Plan O
+;where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+;and O.CATALOG_CD   =  CHLORHEXIDINEBATH_VAR ;  2556422047.00
+;and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+; 
+;ORDER BY
+;	o.encntr_id
+;	, o.orig_order_dt_tm   DESC
+; 
+;head o.encntr_id
+; 
+;	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+;detail
+; 
+;   nur->qual[pos].chlor_bath = chlor_bath
+; 
+;WITH nocounter,time=3600
+
+;Activity Order
+SELECT INTO "nl:"
+ 
+	activity =  OD.OE_FIELD_DISPLAY_VALUE
+ 
+FROM
+	 ORDERS   O
+	, ORDER_DETAIL   OD
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   = ACTIVITY_VAR ;2694594.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+Join OD WHERE OD.ORDER_ID = O.ORDER_ID
+and OD.OE_FIELD_MEANING = "OTHER"
+ 
+ 
+Order by o.encntr_id
+	,o.orig_order_dt_tm desc
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].activity = activity
+ 
+with nocounter,time=3600
+ 
+;Diet Order
+SELECT INTO "nl:"
+	diet = UAR_GET_CODE_DISPLAY(O.CATALOG_CD)
+ 
+FROM
+	ORDERS   O
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+;and O.CATALOG_CD   = 2694594.00
+and O.CATALOG_TYPE_CD =  NUTRITIONSERVICES_VAR ;  2511.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+ 
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].diet = diet
+ 
+WITH nocounter,time=3600
+ 
+;Dietary Supplements
+SELECT INTO "nl:"
+	diet_supp = od.oe_field_display_value;substring(24,80,O.CLINICAL_DISPLAY_LINE)
+ 
+FROM
+	ORDERS   O
+	,order_detail od
+ 
+Plan O
+where expand(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+and O.CATALOG_CD   =   DIETARYSUPPLEMENTS_VAR ;2696700.00
+and o.order_status_cd in (INPROCESS_VAR, ORDERED_VAR);( 2548.00, 2550.00)
+join od
+where od.order_id = o.order_id
+and od.oe_field_meaning = "DIETARYSUPP"
+ORDER BY
+	o.encntr_id
+	, o.orig_order_dt_tm   DESC
+ 
+head o.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),o.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].diet_supp = diet_supp
+ 
+WITH nocounter,time=3600
+ 
+;skin risk
+SELECT INTO "nl:"
+	skin_risk = c.result_val
+ 
+FROM
+	clinical_event   c
+ 
+plan c
+ 	 where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+      and c.event_cd = BRADENSCORE_VAR ; 703333.0
+     ; or  c.event_cd =  BRADENQSCORE_VAR ; 3610892.00
+      and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, c.verified_dt_tm
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].skin_risk = skin_risk
+ 
+WITH nocounter,time=3600
+ 
+;Voiding Method
+SELECT INTO "nl:"
+	void_method =  C.RESULT_VAL
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = URINARYELIMINATION_VAR ;  708748.00
+  and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	,c.verified_dt_tm
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].void_method = void_method
+ 
+WITH nocounter,time=3600
+ 
+;Bed Mobility Assistance
+SELECT INTO "nl:"
+	bed_mobility = C.RESULT_VAL
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = BEDMOBILITYASSISTANCE_VAR
+  and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, c.verified_dt_tm
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].bed_mobility = bed_mobility
+ 
+WITH nocounter,time=3600
+ 
+;fall_risk
+SELECT INTO "nl:"
+	fall_risk = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = MORSEFALLSCORE_VAR ;3612336.00
+or  C.EVENT_CD =  HUMPTYDUMPTYSCORE_VAR ;21984473.00
+   and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].fall_risk = fall_risk
+ 
+WITH nocounter,time=3600
+ 
+;sensory perception braden
+SELECT INTO "nl:"
+	braden_sensory = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = SENSORYPERCEPTIONBRADEN_VAR ; 703315
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_sensory = braden_sensory
+ 
+WITH nocounter,time=3600
+ 
+;nutrition braden
+SELECT INTO "nl:"
+	braden_nutrition = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = NUTRITIONBRADEN_VAR ;703327
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_nutrition = braden_nutrition
+ 
+WITH nocounter,time=3600
+ 
+;moisture braden
+SELECT INTO "nl:"
+	braden_moisture = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = MOISTUREBRADEN_VAR ;703318
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_moisture = braden_moisture
+ 
+WITH nocounter,time=3600
+ 
+;activity braden
+SELECT INTO "nl:"
+	braden_activity = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = ACTIVITYBRADEN_VAR  ;703321
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_activity = braden_activity
+ 
+WITH nocounter,time=3600
+ 
+;mobility braden
+SELECT INTO "nl:"
+	braden_mobility = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = MOBILITYBRADEN_VAR ;703324
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_mobility = braden_mobility
+ 
+WITH nocounter,time=3600
+ 
+;friction braden
+SELECT INTO "nl:"
+	braden_friction = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = FRICTIONANDSHEARBRADEN_VAR ;703330
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].braden_friction = braden_friction
+ 
+WITH nocounter,time=3600
+ 
+;bath assist
+SELECT INTO "nl:"
+	bath_assist = C.RESULT_VAL
+ 
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = BATHINGADLINDEX_VAR ;4250793
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+	, C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].bath_assist = bath_assist
+ 
+WITH nocounter,time=3600
+ 
+;oxygen therapy
+SELECT INTO "nl:"
+	oxygen = C.RESULT_VAL
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = OXYGENTHERAPY_VAR  ;703960
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+    , C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].oxygen = oxygen
+ 
+WITH nocounter,time=3600
+ 
+ 
+;LOC
+SELECT INTO "nl:"
+	loc = C.RESULT_VAL
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = 703827 ;LEVELOFCONSCIOUSNESS_VAR
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+    , C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].loc = loc
+ 
+WITH nocounter,time=3600
+/*start 001
+fall Risk Warranted
+*/
+SELECT INTO "nl:"
+	loc = C.RESULT_VAL
+ 
+FROM
+	CLINICAL_EVENT   C
+ 
+Plan C
+where expand(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+and C.EVENT_CD = 3505748217.0;FALLRISK_WARRANTED ;LEVELOFCONSCIOUSNESS_VAR
+ and c.event_end_dt_tm >= cnvtdatetime(curdate-2,000000)
+      and c.event_end_dt_tm <= cnvtdatetime(curdate,235959)
+      and c.view_level = 1
+      and c.valid_until_dt_tm >= cnvtdate(12302100)
+ 
+ORDER BY
+	c.encntr_id
+    , C.VERIFIED_DT_TM
+ 
+head c.encntr_id
+ 
+	pos = locateval(num,1,size(nur->qual,5),c.encntr_id,nur->qual[num].eid)
+detail
+ 
+   nur->qual[pos].fallrisk_warranted = C.result_val
+ 
+WITH nocounter,time=3600
+call echorecord(nur)
+ 
+execute 1_maur_tn_nurse_ws_layout $outdev
+ 
+ 
+end
+go
