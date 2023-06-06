@@ -1,0 +1,685 @@
+drop program 1_amj_luma_referrals go
+create program 1_amj_luma_referrals
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Referral Start Date:" = "CURDATE"
+	, "Referral End Date" = "CURDATE"
+	, "Location:" = VALUE(0.0           ) 
+
+with OUTDEV, START_DATE, END_DATE, LOCATION
+ 
+ 
+
+call echo(1)
+CALL ECHO(BUILD2("PROMPT START_DATE: "	, $START_DATE))
+call echo(22)
+CALL ECHO(BUILD2("PROMPT END_DATE: "	, $END_DATE))
+ 
+declare num 	= i4
+declare rcnt 	= i4
+declare line0 	= vc
+declare line1 	= c300
+declare opr_var = vc
+call echo(333)
+set rundate = format(curdate,'yyyymmdd;;d')
+
+;declare lcheck = vc
+;
+;set lcheck = substring(1,1,reflect(parameter(5,0)))
+;
+;call echo(build2("lcheck", lcheck))
+; 
+call echo(44444)
+
+
+;get the prompt values for loaction to use with operator
+set lcheck = substring(1,1,reflect(parameter(parameter2($LOCATION),0)))
+call echo(build2("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! begin location lcheck: ", lcheck))
+
+if(lcheck = "L")
+    set opr_var = "IN"
+else
+	if($LOCATION = 0.0)
+		set opr_var = "!="
+	else
+		set opr_var = "="
+	endif
+endif
+
+call echo(build2("opr_var ----> ",opr_var))
+
+
+;set luma_filename =
+;    build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/luma/",rundate,"_luma_referrals"),".csv")
+; 
+;call echo(filedate_begin)
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+declare mrn_cd				= f8 with constant(uar_get_code_by("MEANING",4,"MRN"));2.0
+declare ref_phys_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",333,"REFERRINGPHYSICIAN")),protect
+declare home_address_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'HOME'))
+declare email_address_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'EMAIL'))
+declare mobile_phone_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'MOBILE'))
+declare home_phone_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'HOME'))
+declare business_phone_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'BUSINESS'))
+declare npi_type_cd			= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'NATIONALPROVIDERIDENTIFIER'))
+declare quote 				= vc with public, noconstant('"')
+
+ 
+declare ecnt 				= i4
+declare tempAddress 		= c100
+declare tempPhone 			= vc
+
+;DECLARE FIN_CD		= F8 WITH CONSTANT(UAR_GET_CODE_BY("MEANING",319,"FIN NBR"));1077.0
+ 
+ 
+
+ 
+free record file_rec
+record file_rec
+(
+	1 cnt			= i4
+	1 files[*]
+		2 filename	= vc
+		2 message	= vc
+		2 status	= i2
+)
+ 
+ 
+ 
+free record encntr_rec
+record encntr_rec
+(
+	1 cnt							= i4
+	1 begindate						= vc
+	1 enddate						= vc
+	1 begindateDQ8					= dq8
+	1 enddateDQ8					= dq8
+	1 encounters[*]
+		2 ecnt						= i4
+		2 mrn						= c20
+		2 fin						= vc
+		2 personid					= f8
+		2 encntrid					= f8
+		2 fname						= c100 	;02_patient name		;(last,first m)
+		2 lname						= c100 	;02_patient name		;(last,first m)
+		2 dob						= c10 	;04_patient dob		;(mm/dd/ccyy
+		2 address					= c200 	;07_patient address
+		2 city						= c100 	;09_patient city
+		2 state						= c100 	;10_patient state	;(post office standard)
+		2 zip						= c20 	;11_patient zip code	;(xxxxx-xxxx)
+		2 country					= c100 	;11_patient country code	;(xxxxx-xxxx)
+		2 home_phone				= c20 	;12_patient home phone	;(xxx-xxx-xxxx)
+		2 mobile_phone				= c20 	;12_patient mobile phone	;(xxx-xxx-xxxx)
+		2 email						= c100
+		2 language					= c100
+		2 facility					= c100
+		2 referring_provider		= c200
+		2 has_insurance				= i2
+ 
+)
+
+
+
+
+free record rec
+record rec
+(
+	1 cnt							= i4
+	1 begindate						= vc
+	1 enddate						= vc
+	1 begindateDQ8					= dq8
+	1 enddateDQ8					= dq8
+	1 referrals[*]
+		2 id						= f8
+		2 order_id					= f8
+		2 rcnt						= i4
+		2 mrn						= c20
+		2 fin						= vc
+		2 personid					= f8
+		2 encntrid					= f8
+		2 fname						= c100 	;02_patient name		;(last,first m)
+		2 lname						= c100 	;02_patient name		;(last,first m)
+		2 dob						= c10 	;04_patient dob		;(mm/dd/ccyy
+		2 address					= c200 	;07_patient address
+		2 city						= c100 	;09_patient city
+		2 state						= c100 	;10_patient state	;(post office standard)
+		2 zip						= c20 	;11_patient zip code	;(xxxxx-xxxx)
+		2 country					= c100 	;11_patient country code	;(xxxxx-xxxx)
+		2 home_phone				= c20 	;12_patient home phone	;(xxx-xxx-xxxx)
+		2 mobile_phone				= c20 	;12_patient mobile phone	;(xxx-xxx-xxxx)
+		2 email						= c100
+		2 language					= c100
+		2 facility					= c100
+		2 referral_order_id			= f8
+		2 referral_from_prov_name	= vc
+		2 referral_from_prov_id		= f8
+		2 referral_from_prov_npi	= vc
+		2 referral_from_loc_id		= f8		
+		2 referral_from_loc_name	= vc
+		2 referral_from_org_id		= f8
+		2 referral_from_org_name	= vc
+		2 referral_from_loc_phone	= vc
+		
+		2 referral_to_prov_name		= vc
+		2 referral_to_prov_id		= f8
+		2 referral_to_prov_npi		= vc
+		2 referral_to_org_id		= f8		
+		;2 referral_to_loc_name		= c200
+		2 referral_to_org_name		= vc		
+		2 referral_to_loc_phone		= vc 
+		2 referral_to_site_id		= f8
+		2 referral_to_site			= vc
+		2 referral_to_organization_id = f8
+		2 referral_to_organization	= vc
+)
+
+
+;declare date_parser_str = vc with noconstant(" ")
+;declare loc_parser_str = vc with noconstant(" ")
+;
+
+;declare ops_variable = vc
+;declare bdate = vc
+;declare eDate = vc
+
+
+
+
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+/*************************************************************************
+*      CHECK TO SEE IF RUNNING FROM OPERATIONS      *
+*************************************************************************/
+
+
+;
+;call echo(bdate)
+;call echo(eDate)
+
+
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+
+select into $outdev
+r.refer_from_loc_cd
+,uar_get_code_display(r.refer_from_loc_cd)
+,oprvar = opr_var
+,loc = $location
+,PS.organization_id
+,PS.primary_entity_name
+,R.refer_to_organization_id
+,R.refer_to_practice_site_id
+,R.refer_to_provider_id
+,PS.practice_site_display
+,r.*, pr.name_full_formatted
+from 
+	referral 	r
+	,person 	p
+	,prsnl 		pr 	;referral from provider
+	,DUMMYT		D1
+,PRACTICE_SITE PS
+;	,prsnl 		pr2	;referral to provider
+plan r
+	where r.create_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	or r.updt_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	or r.referral_received_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	or r.requested_start_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+;	where parser(date_parser_str)
+	and operator(r.refer_from_loc_cd,opr_var,$LOCATION)
+	and r.active_ind = 1
+join p
+	where p.person_id = r.person_id
+join pr
+	where pr.person_id = r.refer_from_provider_id
+JOIN D1
+JOIN PS
+	WHERE PS.practice_site_id = R.refer_to_practice_site_id	
+order by r.person_id, r.referral_id, pr.name_full_formatted
+
+head report
+    rcnt = 0
+    stat = alterlist(rec->referrals, 100)
+head r.referral_id
+	rcnt += 1
+	rec->cnt = rcnt
+ 
+    if(mod(rec->cnt,99) = 1 and rec->cnt != 1)
+      stat = alterlist(rec->referrals , rcnt + 99)
+      ;call echo(build2("new size" , size(encntr_rec->encounters),5))
+    endif
+    
+    rec->referrals[rcnt].personid 						= p.person_id
+    rec->referrals[rcnt].fname 							= p.name_first
+    rec->referrals[rcnt].lname 							= p.name_last
+    rec->referrals[rcnt].dob 							= format(p.birth_dt_tm, "mm/dd/yyyy")
+ 	rec->referrals[rcnt].language						= uar_get_code_display(p.language_cd)
+ 															
+ 	rec->referrals[rcnt].id 							= r.referral_id
+ 	rec->referrals[rcnt].order_id 						= r.order_id
+ 	rec->referrals[rcnt].referral_order_id				= r.order_id
+ 	rec->referrals[rcnt].personid 						= r.person_id
+ 	rec->referrals[rcnt].referral_from_prov_id			= r.refer_from_provider_id
+ 	rec->referrals[rcnt].referral_from_loc_id			= r.refer_from_loc_cd
+ 	rec->referrals[rcnt].referral_from_loc_name			= uar_get_code_Display(r.refer_from_loc_cd)
+ 	rec->referrals[rcnt].referral_from_org_id			= r.refer_from_organization_id
+; 	 	
+ 	rec->referrals[rcnt].referral_to_prov_id			= r.refer_to_provider_id
+	rec->referrals[rcnt].referral_to_org_id				= r.refer_to_organization_id
+ 	rec->referrals[rcnt].referral_to_org_name			= uar_get_code_Display(r.refer_to_organization_id) 	
+ 	rec->referrals[rcnt].referral_to_site_id			= r.refer_to_practice_site_id
+ 	rec->referrals[rcnt].referral_to_site				= PS.practice_site_display
+ 	rec->referrals[rcnt].referral_to_organization_id	= ps.organization_id
+; 
+foot report
+	 stat = alterlist(rec->referrals, rcnt)
+	 
+with nocounter, format, separator = " ", time = 600, OUTERJOIN = D1, DONTCARE = D1, OUTERJOIN = PS, DONTCARE = PS
+
+
+
+ ;;encounter information
+SELECT INTO "nl:"
+e.person_id, e.encntr_id, ea.alias
+,ea.alias, referral_id = rec->referrals[d1.seq].id
+FROM 
+	encounter e
+	,organization o
+	,encntr_alias ea
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where d1.seq > 0	
+join e
+	where e.person_id = rec->referrals[d1.seq].personid
+	;expand(ipos,1,size(details->data,5),e.person_id,details->data[ipos].person_id)
+	and e.active_ind=1
+	and e.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+	and e.end_effective_dt_tm > cnvtdatetime(sysdate)
+join o
+	where o.organization_id=e.organization_id 
+	and o.organization_id =     rec->referrals[d1.seq].referral_from_org_id
+join ea
+	where ea.encntr_id=e.encntr_id
+	and ea.encntr_alias_type_cd= 1079
+	and ea.active_ind=1
+	and ea.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+	and ea.end_effective_dt_tm > cnvtdatetime(sysdate)
+order by e.person_id, e.encntr_id, ea.alias, referral_id
+;head person_id
+;	null
+head referral_id
+	rec->referrals[d1.seq].mrn = ea.alias
+with nocounter, format, separator = " "
+ 
+;;REFERRAL FROM ORGANIZATION NAME
+select into $outdev
+	o.org_name
+from
+	organization o
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where d1.seq > 0
+join o 
+	where o.organization_id = rec->referrals[d1.seq].referral_from_org_id
+;where expand(num,1,rec->cnt,o.organization_id,rec->referrals[num].referral_from_org_id)
+detail		
+	rec->referrals[d1.seq].referral_from_org_name 	= o.org_name
+with nocounter, format, separator = " ", time = 600, expand = 1 
+
+;;REFERRAL TO ORGANIZATION NAME
+select into $outdev
+	o.org_name
+from
+	organization o
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where d1.seq > 0
+join o 
+	where o.organization_id = rec->referrals[d1.seq].referral_to_organization_id
+;where expand(num,1,rec->cnt,o.organization_id,rec->referrals[num].referral_from_org_id)
+detail		
+	rec->referrals[d1.seq].referral_to_organization 	= o.org_name
+with nocounter, format, separator = " ", time = 600, expand = 1 
+
+
+
+
+
+;referral from provider
+select into $outdev
+pr.person_id, pa.alias
+from
+	prsnl 			pr			;referral from provider
+	,person_name	pn
+	;,prsnl_alias 	pa
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where d1.seq > 0
+join pr
+	where pr.person_id 	= rec->referrals[d1.seq].referral_from_prov_id
+	and pr.active_ind 	= 1
+join pn
+	where pn.person_id = pr.person_id
+	and pn.active_ind = 1	
+;join pa
+;	where pa.person_id			= pr.person_id
+;	and pa.prsnl_alias_type_cd 	= npi_type_cd
+;	and pa.active_ind 			= 1	
+;where expand(num,1,rec->cnt,o.organization_id,rec->referrals[num].referral_from_org_id)
+detail		
+	;rec->referrals[d1.seq].referral_from_prov_name 	= pr.name_full_formatted
+	rec->referrals[d1.seq].referral_from_prov_name =trim(build2(trim(pn.name_first)," ",trim(pn.name_last)," ",trim(pn.name_suffix)),3)
+	;rec->referrals[d1.seq].referral_from_prov_npi	= pa.alias
+with nocounter, format, separator = " ", time = 600
+
+;referral to provider
+select into $outdev
+pr.person_id, pa.alias
+from
+	prsnl 			pr			;referral from provider
+	,prsnl_alias 	pa
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where d1.seq > 0
+join pr
+	where pr.person_id 	= rec->referrals[d1.seq].referral_to_prov_id
+	and pr.active_ind 	= 1
+join pa
+	where pa.person_id			= outerjoin(pr.person_id)
+	and pa.prsnl_alias_type_cd 	= outerjoin(npi_type_cd)
+	and pa.active_ind 			= outerjoin(1)
+;where expand(num,1,rec->cnt,o.organization_id,rec->referrals[num].referral_from_org_id)
+detail		
+	rec->referrals[d1.seq].referral_to_prov_name 	= pr.name_full_formatted
+	rec->referrals[d1.seq].referral_to_prov_npi		= pa.alias
+with nocounter, format, separator = " ", time = 600, expand = 1 
+
+;call echojson(rec,$outdev) 
+;;GET home address and email
+select into 'nl:'
+	pid =  rec->referrals[d1.seq].personid
+	,rid =  rec->referrals[d1.seq].id
+	,A.city
+	,a.address_id
+	,state = a.state
+	,A.zipcode
+	,a.street_addr
+	,a.street_addr2
+	,address_type = uar_get_code_display(a.address_type_cd)
+	,a.country
+	,country = uar_get_code_display(a.country_cd)
+	,email		= if (a.address_type_cd = 755)
+					trim(a.street_addr,3)
+					;'alias= check(pta.pft_trans_alias,char(32),char(126))
+				  endif
+from
+	ADDRESS A
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where rec->referrals[d1.seq].personid > 0
+join a
+	where a.parent_entity_id = rec->referrals[d1.seq].personid
+	and a.parent_entity_name = 'PERSON'
+	and a.active_ind = 1
+	and a.address_type_cd IN (home_address_cd,email_address_cd)
+order by pid, rid, a.address_id
+detail
+;head a.address_id
+	tempAddress = check(a.street_addr,char(32),char(126))
+ 
+ 	;email
+ 	if (a.address_type_cd = email_address_cd)
+ 		rec->referrals[d1.seq].email = tempAddress
+ 	;home address
+ 	elseif (a.address_type_cd = home_address_cd)
+;	   	if (trim(a.street_addr2,3) > " ")
+;	   		tempAddress = build2(tempAddress, ', ', a.street_addr2)
+;	   	endif
+; 
+;	   	if (trim(a.street_addr3,3) > " ")
+;	    	tempAddress = build2(tempAddress, ', ', a.street_addr3)
+;	   	endif
+; 
+;	   	if (trim(a.street_addr4,3) > " ")
+;	   		tempAddress = build2(tempAddress, ', ', a.street_addr4)
+;	   	endif
+	 	rec->referrals[d1.seq].address 	= trim(substring(1,100,tempAddress),3)
+	 	rec->referrals[d1.seq].city 	= trim(substring(1,100,a.city),3)
+	 	rec->referrals[d1.seq].state	= trim(substring(1,100,a.state),3)
+	 	rec->referrals[d1.seq].zip		= trim(substring(1,100,a.zipcode),3)
+	 	rec->referrals[d1.seq].country	= trim(substring(1,100,uar_get_code_display(a.country_cd)),3)
+ 	endif
+ 
+with nocounter, format, separator=' ',time = 600,check
+ 
+ 
+;;;GET home phone and mobile phone
+select into 'nl:'
+	 pid 		=  rec->referrals[d1.seq].personid
+	,rid 		=  rec->referrals[d1.seq].id
+	,patientFirst = rec->referrals[d1.seq].fname
+	,last		=rec->referrals[d1.seq].lname
+	,phone_type = uar_get_code_display(ph.phone_type_cd)
+	,ph.phone_type_cd
+	,ph.phone_type_seq
+	,ph.phone_num
+	,ph.phone_num_key
+	,home_phone	= if (ph.phone_type_cd = home_phone_cd)
+					ph.phone_num
+				  endif
+	,mobile_phone = if (ph.phone_type_cd = MOBILE_phone_cd)
+					ph.phone_num
+				  endif
+from
+	phone ph
+	,(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where rec->referrals[d1.seq].personid > 0
+join ph
+	where ph.parent_entity_id = rec->referrals[d1.seq].personid
+	and ph.phone_type_cd in (mobile_phone_cd,home_phone_cd)
+	and ph.parent_entity_name = "PERSON"
+	and ph.active_ind = 1
+order by pid, rid
+head rid
+	tempPhone = ""
+detail
+	tempPhone = cnvtphone(ph.phone_num_key,ph.phone_type_cd,2)		;(###)###-####
+	tempPhone = replace(replace(replace(tempPhone,")","-"),"(","")," ","")  ;REMOVE PARENTHESIS AND SPACES
+	if (ph.phone_type_cd = mobile_phone_cd)
+		rec->referrals[d1.seq].mobile_phone = tempPhone
+	elseif (ph.phone_type_cd = home_phone_cd)
+		rec->referrals[d1.seq].home_phone 	= tempPhone
+	endif
+with nocounter, format, separator=' ',time = 600,check 
+
+
+
+
+;;;GET refer to organization phone
+select into $OUTDEV
+	 pid 		=  rec->referrals[d1.seq].personid
+	,rid 		=  rec->referrals[d1.seq].id
+	,patientFirst = rec->referrals[d1.seq].fname
+	,last		=rec->referrals[d1.seq].lname
+	,ORGid = rec->referrals[d1.seq].referral_to_organization_id
+	,ORG = rec->referrals[d1.seq].referral_to_organization
+;	,PROV = rec->referrals[d1.seq].referral_to_prov_id
+	,phone_type = uar_get_code_display(ph.phone_type_cd)
+	,ph.phone_type_cd
+	,ph.phone_type_seq
+	,ph.phone_num
+	,ph.phone_num_key
+	,PH.parent_entity_name
+from
+	phone ph
+	,
+	(dummyt d1 with seq = value(size(rec->referrals,5)))
+plan d1
+	where rec->referrals[d1.seq].referral_to_organization_id > 0
+join ph
+	where ph.parent_entity_id = rec->referrals[d1.seq].referral_to_organization_id
+	AND PH.phone_type_cd = BUSINESS_phone_cd
+;;	and ph.phone_type_cd in (mobile_phone_cd,home_phone_cd)
+	and ph.parent_entity_name = "ORGANIZATION"
+	and ph.active_ind = 1
+order by pid, rid, PH.phone_type_seq 
+head report
+	tempPhone = ""
+HEAD RID
+	tempPhone = cnvtphone(ph.phone_num_key,ph.phone_type_cd,2)		;(###)###-####
+	tempPhone = replace(replace(replace(tempPhone,")","-"),"(","")," ","")  ;REMOVE PARENTHESIS AND SPACES
+	rec->referrals[d1.seq].referral_to_loc_phone = tempPhone
+WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+
+
+select P.name_first_key, P.name_last_key, P.name_degree, P.name_suffix, P.name_title
+,P.name_full, * from person_name p
+plan p
+where p.name_suffix is not null
+and p.active_ind = 1
+and p.name_suffix != "Test"
+and p.name_last_key not like "*TEST*"
+and p.name_first_key not like "*TEST*"
+AND P.name_suffix > " "
+with time = 30, maxrec = 100
+
+
+
+
+;;set file_output = $OUTDEV
+;
+;;FLEXIBLE OUTPUT TYPE BASED ON WHETHER THIS IS A SCREEN OR FILE OUTPUT TYPE
+SELECT into $OUTDEV; VALUE(file_output)
+		referral_id 		= rec->referrals[d1.seq].id 		;patient id
+		,mrn 				= rec->referrals[d1.seq].mrn 
+		,fname 				= rec->referrals[d1.seq].fname 
+		,lname 				= rec->referrals[d1.seq].lname 
+		,dob 				= rec->referrals[d1.seq].dob 
+		,address 			= trim(substring(1,100,rec->referrals[d1.seq].address),3)
+		,city 				= trim(substring(1,20,rec->referrals[d1.seq].city),3)
+		,state 				= trim(substring(1,20,rec->referrals[d1.seq].state),3)
+		,zip 				= rec->referrals[d1.seq].zip 
+		,country 			= trim(substring(1,40,rec->referrals[d1.seq].country),3)
+		,home_phone 		= trim(substring(1,20,rec->referrals[d1.seq].home_phone),3)
+		,mobile_phone 		= trim(substring(1,20,rec->referrals[d1.seq].mobile_phone),3)
+		,email 				= trim(substring(1,40,rec->referrals[d1.seq].email),3)
+		,language 			= trim(substring(1,40,rec->referrals[d1.seq].language),3)
+		,facility 			= trim(substring(1,100,rec->referrals[d1.seq].referral_from_org_name),3)
+		,ref_provider 		= trim(substring(1,60,rec->referrals[d1.seq].referral_from_prov_name),3)
+		;02/13/2023 use the cerner id not the npi per Renee
+		;,ref_provider_id 	= trim(substring(1,20,rec->referrals[d1.seq].referral_from_prov_npi),3)
+		,ref_provider_id 	= trim(substring(1,20,cnvtstring(rec->referrals[d1.seq].referral_from_prov_id)),3)
+		,ref_to_phone 		= trim(substring(1,20,rec->referrals[d1.seq].referral_to_loc_phone),3)
+		,refer_to_prov 		= trim(substring(1,60, rec->referrals[d1.seq].referral_to_prov_name ),3)
+		,refer_to_prov_id 	= rec->referrals[d1.seq].referral_to_prov_id 
+		,refer_to_prov_npi 	= trim(substring(1,20, rec->referrals[d1.seq].referral_to_prov_npi),3) 
+		,refer_to_org 		= rec->referrals[d1.seq].referral_to_org_id 
+		;,refer_to_org_name 	= rec->referrals[d1.seq].referral_to_org_name 
+		,refer_to_phone 	= rec->referrals[d1.seq].referral_to_loc_phone 
+		,Provider_Name		= trim(substring(1,100, rec->referrals[d1.seq].referral_to_site ),3)
+		;,refer_to_org_name 	= trim(substring(1,100,rec->referrals[d1.seq].referral_to_organization),3)		
+		
+	from 
+	
+	(dummyt d1 with seq = value(size(rec->referrals,5)))
+	plan d1
+		where d1.seq > 0
+	head report
+		line0 = build(	"Patient Id", ","
+						,"First Name", ","
+						,"Last Name", ","
+						,"Date Of Birth MM/DD/YYYY", ","
+						,"Address", ","
+						,"City", ","
+						,"State", ","
+						,"Postcode", ","
+						,"Country", ","
+						,"Mobile Phone", ","
+						,"Home Phone", ","
+						,"Email", ","
+						,"Language", ","
+						,"Facility Name", ","
+						,"Referring Provider Name", ","
+						,"Provider Id", ","
+						,"Referral Id", ","
+						,"Facility Phone", ","
+						,"Provider Name"
+		)	
+		col 0 line0
+	    row+1
+	detail
+	    line1 = build(mrn,","
+	   	,fname,","
+	    ,lname,","
+	    ,dob,","
+	    ,quote,address,quote,","
+	    ,city,","
+	    ,state,","
+	    ,zip,","
+	    ,country,","
+	    ,mobile_phone,","
+	    ,home_phone,","
+		,email,","
+		,language,","
+		,facility,","
+		,quote,ref_provider,quote,","
+		,ref_provider_id,","
+		,referral_id,","
+		,ref_to_phone,","
+		,Provider_Name
+	    )
+	    line1 = trim(line1,3)
+	    col 0 line1
+	    row+1    
+;WITH nocounter, pcformat ("", ',', 1, 1), format =300stream, format, skipreport = 1,time=3900,maxcol = 5000
+with nocounter, format, separator = " ", maxcol = 400, SKIPREPORT = 0, check
+;ENDIF
+
+
+;select * from code_value cv
+;plan cv
+;where cv.code_value = 6008
+;CALL ECHO("END")
+;
+;;select into  $outdev;'nl:'
+;;	 pid 			=  encntr_rec->encounters[d1.seq].personid
+;;	,eid 			=  encntr_rec->encounters[d1.seq].encntrid
+;;	,patientID		=  encntr_rec->encounters[d1.seq].mrn				;Patient Id	
+;;	,patientFirst 	= encntr_rec->encounters[d1.seq].fname				;First Name
+;;	,patientLast	= encntr_rec->encounters[d1.seq].lname				;Last Name
+;;	,dob			= encntr_rec->encounters[d1.seq].dob				;DOB MM/DD/YYYY
+;;	,address		= encntr_rec->encounters[d1.seq].address			;ADDRESS
+;;	,city			= encntr_rec->encounters[d1.seq].city				;CITY
+;;	,state			= encntr_rec->encounters[d1.seq].state				;STATE
+;;	,postcode		= encntr_rec->encounters[d1.seq].zip				;POSTCODE
+;;	,country		= encntr_rec->encounters[d1.seq].country			;COUNTRY
+;;	,mobilePhone	= encntr_rec->encounters[d1.seq].mobile_phone		;MOBILE
+;;	,homePhone		= encntr_rec->encounters[d1.seq].home_phone			;HOME
+;;	,email			= encntr_rec->encounters[d1.seq].email				;EMAIL
+;;	,language		= encntr_rec->encounters[d1.seq].language			;LANGUAGE
+;;	,facilityName	= encntr_rec->encounters[d1.seq].facility			;FACILITY
+;;	,referringProv	= encntr_rec->encounters[d1.seq].referring_provider	;REFERRING PROVIDER
+;;from
+;;	(dummyt d1 with seq = encntr_rec->cnt)
+;;plan d1
+;;	where encntr_rec->encounters[d1.seq].personid > 0
+;;order by pid, eid
+;;with nocounter, format, separator=' ',time = 600,check
+;; 
+;; 
+;/**************************************************************
+;; DVDev DEFINED SUBROUTINES
+;**************************************************************/
+ 
+end
+go
+ 
