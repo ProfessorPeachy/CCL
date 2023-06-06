@@ -1,0 +1,911 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+Programmer    		  :  Amelia Jamison
+Date Created   		  :  12/13/2022
+Project Name    	  :  Probate Finders
+Requesting Dept/Owner :  Russ Pothier
+Report Title          :
+Time Frame	          :
+Type of Patients      :
+Run Frequency		  :
+Output File Name	  :
+Explorer Menu Name    :
+Ops Job Name	      :
+Source Name     	  : cust_script:1_maur_tn_probate.prg
+Purpose               :
+/***********************************************************************************************************************
+*                                        MODIFICATION CONTROL LOG
+************************************************************************************************************************
+*                                                                                                                      *
+*     Mod  Date      Programmer             Comment                                                                    *
+*     --- -------- -------------------- -----------------------------------                                            *
+*     000 01/17/22   Nicole Anglin       Initial Release                                                               *
+*     001 08/14/22   Nicole Anglin       Adding Billint Entity ID to the Account Nbr                                   *
+*	  002 09/20/22	 Amelia Jamison		 Temporary pulling last two years of patient who are deceased w/i last 2 years			                                                                                                   *
+*												                                                                       *
+*     									                                                                               *
+************************************************************************************************************************
+*/
+drop program 1_maur_tn_probate_atb go
+create program 1_maur_tn_probate_atb
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Activity Date (mmddyyyy):" = "YESTERDAY"   ;* Please select your desired activity date filter.
+	, "Service Begin Date:" = "CURDATE"
+	, "Service End Date:" = "CURDATE"
+	, "Output Type:" = ""
+	, "File Type" = "deceased"                    ;* Select which file type will be run on this report execution 
+
+with OUTDEV, ACTIVITYDATE, START_DATE, END_DATE, TYPE, file_type
+/***********************************************************************************************************************
+*                                        VARIABLE DECLARES
+***********************************************************************************************************************/
+declare num = i4
+;declare test_string = vc with noconstant("")
+
+set bdate = concat($START_DATE,' 00:00:00')
+set edate = concat($END_DATE,' 23:59:59')
+
+declare deceased_parser_string = vc with noconstant("1 = 1")
+declare be_encounter_string = vc with noconstant("")
+
+if ($file_type = "deceased") 
+	set deceased_parser_string " p.deceased_dt_tm is not null"
+endif
+
+
+IF ($TYPE = "F")
+	
+	declare rundate 		= vc with constant(format(curdate,'yymmdd;;d')), protect
+	declare filepath		= vc with constant("/cerner/d_p698/data/batch_files/ccl_extracts/probatefinders/"), protect
+	declare filename		= vc with constant(build2(rundate,"_",$file_type,".csv")), protect
+	declare filenamepath	= vc with noconstant(build2(filepath,filename))	, protect
+	declare OUTPUT			= c200 with noconstant(""), protect
+	
+	
+	;set up filename to logical output
+	set OUTPUT = TRIM(FILENAME,3)	
+	call echo(build2("Filenamepath   : " ,filenamepath))
+	set filenamepath = trim(filenamepath,3)
+	set logical OUTPUT VALUE(filenamepath)
+	set OUTPUT = trim(logical("OUTPUT"),3)
+	 
+	call echo(build2("FILE NAME: ", value(logical("OUTPUT")) ))	
+	CALL ECHO("SENDING DATA TO FILE")
+	
+	;remove the old file if it exists
+	if (findfile(value(OUTPUT)) )
+		call echo("Query Not Skipped. 	Found and old version of the file, removing the file")
+		SET STAT = REMOVE(value(OUTPUT))
+		call echo(build2("removed the old version of the file"))
+	else
+		call echo("No old version of file found, did not have to remove the file")
+	endif	
+	
+ELSE 
+	set OUTPUT = $OUTDEV
+	CALL ECHO("SENDING DATA TO SCREEN")
+ENDIF
+
+
+
+;
+;;declare file_output			= c200 with noconstant(""), protect
+;;call echo(build2("extractDate", asOfDate))
+;
+;;set filename 							= trim(build2(extract_rec->extracts[i].extractName,"_",asOfDate,".txt"),3)  ;set the file output name for this query
+;;set filenamepath 						= build2("/cerner/d_p698/data/batch_files/ccl_extracts/finthrive/",trim(filename,3))
+
+;;if(substring(1,1,reflect(parameter(parameter2($LOCATION),0))) = "L")
+;;    set opr_var = "IN"
+;;elseif(parameter(parameter2($LOCATION),0) = 0.0)
+;;    set opr_var = "!="
+;;else
+;;    set opr_var = "="
+;;endif
+;set rundate = format(curdate,'yyyymmdd;;d')
+;set probate_deceased =
+;    build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/probatefinders/",rundate,"_deceased"),".csv")
+/***********************************************************************************************************************
+*                                        RECORD STRUCTURE
+***********************************************************************************************************************/
+free record rec
+record rec
+	(	1 cnt                          = i4
+		1 activity_date 		= vc
+		1 activity_date_dq8 	= dq8
+		1 activity_date_i4		= i4		
+		 1 qual[*]
+		    2 eid                       = f8
+		    2 pid                       = f8
+		    2 rc_af_pat_ar_balance_id	= f8
+		    2 pft_eid              
+		         = f8
+		    2 patient_name              = vc
+		    2 patient_dob               = vc
+		    2 patient_prefix_name       = vc
+		    2 patient_first_name        = vc
+		    2 patient_middle_name       = vc
+		    2 patient_last_name         = vc
+		    2 patient_suffix_name       = vc
+		    2 patient_social            = vc
+		    2 patient_addr1             = vc
+		    2 pateint_addr2             = vc
+		    2 patient_city              = vc
+		    2 patient_state             = vc
+		    2 patient_zipcode           = vc
+		    2 patient_expire_date       = vc
+		    2 pt_exp_24mo_ago           = f8
+		;    2 pt_exp_more_than_24mo_ago = vc
+		    2 pt_exp_24mo_ago_flag      = vc
+		    2 facility					= vc
+		    2 admit_date                = vc
+		    2 discharge_date            = vc
+		    2 discharge_date_win_24mo   = f8
+		    2 dschrge_dt_greater_than_24mo_flag  =vc
+		    2 financial_nbr             = vc
+		    2 acct_nbr                  = vc
+		    2 acct_dunning_lvl          = vc
+		    2 acct_dunning_lvl_meaning  = vc
+		    2 agency_name               = vc
+		    2 acct_balance              = vc
+		    2 patient_fin_class         = vc
+		    2 patient_zero_stmnt_bal    = vc
+		    2 patient_last_pay_date     = vc
+		    2 patient_last_pay_amt      = vc
+		    2 claims_cnt                = i4
+		    2 claims_qual[*]
+		        3 claim_nbr             = vc
+		        3 claim_status          = vc
+		        3 stmnt_from_date       = vc
+		        3 stmnt_to_date         = vc
+		    2 patient_stmnt_cnt         = vc
+		    2 overall_stmnt_cnt         = vc
+		    2 stmnt_cnt_formatted       = vc
+		    2 stmnt_cnt                 = i4
+		    2 stmnt_qual[*]
+		        3 stmnt_nbr             = vc
+		        3 stmnt_amt_due         = f8
+		        3 stmnt_submit_date     = vc
+)
+/***********************************************************************************************************************
+*                                        PATIENT CLAIMS
+***********************************************************************************************************************/
+
+
+ IF ((validate (parsedateargument ,char (128 ) ) = char (128 ) ) )
+ 	call echo("in subroutine")
+  SUBROUTINE  (parsedateargument (my_date_arg =vc ) =i4 )
+   DECLARE my_return_date = i4 WITH private ,noconstant (0 )
+   IF ((my_date_arg = cnvtupper ("YESTERDAY" ) ) )
+    SET my_return_date = (cnvtdate (cnvtdatetime (curdate ,0 ) ) - 1 )
+   ELSEIF ((my_date_arg = cnvtupper ("TODAY" ) ) )
+    SET my_return_date = cnvtdate (cnvtdatetime (curdate ,0 ) )
+   ELSE
+    SET my_return_date = cnvtdate (cnvtint (my_date_arg ) )
+   ENDIF
+   IF ((my_return_date <= 0 ) )
+    SET my_return_date = curdate
+   ENDIF
+   call echo(build2("my_return_date ",my_return_date))
+   RETURN (my_return_date )
+   
+  END ;Subroutine
+ ELSE
+  CALL echo ("*_*_* parsedate not valid *_*_*" )
+ ENDIF
+
+DECLARE activity_date = i4 WITH protect ,noconstant (parsedateargument ( $ACTIVITYDATE ) )
+call echo(build2("activity date", activity_date))
+
+declare num = i4
+declare num2 = i4
+declare num3 = i4
+
+declare pos = i4
+declare pos2 = i4
+declare pos3 = i4
+
+
+
+free record frec
+record frec
+(
+	1 cnt			= i4
+	1 finclass[*]
+		2 finclass_id = f8
+		2 finclass = vc
+)	
+
+
+declare fcnt = i4	
+
+
+;do this to not have to hard-code the self pay variables and use it as an index
+select * from rc_d_financial_class rdfc
+where rdfc.financial_class = "Self Pay*"
+head report
+	fcnt = 0
+detail
+	fcnt = fcnt	+ 1
+	frec->cnt = fcnt
+	stat = alterlist(frec->finclass,fcnt)
+	frec->finclass[fcnt].finclass_id	= rdfc.rc_d_financial_class_id
+	frec->finclass[fcnt].finclass 		= rdfc.financial_class
+with maxrec = 100, time = 10
+
+
+
+
+free record brec 
+record brec
+(
+	1 cnt			= i4
+	1 entity[*]
+		2 billingentity_id = f8
+		2 billingentity = vc
+)	
+
+
+declare bcnt = i4	
+
+
+;do this to not have to hard-code the billing entity variables and use it as an index
+select be.billing_entity_id, be.be_name from billing_entity be where active_ind = 1 
+head report
+	bcnt = 0
+detail
+	bcnt = bcnt	+ 1
+	brec->cnt = bcnt
+	stat = alterlist(brec->entity,bcnt)
+	brec->entity[bcnt].billingentity_id	= be.billing_entity_id
+	brec->entity[bcnt].billingentity 	= be.be_name
+	
+with maxrec = 100, time = 10
+
+
+;call echojson(frec, $OUTDEV)
+call echojson(brec, $OUTDEV)
+
+;RC_F_VARIANCE
+;RC_F_VAR_CLAIM_SMRY
+
+;select * from RC_F_VAR_LINE_ITEM_SMRY rfvlis
+;;where rfvlis.self_pay_balance_amt > 0
+;;where rfvlis.rc_d_health_plan_id = 699034436
+;where rfvlis.shr_d_patient_id =     65089582.00
+;
+;;where rfvlis.rc_d_financial_class_id =          694372807.00
+;with maxrec = 1000, time = 10
+;
+;
+;select * from RC_F_VAR_CLAIM_SMRY r
+;where r.shr_d_patient_id =   65089582.00
+;with maxrec = 100, time = 10
+;
+;
+;
+;select * from RC_F_VARIANCE
+;with maxrec = 100, time = 10
+
+select into $outdev
+	prompt_activity_dt = activity_date
+	,rfpab.rc_d_pri_fin_class_id
+;	,rfvlis.rc_d_financial_class_id
+	,rfpab.rc_d_resp_fin_class_id
+	,Primary_Account_Number  = rapab.account_nbr_ident		;Primary_Account_Number
+	,Secondary_Account_Number 	= " " ;n/a
+	;,Balance = rfpab.balance_amt
+	,Balance = rfpab.actual_balance_amt
+	,SecureDesc = ""
+	,Prefix_Name = ""	
+	;,acct_nbr = a.ext_acct_id_txt
+	
+	;,rfpab.*
+;	,rfvlis.*
+	,RAPAB.fin_nbr_ident
+;	,rfvcs.fin_nbr_ident
+;	,prompt_BENTITY = $BENTITY	
+;	,prompt_finclass = $FINCLASS
+	,RFPAB.rc_d_pri_fin_class_id			;FINCLASS
+	,RFPAB.rc_d_pri_health_plan_id			;HEALTHPLAN
+	,RAPAB.account_nbr_ident
+	,mill_beid = rdbe.mill_billing_entity_id	;contains the identifier of the billing entity on the millennium database from which this row was derived.
+	,rdbe.billing_entity_name				;allows for the billing entity to have a different name than  the organization to which it is related.
+;	,rc_beid = rdbe.rc_d_billing_entity_id	;uniquely identifies data pertaining to the billing entity such as name and type.
+	,rfpab.rc_af_patient_ar_balance_id
+;	,rdhp2.mill_health_plan_id
+;	,PE.pft_encntr_alias
+	,rfpab.actual_balance_amt 		;original balance amount without offset consideration.
+	,rfpab.sp_balance_amt			;the total balance amount for selfpay.
+	,rfpab.balance_amt				;the balance amount of the patient ar account.
+	,rfpab.insurance_balance_amt	;the total balance amount for insurance.		
+	,rfpab.unbilled_balance_amt		;contains the balance amount that has not been billed on any claims.
+	,sdp.shr_d_person_id	
+;	,rfvcs.shr_d_patient_id
+;	,rfvcs.shr_d_queue_person_id
+	,rfpab.shr_d_queue_person_id
+	,sdp.mill_person_id
+	,rfpab.shr_d_person_id
+	
+;	,rfvcs.*
+;	,rfr.*
+FROM
+	rc_f_patient_ar_balance 		rfpab
+	,rc_af_patient_ar_balance 		rapab
+;;	,rc_d_drg 						rdd
+	,rc_d_billing_entity 			rdbe
+
+	,shr_d_location 				sdl
+	,shr_d_person 					sdp
+;	,rc_d_health_plan 				rdhp1
+;	,rc_d_health_plan 				rdhp2
+	,rc_d_encntr_type_class 		rdetc
+		
+	;,RC_F_VAR_CLAIM_SMRY			rfvcs
+
+;	,rc_f_revenue		rfr	
+;	,RC_F_VAR_LINE_ITEM_SMRY 		rfvlis	
+;	,rc_d_financial_class 			rdfc1
+;	,rc_d_financial_class 			rdfc2
+;	,rc_d_medical_service 			rdms
+;	,rc_d_dunning_level 			rddl
+;	,rc_d_balance_type 				rdbt
+;	,rc_d_dnfb_status 				rdds
+	,pft_encntr 					pe	
+	,ACCOUNT						A
+	,person 						p
+;	,omf_date						od
+;;	,rc_d_health_plan				rdhp
+;	;,health_plan					hp
+;	,encounter 						e
+;	,account                        a
+plan rfpab
+	where rfpab.activity_dt_nbr = activity_date ; 81424 
+	and (expand(num ,1,frec->cnt,rfpab.rc_d_pri_fin_class_id, frec->finclass[num].finclass_id)
+	or   expand(num2,1,frec->cnt,rfpab.rc_d_resp_fin_class_id,frec->finclass[num2].finclass_id)
+	)
+	and rfpab.mill_logical_domain_id = 0
+	and rfpab.actual_balance_amt 	!= 0
+join rapab
+	where rapab.rc_af_patient_ar_balance_id = rfpab.rc_af_patient_ar_balance_id
+	;and parser(billing_entity_parser_str)
+	
+;;	and rapab.fin_nbr_ident = "202105513"
+;	AND rapab.fin_nbr_ident IN ("202105513","203091390","203062740","202437201","202781162","202905016");all
+;	;AND RAPAB.fin_nbr_ident IN ("202105513","203062740","202781162");working
+;	;pAND RAPAB.fin_nbr_ident IN ("202437201");partially working
+;	;;AND RAPAB.fin_nbr_ident IN ("203091390","202437201","202905016");not working
+;	;AND RAPAB.fin_nbr_ident IN ("203091390","202905016");work for 11/30
+;	AND rapab.fin_nbr_ident = "202437201" ; use date 11/30, has two rows, has two billing entities
+and rapab.fin_nbr_ident in ("200565550","200569587","200569285","200576386","200605036"
+,"200612075","200612424","200629286")
+;;;join rdd
+;;;	where rdd.rc_d_drg_id = rfpab.rc_d_pri_drg_id
+;;;	and rdd.active_ind = 1 
+join rdbe
+	where rdbe.rc_d_billing_entity_id = rfpab.rc_d_billing_entity_id 
+	and expand(num3,1,brec->cnt,RDBE.mill_billing_entity_id,brec->entity[num3].billingentity_id)
+	and rdbe.active_ind = 1
+
+join sdl
+	where sdl.shr_d_location_id = rfpab.shr_d_location_id	
+;	and sdl.active_ind = 1
+join sdp
+	where sdp.shr_d_person_id 	= rfpab.shr_d_person_id
+join p
+	where p.person_id 			= sdp.mill_person_id 
+join rdetc 
+	where rdetc.rc_d_encntr_type_class_id = rfpab.rc_d_encntr_type_class_id	
+join pe
+	where  pe.pft_encntr_id = rfpab.mill_encounter_id 
+	AND ((pe.active_ind = 1) OR (pe.active_status_dt_tm >= cnvtdatetime(curdate-1, 0)))
+join a
+    where a.acct_id = pe.acct_id	
+order by pe.pft_encntr_id
+;order by rfpab.admit_dt_nbr, pe.encntr_id, rfpab.rc_af_patient_ar_balance_id
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+head pe.pft_encntr_id
+    claims_cnt = 0
+    cnt = cnt + 1
+    if(mod(cnt,100)=1 and cnt != 1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+        
+    rec->qual[cnt].acct_nbr = be_encounter_string
+    
+    rec->qual[cnt].rc_af_pat_ar_balance_id	= rapab.rc_af_patient_ar_balance_id
+	rec->qual[cnt].acct_nbr 				= rapab.account_nbr_ident	
+    rec->qual[cnt].eid 						= pe.encntr_id
+    rec->qual[cnt].pid 						= sdp.mill_person_id 
+    rec->qual[cnt].pft_eid 					= pe.pft_encntr_id
+;    rec->qual[cnt].agency_name 				= o.org_name pft_collection_agency
+    rec->qual[cnt].acct_balance 			= trim(format(rfpab.balance_amt ,"#########.##;L"))
+    rec->qual[cnt].financial_nbr 			= rapab.fin_nbr_ident
+;	rec->qual[cnt].admit_date			
+;	rec->qual[cnt].discharge_date			= omf_get_date_str(rfpab.discharge_dt_nbr)
+	rec->qual[cnt].discharge_date			= format(cnvtdatetime(rfpab.discharge_dt_nbr,0) ,"MM/DD/YYYY ;;D") 
+	rec->qual[cnt].patient_dob 			= format(cnvtdatetime(p.birth_dt_tm,0) ,"MM/DD/YYYY ;;D") 
+;    rec->qual[d1.seq].patient_prefix_name 	= pn.name_prefix
+;    rec->qual[d1.seq].patient_suffix_name 	= pn.name_suffix	
+    rec->qual[cnt].patient_expire_date = format(p.deceased_dt_tm,"MM/dd/yyyy")
+ ;   rec->qual[cnt].patient_name = p.name_full_formatted
+    rec->qual[cnt].patient_first_name = sdp.person_first_name	
+    rec->qual[cnt].patient_last_name = sdp.person_last_name
+    rec->qual[cnt].patient_middle_name = sdp.person_middle_name
+  ;  rec->qual[cnt].patient_prefix_name = ;
+  ;  rec->qual[cnt].patient_suffix_name = pn.name_suffix
+  ;  rec->qual[cnt].patient_dob = format(sdp.bir,"MM/dd/YYYY")
+    rec->qual[cnt].patient_fin_class = uar_get_code_display(pe.fin_class_cd)
+    rec->qual[cnt].facility = sdl.facility
+
+;    rec->qual[cnt].discharge_date = format(br.to_service_dt_tm,"MM/dd/yyyy")
+;    rec->qual[cnt].admit_date = format(br.from_service_dt_tm,"MM/dd/yyyy")
+;    rec->qual[cnt].patient_expire_date = format(p.deceased_dt_tm,"MM/dd/yyyy")
+;    rec->qual[cnt].patient_zero_stmnt_bal = "N"
+ ;   rec->qual[cnt].dschrge_dt_greater_than_24mo_flag = "N"
+ ;   rec->qual[cnt].pt_exp_24mo_ago_flag = "N"
+ ;   rec->qual[cnt].discharge_date_win_24mo = datetimediff(cnvtdatetime(curdate,curtime3),br.to_service_dt_tm)
+;    rec->qual[cnt].pt_exp_24mo_ago = datetimediff(cnvtdatetime(curdate,curtime3),p.deceased_dt_tm)
+;    rec->qual[cnt].patient_last_pay_date = format(a.last_patient_pay_dt_tm,"MM/dd/yyyy")
+;head br.corsp_activity_id
+;    claims_cnt = claims_cnt + 1
+;    rec->qual[cnt].claims_cnt = claims_cnt
+;    stat = alterlist(rec->qual[cnt].claims_qual,claims_cnt)
+;    rec->qual[cnt].claims_qual[claims_cnt].claim_nbr = br.bill_nbr_disp
+;    rec->qual[cnt].claims_qual[claims_cnt].claim_status = uar_get_code_display(br.bill_status_cd)
+;    rec->qual[cnt].claims_qual[claims_cnt].stmnt_from_date = format(br.statement_from_dt_tm,"MM/dd/yyyy")
+;    rec->qual[cnt].claims_qual[claims_cnt].stmnt_to_date = format(br.statement_to_dt_tm,"MM/dd/yyyy")
+;foot pe.pft_encntr_id
+;     if(rec->qual[cnt].discharge_date_win_24mo > 730.0)
+;        rec->qual[cnt].dschrge_dt_greater_than_24mo_flag = "Y"
+;    endif
+;    if(rec->qual[cnt].pt_exp_24mo_ago > 730.0)
+;        rec->qual[cnt].pt_exp_24mo_ago_flag = "Y"
+;    endif
+foot report
+    if(cnt>0)
+        stat = alterlist(rec->qual,cnt)
+        rec->cnt = cnt
+    endif    
+; 	cnt = 0
+;	stat = alterlist(encntr_rec->encntrs,100)
+;
+;	encntr_rec->activity_date 		= format(cnvtdatetime(activity_date,0 ) ,"MM/DD/YYYY ;;D") 
+;	encntr_rec->activity_date_dq8 	= cnvtdatetime(activity_date,0)
+;	encntr_rec->activity_date_i4 	= activity_date
+;	
+;	encntr_rec->billing_entity 		= cnvtstring($BENTITY)
+;	encntr_rec->financial_class 	= cnvtstring($FINCLASS)
+;	encntr_rec->health_plan 		= cnvtstring($HEALTHPLAN)
+;	;encntr_rec->round 				= $ROUND	
+;detail 
+;	cnt = cnt +1
+; 
+; 	if(mod(cnt,100)=1 and cnt !=1)
+;		stat = alterlist(encntr_rec->encntrs,cnt+99)
+;	endif
+;	encntr_rec->encntrs[cnt].pid 					= sdp.mill_person_id 
+;	encntr_rec->encntrs[cnt].eid 					= pe.encntr_id
+;	encntr_rec->encntrs[cnt].pft_encntrid			= pe.pft_encntr_id
+;	encntr_rec->encntrs[cnt].mrn 					= rapab.mrn_nbr_ident
+;	encntr_rec->encntrs[cnt].fin 					= rapab.fin_nbr_ident						;encounter number
+;	encntr_rec->encntrs[cnt].admit_date 			= trim(format(cnvtdatetime(rfpab.admit_dt_nbr ,0 ) ,"MM/DD/YYYY ;;D"),3)
+;	encntr_rec->encntrs[cnt].discharge_date 		= trim(format(cnvtdatetime(rfpab.discharge_dt_nbr ,0 ) ,"MM/DD/YYYY ;;D"),3)
+;	encntr_rec->encntrs[cnt].first_name 			= sdp.person_first_name		
+;	encntr_rec->encntrs[cnt].last_name 				= sdp.person_last_name	
+;	encntr_rec->encntrs[cnt].curr_ar_balance 		= rfpab.balance_amt 		;does this reclect the activty date?	
+;	encntr_rec->encntrs[cnt].adjustments 			= rfpab.total_adjustment_amt		;adjustments
+;	encntr_rec->encntrs[cnt].payments				= rfpab.total_payment_amt	
+;	encntr_rec->encntrs[cnt].prim_financial_class 	= rdfc1.financial_class	
+;	encntr_rec->encntrs[cnt].prim_health_plan 		= rdhp1.health_plan_name
+;	encntr_rec->encntrs[cnt].cur_financial_class 	= rdfc2.financial_class
+;	encntr_rec->encntrs[cnt].cur_health_plan 		= rdhp2.health_plan_name
+;	encntr_rec->encntrs[cnt].billing_entity 		= rdbe.billing_entity_name
+;	encntr_rec->encntrs[cnt].billing_entity_id 		= rdbe.mill_billing_entity_id
+;	encntr_rec->encntrs[cnt].health_plan_id			= rdhp1.mill_health_plan_id
+;	encntr_rec->encntrs[cnt].facility_cd			= e.loc_facility_cd
+;	encntr_rec->encntrs[cnt].facility_name			= uar_get_code_display(e.loc_facility_cd)	
+;	
+;;	encntr_rec->encntrs[cnt].d_prim_health_plan_id	= rdhp1.rc_d_health_plan_id
+;;	encntr_rec->encntrs[cnt].d_cur_health_plan_id	= rdhp2.rc_d_health_plan_id
+;;	encntr_rec->encntrs[cnt].ar_patient_balance_id 	= rapab.rc_af_patient_ar_balance_id
+;;	encntr_rec->encntrs[cnt].prim_health_plan_id	= rdhp1.mill_health_plan_id
+;;	encntr_rec->encntrs[cnt].cur_health_plan_id		= rdhp2.mill_health_plan_id
+;;	encntr_rec->encntrs[cnt].pft_encntr_alias		= pe.pft_encntr_alias
+;;	encntr_rec->encntrs[cnt].account_nbr			= rapab.account_nbr_ident
+;;foot report
+;;	stat = alterlist(encntr_rec->encntrs,cnt)
+;;	encntr_rec->cnt = cnt
+with  nocounter, format, separator = " ", time = 60, maxrec = 100
+
+;select * from RC_F_VAR_CLAIM_SMRY
+;with  nocounter, format, separator = " ", time = 60, maxrec = 100
+select into "NL:"
+rec->qual[d1.seq].pft_eid
+,format(ptr.amount,"#########.##;l")
+,format(tl.updt_dt_tm,"MM/dd/yyyy")
+,TL.updt_dt_tm
+,ptr.beg_effective_dt_tm
+from
+    pft_trans_reltn     ptr
+    ,trans_log          tl
+    ,payment_detail     pd
+    ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan d1
+	where d1.seq> 0
+join ptr
+	where ptr.parent_entity_id = rec->qual[d1.seq].pft_eid
+;plan ptr
+ ;   where expand(num,1,size(rec->qual,5),ptr.parent_entity_id,rec->qual[num].pft_eid)
+      and ptr.active_ind = 1
+      and ptr.trans_type_cd = 10982.00;payment
+join tl
+    where tl.activity_id = ptr.activity_id
+      and tl.active_ind = 1
+join pd
+    where pd.payment_detail_id = tl.payment_detail_id
+      and pd.active_ind = 1
+order by
+    ptr.parent_entity_id
+    ,ptr.beg_effective_dt_tm
+head ptr.parent_entity_id
+	rec->qual[d1.seq].patient_last_pay_amt 	= format(ptr.amount,"#########.##;l")
+	rec->qual[d1.seq].patient_last_pay_date = format(tl.updt_dt_tm,"MM/dd/yyyy")
+with nocounter,expand=1,time=3900
+;with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+;;GET THE DOB, prefix,suffix, ssn, dod  OF THE PATIENT
+
+
+select into "nl:" ;$outdev
+ 	 pn.name_prefix
+ 	,pn.name_suffix
+from 
+	person_name	pn
+	,(dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join pn
+	where pn.person_id = rec->qual[d1.seq].pid		
+detail
+    rec->qual[d1.seq].patient_prefix_name = pn.name_prefix
+    rec->qual[d1.seq].patient_suffix_name = pn.name_suffix	
+with nocounter, format, separator = " "	
+
+
+select into "NL:"
+    pa.person_id
+    ,PA.alias
+from
+    person_alias pa
+   ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan D1
+	WHERE D1.seq > 0
+JOIN PA
+	WHERE PA.person_id = rec->qual[d1.seq].pid
+    ;where expand(num,1,size(rec->qual,5),pa.person_id,rec->qual[num].pid)
+      and pa.person_alias_type_cd = 18.0;ssn
+      and pa.active_ind = 1
+order by
+    pa.person_id
+detail
+    rec->qual[d1.seq].patient_social = format(pa.alias,"###-##-####")
+with nocounter,time=3900
+
+
+select into "NL:"
+    a.parent_entity_id
+from
+    address     a
+   ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan D1
+	WHERE D1.seq > 0    
+join a
+    where a.parent_entity_id = rec->qual[d1.seq].pid
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd = 756.0;home addr
+      and a.active_ind = 1
+order by
+    a.parent_entity_id
+detail
+;head a.parent_entity_id
+ ;   pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+    rec->qual[d1.seq].patient_addr1 = a.street_addr
+    rec->qual[d1.seq].pateint_addr2 = a.street_addr2
+    rec->qual[d1.seq].patient_city  = a.city
+    rec->qual[d1.seq].patient_state = uar_get_code_display(a.state_cd)
+    rec->qual[d1.seq].patient_zipcode =
+        if(size(trim(a.zipcode))<9)
+            a.zipcode
+        else
+            format(a.zipcode,"#####-####")
+        endif
+with nocounter,time=3900
+
+
+;select into $outdev
+;	     Primary_Account_Number 	= trim(substring(1,50,rec->qual[d1.seq].acct_nbr))
+;	    ,Secondary_Account_Number 	= " " ;n/a
+;	    ,Balance 					= trim(substring(1,60,rec->qual[d1.seq].acct_balance))
+;	    ,SecureDesc 				= " "
+;	    ,Prefix_Name 				= " " ;trim(substring(1,80,rec->qual[d1.seq].patient_prefix_name))
+;	    ,First_Name 				= trim(substring(1,80,rec->qual[d1.seq].patient_first_name))
+;	    ,Middle_Name 				= trim(substring(1,80,rec->qual[d1.seq].patient_middle_name))
+;	    ,Last_Name 					= trim(substring(1,80,rec->qual[d1.seq].patient_last_name))
+;	    ,Suffix_Name 				= trim(substring(1,60,rec->qual[d1.seq].patient_suffix_name))
+;	    ,SSN 						= trim(substring(1,20,rec->qual[d1.seq].patient_social))
+;	    ,Address_1 					= trim(substring(1,120,rec->qual[d1.seq].patient_addr1))
+;	    ,Address_2 					= trim(substring(1,120,rec->qual[d1.seq].pateint_addr2))
+;	    ,City 						= trim(substring(1,60,rec->qual[d1.seq].patient_city))
+;	    ,State 						= trim(substring(1,60,rec->qual[d1.seq].patient_state))
+;	    ,Zip_Code 					= trim(substring(1,20,rec->qual[d1.seq].patient_zipcode))
+;	    ,DOB 						= trim(substring(1,20,rec->qual[d1.seq].patient_dob))
+;	    ,DOD 						= trim(substring(1,20,rec->qual[d1.seq].patient_expire_date))
+;	    ,Notes 						= " "
+;	    ,Date_Of_Service 			= trim(substring(1,20,rec->qual[d1.seq].admit_date))
+;	    ,Facility 					= trim(substring(1,60,rec->qual[d1.seq].facility))
+;	    ,Last_SelfPay_Payment_Date 	= trim(substring(1,60,rec->qual[d1.seq].patient_last_pay_date))
+;	    ,Last_SelfPay_Payment_Amount= trim(substring(1,60,rec->qual[d1.seq].patient_last_pay_amt))
+;	    ,rfr.*
+;	from
+;	    (dummyt d1 with seq = value(size(rec->qual,5)))
+;	  ;  ,rc_f_revenue		rfr
+;	plan d1
+;	    where d1.seq > 0
+;	;      and rec->qual[d1.seq].pt_exp_24mo_ago_flag = "N"
+;	;      and rec->qual[d1.seq].patient_zero_stmnt_bal = "N"
+;;join rfr
+;;	where rfr.rc_af_patient_ar_balance_id = rec->qual[d1.seq].rc_af_pat_ar_balance_id 	
+;	order by 1
+;	with nocounter, format, separator = " "
+;
+;
+
+
+;/***********************************************************************************************************************
+;*                                        PATIENT PAYMENTS
+;***********************************************************************************************************************/
+;CALL ECHO(BUILD2("TOTAL COUNT", CNT))
+;;call echo(format(CNVTDATETIME(CURDATE,CURTIME3), "MM-DD-YYYY HH:MM:SS;;D"))
+;
+
+/*
+select into "NL:"
+rec->qual[d1.seq].pft_eid
+,format(ptr.amount,"#########.##;l")
+,format(tl.updt_dt_tm,"MM/dd/yyyy")
+,TL.updt_dt_tm
+,ptr.beg_effective_dt_tm
+,TL.*
+from
+    pft_trans_reltn     ptr
+    ,trans_log          tl
+    ,payment_detail     pd
+    ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan d1
+	where d1.seq> 0
+join ptr
+	where ptr.parent_entity_id = rec->qual[d1.seq].pft_eid
+;plan ptr
+ ;   where expand(num,1,size(rec->qual,5),ptr.parent_entity_id,rec->qual[num].pft_eid)
+      and ptr.active_ind = 1
+      and ptr.trans_type_cd = 10982.00;payment
+join tl
+    where tl.activity_id = ptr.activity_id
+      and tl.active_ind = 1
+join pd
+    where pd.payment_detail_id = tl.payment_detail_id
+      and pd.active_ind = 1
+order by
+    ptr.parent_entity_id
+    ,ptr.beg_effective_dt_tm
+head ptr.parent_entity_id
+	rec->qual[d1.seq].patient_last_pay_amt 	= format(ptr.amount,"#########.##;l")
+	rec->qual[d1.seq].patient_last_pay_date = format(tl.updt_dt_tm,"MM/dd/yyyy")
+;    pos = locateval(num,1,size(rec->qual,5),ptr.parent_entity_id,rec->qual[num].pft_eid)
+;    rec->qual[pos].patient_last_pay_amt = format(ptr.amount,"#########.##;l")
+;    rec->qual[pos].patient_last_pay_date = format(tl.updt_dt_tm,"MM/dd/yyyy")
+with nocounter,expand=1,time=3900
+;with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+
+;call echojson(rec,$outdev)
+;/***********************************************************************************************************************
+;*                                        PATIENT SOCIAL
+;***********************************************************************************************************************/
+
+call echo(format(CNVTDATETIME(CURDATE,CURTIME3), "MM-DD-YYYY HH:MM:SS;;D")) 
+
+select into "NL:"
+    pa.person_id
+    ,PA.alias
+from
+    person_alias pa
+   ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan D1
+	WHERE D1.seq > 0
+JOIN PA
+	WHERE PA.person_id = rec->qual[d1.seq].pid
+    ;where expand(num,1,size(rec->qual,5),pa.person_id,rec->qual[num].pid)
+      and pa.person_alias_type_cd = 18.0;ssn
+      and pa.active_ind = 1
+order by
+    pa.person_id
+detail
+    rec->qual[d1.seq].patient_social = format(pa.alias,"###-##-####")
+with nocounter,time=3900
+
+
+;/***********************************************************************************************************************
+;*                                        PATIENT ADDRESS
+;***********************************************************************************************************************/
+;call echo(format(CNVTDATETIME(CURDATE,CURTIME3), "MM-DD-YYYY HH:MM:SS;;D")) 
+;
+
+
+select into "NL:"
+    a.parent_entity_id
+from
+    address     a
+   ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan D1
+	WHERE D1.seq > 0    
+join a
+    where a.parent_entity_id = rec->qual[d1.seq].pid
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd = 756.0;home addr
+      and a.active_ind = 1
+order by
+    a.parent_entity_id
+detail
+;head a.parent_entity_id
+ ;   pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+    rec->qual[d1.seq].patient_addr1 = a.street_addr
+    rec->qual[d1.seq].pateint_addr2 = a.street_addr2
+    rec->qual[d1.seq].patient_city  = a.city
+    rec->qual[d1.seq].patient_state = uar_get_code_display(a.state_cd)
+    rec->qual[d1.seq].patient_zipcode =
+        if(size(trim(a.zipcode))<9)
+            a.zipcode
+        else
+            format(a.zipcode,"#####-####")
+        endif
+with nocounter,time=3900
+
+;/***********************************************************************************************************************
+;*                                        PATIENT STATEMENTS
+;***********************************************************************************************************************/
+
+
+call echo(format(CNVTDATETIME(CURDATE,CURTIME3), "MM-DD-YYYY HH:MM:SS;;D"))
+
+select into "NL:"
+    bo.pft_encntr_id
+from
+    benefit_order       bo
+    ,bo_hp_reltn        bhr
+    ,bill_reltn         breltn
+    ,bill_rec           br
+   ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan D1
+	WHERE D1.seq > 0       
+join bo
+    where bo.pft_encntr_id = rec->qual[d1.seq].pft_eid
+      and bo.end_service_dt_tm is null
+      and bo.parent_bo_id = 0.0
+      and bo.active_ind = 1
+join bhr
+    where bhr.benefit_order_id = bo.benefit_order_id
+      and bhr.active_ind = 1
+      and bhr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and bhr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+join breltn
+    where breltn.parent_entity_id = bhr.bo_hp_reltn_id
+      and breltn.parent_entity_name = "BO_HP_RELTN"
+      and breltn.active_ind = 1
+join br
+    where br.corsp_activity_id = breltn.corsp_activity_id
+      and br.active_ind = 1
+order by
+    bo.pft_encntr_id
+    ,br.submit_dt_tm desc
+    ,br.corsp_activity_id
+head bo.pft_encntr_id
+    overall_cnt = 0
+    scnt = 0
+    ;pos = locateval(num,1,size(rec->qual,5),bo.pft_encntr_id,rec->qual[num].pft_eid)
+    scnt = scnt + 1
+    rec->qual[d1.seq].stmnt_cnt = scnt
+    rec->qual[d1.seq].stmnt_cnt_formatted = cnvtstring(scnt)
+    stat = alterlist(rec->qual[d1.seq].stmnt_qual,scnt)
+    rec->qual[d1.seq].stmnt_qual[scnt].stmnt_nbr = br.bill_nbr_disp
+    rec->qual[d1.seq].stmnt_qual[scnt].stmnt_submit_date = format(br.submit_dt_tm,"MM/dd/yyyy")
+    rec->qual[d1.seq].stmnt_qual[scnt].stmnt_amt_due = br.balance
+head br.corsp_activity_id
+    overall_cnt = overall_cnt + 1
+    rec->qual[d1.seq].overall_stmnt_cnt = cnvtstring(overall_cnt)
+foot bo.pft_encntr_id
+    if(rec->qual[d1.seq].stmnt_qual[scnt].stmnt_amt_due = 0.0)
+        rec->qual[d1.seq].patient_zero_stmnt_bal = "Y"
+    endif
+with nocounter,time=3900
+;;call echorecord(rec)
+
+;/***********************************************************************************************************************
+;*                                        OUTPUT
+;***********************************************************************************************************************/
+;
+;call echo(format(CNVTDATETIME(CURDATE,CURTIME3), "MM-DD-YYYY HH:MM:SS;;D"))
+;
+;
+	select into $outdev
+	     Primary_Account_Number 	= trim(substring(1,50,rec->qual[d1.seq].acct_nbr))
+	    ,Secondary_Account_Number 	= trim(substring(1,50,rec->qual[d1.seq].financial_nbr)) ;n/a
+	    ,Balance 					= trim(substring(1,60,rec->qual[d1.seq].acct_balance))
+	    ,SecureDesc 				= " "
+	    ,Prefix_Name 				= " " ;trim(substring(1,80,rec->qual[d1.seq].patient_prefix_name))
+	    ,First_Name 				= trim(substring(1,80,rec->qual[d1.seq].patient_first_name))
+	    ,Middle_Name 				= trim(substring(1,80,rec->qual[d1.seq].patient_middle_name))
+	    ,Last_Name 					= trim(substring(1,80,rec->qual[d1.seq].patient_last_name))
+	    ,Suffix_Name 				= trim(substring(1,60,rec->qual[d1.seq].patient_suffix_name))
+	    ,SSN 						= trim(substring(1,20,rec->qual[d1.seq].patient_social))
+	    ,Address_1 					= trim(substring(1,120,rec->qual[d1.seq].patient_addr1))
+	    ,Address_2 					= trim(substring(1,120,rec->qual[d1.seq].pateint_addr2))
+	    ,City 						= trim(substring(1,60,rec->qual[d1.seq].patient_city))
+	    ,State 						= trim(substring(1,60,rec->qual[d1.seq].patient_state))
+	    ,Zip_Code 					= trim(substring(1,20,rec->qual[d1.seq].patient_zipcode))
+	    ,DOB 						= trim(substring(1,20,rec->qual[d1.seq].patient_dob))
+	    ,DOD 						= trim(substring(1,20,rec->qual[d1.seq].patient_expire_date))
+	    ,Notes 						= " "
+	    ,Date_Of_Service 			= trim(substring(1,20,rec->qual[d1.seq].discharge_date))
+	    ,Facility 					= trim(substring(1,60,rec->qual[d1.seq].facility))
+	    ,Last_SelfPay_Payment_Date 	= trim(substring(1,60,rec->qual[d1.seq].patient_last_pay_date))
+	    ,Last_SelfPay_Payment_Amount= trim(substring(1,60,rec->qual[d1.seq].patient_last_pay_amt))	    
+	from
+	    (dummyt d1 with seq = value(size(rec->qual,5)))
+	plan d1
+	    where d1.seq > 0
+	;      and rec->qual[d1.seq].pt_exp_24mo_ago_flag = "N"
+	    ;  and rec->qual[d1.seq].patient_zero_stmnt_bal = "N"
+	order by 1
+	with nocounter, format, separator = " "
+	
+
+
+select into $outdev;"NL:"
+rec->qual[d1.seq].pft_eid
+,format(ptr.amount,"#########.##;l")
+,format(tl.updt_dt_tm,"MM/dd/yyyy")
+,TL.updt_dt_tm
+,ptr.beg_effective_dt_tm
+,pd.*
+from
+    pft_trans_reltn     ptr
+    ,trans_log          tl
+    ,payment_detail     pd
+    ,(DUMMYT D1 WITH SEQ = VALUE(size(rec->qual,5)))
+plan d1
+	where d1.seq> 0
+join ptr
+	where ptr.parent_entity_id = rec->qual[d1.seq].pft_eid
+;plan ptr
+ ;   where expand(num,1,size(rec->qual,5),ptr.parent_entity_id,rec->qual[num].pft_eid)
+      and ptr.active_ind = 1
+      and ptr.trans_type_cd = 10982.00;payment
+join tl
+    where tl.activity_id = ptr.activity_id
+      and tl.active_ind = 1
+join pd
+    where pd.payment_detail_id = tl.payment_detail_id
+      and pd.active_ind = 1
+order by
+    ptr.parent_entity_id
+    ,ptr.beg_effective_dt_tm
+;head ptr.parent_entity_id
+;	rec->qual[d1.seq].patient_last_pay_amt 	= format(ptr.amount,"#########.##;l")
+;	rec->qual[d1.seq].patient_last_pay_date = format(tl.updt_dt_tm,"MM/dd/yyyy")
+with nocounter,expand=1,time=3900, format, separator = " "
+
+
+end
+go
