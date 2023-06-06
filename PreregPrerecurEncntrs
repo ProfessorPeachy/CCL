@@ -1,0 +1,191 @@
+drop program 1_amj_prereg_prerecur_encntrs go
+create program 1_amj_prereg_prerecur_encntrs
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Beginning Date" = ""
+	, "Select Ending Date  Time" = ""
+	
+	, "Select Facility" = 0 
+
+with OUTDEV, BEG_DT, END_DT, FAC
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare prereg_cd 						= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"PREREG")),protect
+declare prerecurring_cd 				= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"PRERECURRING")),protect
+declare active_enc_type 				= f8 with constant(uar_get_code_by("DISPLAYKEY",261,"ACTIVE")),protect
+declare active_status_cd 				= f8 with constant(uar_get_code_by("DISPLAYKEY",48,"ACTIVE")),protect
+declare preadmit_enc_type 				= f8 with constant(uar_get_code_by("DISPLAYKEY",261,"PREADMIT")),protect
+
+declare cnt = i4
+
+
+free record rec
+record rec
+(1 cnt                          = i4
+ 1 qual[*]
+    2 eid                       = f8
+    2 pid       	            = f8
+    2 fin						= vc
+    2 mrn						= vc
+    2 dob						= vc
+    2 fname						= vc
+    2 lname						= vc
+    2 beg_effective_date		= vc
+    2 disch_date				= vc
+    2 reg_date					= vc
+    2 arrive_date				= vc
+    2 prereg_date				= vc
+    2 encounter_type			= vc
+    2 encounter_status			= vc
+    2 has_order					= i2
+    2 order_date				= vc
+  	2 order_status				= vc
+)
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+Select into $OUTDEV
+ENCOUNTER_TYPE = UAR_GET_CODE_DISPLAY(E.encntr_type_cd)
+,ENCOUNTER_STATUS = UAR_GET_CODE_DISPLAY(E.encntr_status_cd)
+,ACTIVE_STATUS = UAR_GET_CODE_DISPLAY(E.active_status_cd)
+,E.active_status_dt_tm
+,e.disch_dt_tm
+,e.inpatient_admit_dt_tm
+,e.reg_dt_tm
+,e.arrive_dt_tm
+,e.pre_reg_dt_tm
+from encounter e
+plan e
+;WHERE E.encntr_status_cd = 854 ; ACTIVE
+WHERE e.encntr_type_cd in (prereg_cd,prerecurring_cd)
+AND E.active_status_cd = active_status_cd ;188; ACTIVE
+AND E.loc_facility_cd = $fac
+and E.beg_effective_dt_tm >= CNVTDATETIME($BEG_DT) 
+AND E.beg_effective_dt_tm <= CNVTDATETIME($END_DT)
+and e.person_id > 0
+and e.encntr_id > 0
+and e.active_ind = 1
+order by e.pre_reg_dt_tm
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+DETAIL
+    cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt != 1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+    rec->qual[cnt].eid 						= e.encntr_id
+    rec->qual[cnt].pid 						= e.person_id
+    rec->qual[cnt].beg_effective_date 		= format(e.beg_effective_dt_tm, "@SHORTDATETIME")	
+    rec->qual[cnt].disch_date 				= format(e.disch_dt_tm, "@SHORTDATETIME")	
+    rec->qual[cnt].reg_date 				= format(e.reg_dt_tm, "@SHORTDATETIME")	
+    rec->qual[cnt].arrive_date 				= format(e.arrive_dt_tm, "@SHORTDATETIME")	
+    rec->qual[cnt].prereg_date 				= format(e.pre_reg_dt_tm, "@SHORTDATETIME")	
+    rec->qual[cnt].encounter_type			= UAR_GET_CODE_DISPLAY(E.encntr_type_cd)
+    rec->qual[cnt].encounter_status			= UAR_GET_CODE_DISPLAY(E.encntr_status_cd)
+foot report
+	stat = alterlist(rec->qual,cnt)
+WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+
+
+select into $outdev
+	 pid = rec->qual[d1.seq].pid	
+	,eid = rec->qual[d1.seq].eid 									
+	,rec->qual[d1.seq].beg_effective_date		
+	,rec->qual[d1.seq].disch_date			
+	,rec->qual[d1.seq].reg_date				
+	,rec->qual[d1.seq].arrive_date				
+	,rec->qual[d1.seq].prereg_date		
+	,o.order_id
+	,o.orig_order_dt_tm	
+from 
+	orders o
+	,(dummyt d1 with seq = value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join o
+	where o.person_id 	= rec->qual[d1.seq].pid
+	and o.encntr_id 	= rec->qual[d1.seq].eid
+order by pid, eid	
+head eid
+	rec->qual[d1.seq].has_order 		= 1
+	rec->qual[d1.seq].order_date 		= format(o.orig_order_dt_tm, "@SHORTDATETIME")	
+	rec->qual[d1.seq].order_status 		= uar_get_code_display(o.order_status_cd)
+with nocounter, format, separator = " ", time = 60
+
+
+
+select into $outdev
+	 pid = rec->qual[d1.seq].pid	
+	,eid = rec->qual[d1.seq].eid 									
+	,fin = rec->qual[d1.seq].fin 
+	,beg_eff_date 	= rec->qual[d1.seq].beg_effective_date		
+	,disch_date		= rec->qual[d1.seq].disch_date			
+	,reg_date		= rec->qual[d1.seq].reg_date				
+	,arrive_date	= rec->qual[d1.seq].arrive_date				
+	,prereg_date	= rec->qual[d1.seq].prereg_date			
+	,has_order 		= rec->qual[d1.seq].has_order
+	,order_status 	= rec->qual[d1.seq].order_status
+	,order_date		= rec->qual[d1.seq].order_date	
+from 
+	encntr_alias ea
+	,person p
+	,(dummyt d1 with seq = value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join p
+	where p.person_id = rec->qual[d1.seq].pid
+	and p.active_ind = 1
+join ea
+	where ea.encntr_id = 	rec->qual[d1.seq].eid 		
+	and ea.encntr_alias_type_cd = 1077 ;fin
+order by pid, eid	
+detail
+	rec->qual[d1.seq].fin 	= ea.alias
+	rec->qual[d1.seq].fname = p.name_first
+	rec->qual[d1.seq].lname = p.name_last
+with nocounter, format, separator = " "
+
+select into $outdev
+	 pid 				= rec->qual[d1.seq].pid	
+	,eid 				= rec->qual[d1.seq].eid 									
+	,fin 				= rec->qual[d1.seq].fin 	
+	,last_name			= rec->qual[d1.seq].lname
+	,first_name			= rec->qual[d1.seq].fname
+	,beg_eff_date 		= rec->qual[d1.seq].beg_effective_date		
+	,disch_date			= rec->qual[d1.seq].disch_date			
+	,reg_date			= rec->qual[d1.seq].reg_date				
+	,arrive_date		= rec->qual[d1.seq].arrive_date				
+	,prereg_date		= rec->qual[d1.seq].prereg_date			
+	,has_order 			= rec->qual[d1.seq].has_order
+	,order_status 		= rec->qual[d1.seq].order_status
+	,order_date			= rec->qual[d1.seq].order_date	
+	,encounter_status 	= rec->qual[d1.seq].encounter_status
+	,encounter_type		= rec->qual[d1.seq].encounter_type
+from 
+	(dummyt d1 with seq = value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+;	and 	rec->qual[d1.seq].has_order = 1
+order by pid, eid	
+with nocounter, format, separator = " "
+
+;CAll echojson(rec,$OUTDEV)
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
