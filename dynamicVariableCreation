@@ -1,0 +1,17 @@
+select "declare "
+,trim(cv.display_key,3)
+, "_cd = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',"
+,trim(cnvtstring(cv.code_set),3),",","'"
+,trim(cv.display_key,3),"')",";",cv.code_value
+from code_value cv
+plan cv
+where cv.code_value in (
+2569084515
+,  3224545.00
+,16806092
+,4272602799
+,63291687
+,63291775
+,63291625
+,636727
+)
