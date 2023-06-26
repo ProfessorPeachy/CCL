@@ -1,0 +1,9 @@
+;sample pos locateval for use with expand when there can be more than one item in a record structure
+
+
+	pos = locateval(index, 1,output_req->cnt , op.order_id,output_req->qual[index].order_id)
+  while(pos > 0)
+    output_req->qual[pos].given_form 		= uar_get_code_display(md.form_cd)
+    output_req->qual[pos].item_id 			= op.item_id
+    pos = locateval(index, pos+1,output_req->cnt , op.order_id,output_req->qual[index].order_id)
+  endwhile
