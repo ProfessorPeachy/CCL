@@ -1,0 +1,19 @@
+select
+               cerner_position = cv.display
+               ,note_type = uar_get_code_display(nt.event_cd)
+                ,note_description = nt.note_type_description
+                ,note_type_event_code = nt.event_cd
+                ,position_code_value = cv.code_value
+from
+                note_type_list nt1
+                ,note_type nt
+                ,code_value cv
+plan nt1
+join nt where nt.note_type_id = nt1.note_type_id
+                and nt.data_status_ind = 1
+join cv where nt1.role_type_cd = cv.code_value
+                and cv.active_ind = 1
+                and cv.code_set = 88
+               ; and cv.display in ("Physician - Primary Care", "Physician - Psychiatry")
+order by nt.note_type_description, cv.display
+with maxrec = 10000 go
