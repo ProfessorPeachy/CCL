@@ -1,0 +1,22 @@
+
+
+
+;call echojson(rec,$outdev)
+;  SELECT INTO $outdev
+;  *
+;  FROM nomen_entity_reltn ner,
+;   diagnosis dg,
+;   nomenclature no
+;  PLAN (ner
+;   WHERE ner.encntr_id = 107515819
+;   and ner.active_ind=1
+;    AND ner.child_entity_name="DIAGNOSIS"
+;    AND ner.parent_entity_name="ORDERS"
+;    AND ner.reltn_type_cd=orderdiag
+;    AND expand(num,1,nbr_to_get,ner.parent_entity_id,request->order_qual[num].order_id))
+;   JOIN (dg
+;   WHERE dg.diagnosis_id=ner.child_entity_id)
+;   JOIN (no
+;   WHERE no.nomenclature_id=ner.nomenclature_id)
+;  ORDER BY ner.parent_entity_id, ner.priority
+;with nocounter,time=3900, FORMAT, SEPARATOR = " "
