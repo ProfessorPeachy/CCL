@@ -1,0 +1,903 @@
+
+free record c_master
+record c_master
+(1 cnt = i4
+ 1 qual[*]
+    2 bill_item_id = f8
+    2 bill_item = vc
+    2 bill_item_desc = vc
+    2 parent_ref_id = vc
+    2 activity_type = vc
+    2 act_type = vc
+    2 marshall_price_sched = vc
+    2 technical_price_sched = vc
+    2 wayne_price_sched = vc
+    2 amb_pro_price_sched = vc
+    2 amb_pro_tech_sched = vc
+    2 cpt = vc
+    2 cpt_modifier = vc
+    2 cpt_profee_modifier = vc
+    2 amb_revcode_profee = vc
+    2 revcode = vc
+    2 hcpcs = vc
+    2 fy_modifier = vc
+ 	)
+ 
+free record c_experian
+record c_experian
+(1 cnt = i4
+ 1 qual[*]
+    2 bill_item_id = f8
+    2 bill_item = vc
+    2 bill_item_desc = vc
+    2 parent_ref_id = f8
+    2 activity_type = vc
+    2 price_sched = vc
+    2 cpt = vc
+    2 cpt_modifier = vc
+    2 cpt_profee_modifier = vc
+    2 amb_revcode_profee = vc
+    2 revcode = vc
+    2 hcpcs = vc
+    2 fy_modifier = vc
+    2 desc = vc
+	2 item_id = f8
+	2 med_def_flex_id = f8
+	2 awp_cost = f8
+	2 med_disp_factor = f8
+	2 awp_disp_factor = f8
+	2 mfoi_seq = i4
+	2 med_oe_def_id = f8
+	2 med_price_sched = f8
+	2 med_price_sched_desc = vc
+	2 med_mark_up = f8
+	2 med_from_cost = f8
+	2 med_to_cost = f8
+	2 med_min_price = f8
+	2 med_round_up = f8
+	2 med_service_fee = f8
+	2 med_admin_fee = f8
+	2 price = f8
+	2 floor_price = f8
+	2 floor_price_char = vc
+	2 markupprice = f8
+	2 roundprice = f8
+	2 option3 = vc
+	2 right_of_decimal = vc
+	2 formatting_decimal_places = f8
+	2 rounding_decimal_places = vc
+	2 for_rounding_ranges = f8
+ 
+ 	)
+/*************************************************************************************
+;          BILL ITEMS
+*************************************************************************************/
+select into "NL:"
+	b.bill_item_id
+ 
+from
+	bill_item   b
+	, price_sched_items   p
+ 
+plan b
+where b.ext_description is not null
+	and b.active_ind = 1
+	and b.end_effective_dt_tm >= cnvtdate(12302100)
+ 
+join p
+	where p.bill_item_id = outerjoin(b.bill_item_id)
+	and p.price_sched_id in (626883.00,71810815.00,71810816.00,71794790.00,71794789.00);$price_sch ;003
+	and p.end_effective_dt_tm >= cnvtdate(12302100)
+ 
+order by
+	b.bill_item_id
+ 
+head report
+    bcnt = 0
+    stat = alterlist(c_master->qual,100)
+ 
+head b.bill_item_id
+    bcnt = bcnt + 1
+ 
+    if(mod(bcnt,100)=1 and bcnt !=1)
+        stat = alterlist(c_master->qual,bcnt+99)
+    endif
+ 
+    c_master->qual[bcnt].bill_item = cnvtstring(b.bill_item_id)
+    c_master->qual[bcnt].bill_item_desc = b.ext_description
+    c_master->qual[bcnt].bill_item_id = b.bill_item_id
+    c_master->qual[bcnt].parent_ref_id = cnvtstring(b.ext_parent_reference_id)
+    c_master->qual[bcnt].act_type = substring(1,20,uar_get_code_display(b.ext_owner_cd))
+ 
+    c_master->qual[bcnt].marshall_price_sched = "9999"
+    c_master->qual[bcnt].technical_price_sched = "9999"
+    c_master->qual[bcnt].wayne_price_sched = "9999"
+    c_master->qual[bcnt].amb_pro_price_sched = "9999"
+    c_master->qual[bcnt].amb_pro_tech_sched = "9999" ;003
+ 
+case (uar_get_code_display(b.ext_owner_cd))
+	of "AFC GENERIC ADD-ON":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Asmt/Tx/Monitoring":
+			c_master->qual[bcnt].activity_type = "1"
+	of "General Lab":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Micro":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Radiology":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Patient Care":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Infusion Therapy":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Critical Care":
+			c_master->qual[bcnt].activity_type = "1"
+	of "RT Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Cardio":
+			c_master->qual[bcnt].activity_type = "1"
+	of "Behavioral Health":
+			c_master->qual[bcnt].activity_type = "2"
+	of "Dialysis":
+			c_master->qual[bcnt].activity_type = "3"
+	of "Dialysis Tx":
+			c_master->qual[bcnt].activity_type = "3"
+	of "Wound Care - Manual":
+			c_master->qual[bcnt].activity_type = "3"
+	of "Cath Lab":
+			c_master->qual[bcnt].activity_type = "3"
+	of "Rad Therapy":
+			c_master->qual[bcnt].activity_type = "3"
+	of "Blood Bank":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Blood Bank Product":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Pharmacy":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Supplies":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Surgery":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Cardiac Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "4"
+	of "OT Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Surgery Caselevel":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Surgery Anesthesia":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Diabetic Nurse Specialist Consults":
+			c_master->qual[bcnt].activity_type = "4"
+	of "PT Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "4"
+	of "SLP Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Cardiovascular":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Surgery Acuity Level":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Person Management":
+			c_master->qual[bcnt].activity_type = "4"
+	of "ED Charges":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Sleep Medicine":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Pediatric Sedation":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Nutrition":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Cardiology w/Contrast Hidden Orders":
+			c_master->qual[bcnt].activity_type = "4"
+	of "General Lab - Spec Misc":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Sleep Orders":
+			c_master->qual[bcnt].activity_type = "4"
+	of "Evaluation and Management":
+			c_master->qual[bcnt].activity_type = "5"
+	of "OB/GYN Tx/Procedures":
+			c_master->qual[bcnt].activity_type = "5"
+	of "Ambulatory Procedures":
+			c_master->qual[bcnt].activity_type = "5"
+	of "EMS":
+			c_master->qual[bcnt].activity_type = "6"
+	of "Ambulatory POC":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Integumentary":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Musculoskeletal":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Respiratory":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Hemic/Lymphatic":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Digestive":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Male Genital":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Female Genital":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Maternity":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Endocrine":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Nervous Sys":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Eye/Occular":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Auditory":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Cardiovas Med":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Pulmonary":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Allerg/Clin Imm":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Neurology":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Office Visits":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Consultations":
+			c_master->qual[bcnt].activity_type = "7"
+	of "FQHC Charges":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Gastroenter":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Chemotherapy":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Otorhinolaryngology":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Phy Med/Rehab":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Cosmetic":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Non Inv Vasc":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Ambulatory Patient Care":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Radiation Oncology":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Office Visits: Category II Code":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Office Visits: Women's Health":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Ambulatory POC - MANUAL":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Ambulatory In Office Meds - MANUAL":
+			c_master->qual[bcnt].activity_type = "7"
+	of "Ambulatory Powerform - MANUAL":
+			c_master->qual[bcnt].activity_type = "7"
+	of "In-Office Meds":
+			c_master->qual[bcnt].activity_type = "7"
+	endcase
+ 
+foot report
+    if(bcnt>0)
+        c_master->cnt = bcnt
+        stat = alterlist(c_master->qual,bcnt)
+    endif
+ 
+with nocounter,time=3900
+/*************************************************************************************
+;          CPT, CDM,AND REVENUE CODES CODES
+*************************************************************************************/
+ 
+select into "NL:"
+    bim.bill_item_id
+    ,bim.key6
+from
+    bill_item_modifier bim
+plan bim
+    where expand(num,1,size(c_master->qual,5),bim.bill_item_id,c_master->qual[num].bill_item_id)
+      and bim.bill_item_type_cd = 3459.0
+      and bim.key1_id in (615214.0;cpt
+                          ,2553380743.0;amb rev code profee
+                          ,615217.0;rev code
+                          ,615215.0;hcpcs
+                          ,3692.0;cpt modifier
+                          ,2559084599.0;fy modifier
+                          ,2553380747.0;amb profee modifier
+                          )
+     and bim.active_ind = 1
+ 
+order by
+    bim.bill_item_id
+ 
+head bim.bill_item_id
+    pos = locateval(num,1,size(c_master->qual,5),bim.bill_item_id,c_master->qual[num].bill_item_id)
+ 
+detail
+    case (bim.key1_id)
+        of 615214.0:
+            c_master->qual[pos].cpt = bim.key6
+        of 2553380743.0:
+            c_master->qual[pos].amb_revcode_profee = '1001';004dkh
+        of 615217.0:
+            c_master->qual[pos].revcode = bim.key6
+        of 615215.0:
+            c_master->qual[pos].hcpcs = bim.key6
+        of 3692.0:
+            c_master->qual[pos].cpt_modifier = bim.key6
+        of 2553380747.0:
+            c_master->qual[pos].cpt_profee_modifier = bim.key6
+        of 2559084599.0:
+        	c_master->qual[pos].fy_modifier = bim.key6
+     endcase
+ 
+foot bim.bill_item_id
+    if(c_master->qual[pos].cpt = "" and
+       c_master->qual[pos].hcpcs != "")
+            c_master->qual[pos].cpt = c_master->qual[pos].hcpcs
+    else
+            c_master->qual[pos].cpt = c_master->qual[pos].cpt
+    endif
+ 
+with nocounter,expand=1,time=3900
+/*************************************************************************************
+;          PRICE SCHEDULES
+*************************************************************************************/
+ 
+select into "NL:"
+    ps.price
+from
+    price_sched_items ps
+ 
+plan ps
+    where expand(num,1,size(c_master->qual,5),ps.bill_item_id,c_master->qual[num].bill_item_id)
+      and ps.active_ind = 1
+      and ps.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    ps.bill_item_id
+ 
+head ps.bill_item_id
+    pos = locateval(num,1,size(c_master->qual,5),ps.bill_item_id,c_master->qual[num].bill_item_id)
+ 
+detail
+    case(ps.price_sched_id)
+   		of 626883.0:
+            c_master->qual[pos].technical_price_sched = format(ps.price,"#####.##;l")
+        of 71810815.0:
+            c_master->qual[pos].marshall_price_sched = format(ps.price,"#####.##;l")
+        of 71810816.0:
+            c_master->qual[pos].wayne_price_sched = format(ps.price,"#####.##;l")
+        of 71794790.0:
+            c_master->qual[pos].amb_pro_price_sched = format(ps.price,"#####.##;l")
+        of 71794789.0:;003
+         	c_master->qual[pos].amb_pro_tech_sched = format(ps.price,"#####.##;l");003
+     endcase
+ 
+foot ps.bill_item_id
+    if(c_master->qual[pos].technical_price_sched != "9999" and
+       c_master->qual[pos].marshall_price_sched = "9999")
+            c_master->qual[pos].marshall_price_sched = c_master->qual[pos].technical_price_sched
+    else
+            c_master->qual[pos].marshall_price_sched = c_master->qual[pos].marshall_price_sched
+    endif
+ 
+    if(c_master->qual[pos].technical_price_sched != "9999" and
+       c_master->qual[pos].wayne_price_sched = "9999")
+            c_master->qual[pos].wayne_price_sched = c_master->qual[pos].technical_price_sched
+    else
+            c_master->qual[pos].wayne_price_sched = c_master->qual[pos].wayne_price_sched
+    endif
+ 	;start 003
+ 	if (c_master->qual[pos].amb_pro_tech_sched != "9999" and c_master->qual[pos].amb_pro_price_sched = "9999")
+ 		c_master->qual[pos].amb_pro_price_sched = c_master->qual[pos].amb_pro_tech_sched
+ 	else
+ 		c_master->qual[pos].amb_pro_price_sched = c_master->qual[pos].amb_pro_price_sched
+ 	endif
+    ;end 003
+    if(c_master->qual[pos].technical_price_sched = "9999")
+        c_master->qual[pos].technical_price_sched = "0.0"
+    endif
+    if(c_master->qual[pos].marshall_price_sched = "9999")
+        c_master->qual[pos].marshall_price_sched = "0.0"
+    endif
+    if(c_master->qual[pos].wayne_price_sched = "9999")
+        c_master->qual[pos].wayne_price_sched = "0.0"
+    endif
+    if(c_master->qual[pos].amb_pro_price_sched = "9999")
+        c_master->qual[pos].amb_pro_price_sched = "0.0"
+    endif
+ 
+with nocounter,expand=1,time=3900
+ 
+ 
+ 
+;1_maur_tn_cdm_experian script
+/*************************************************************************************
+;          BILL ITEMS
+*************************************************************************************/
+ 
+select into "NL:"
+	b.bill_item_id
+ 
+from
+	bill_item   b
+ 
+plan b
+where b.active_ind = 1
+	and b.end_effective_dt_tm >= cnvtdate(12302100)
+	and b.ext_owner_cd = 705.00
+ 
+order by
+	b.bill_item_id
+ 
+head report
+    bcnt = 0
+    stat = alterlist(c_experian->qual,100)
+ 
+head b.bill_item_id
+    bcnt = bcnt + 1
+ 
+    if(mod(bcnt,100)=1 and bcnt !=1)
+        stat = alterlist(c_experian->qual,bcnt+99)
+    endif
+ 
+    c_experian->qual[bcnt].bill_item = cnvtstring(b.bill_item_id)
+    c_experian->qual[bcnt].bill_item_desc = b.ext_description
+    c_experian->qual[bcnt].bill_item_id = b.bill_item_id
+    c_experian->qual[bcnt].parent_ref_id = b.ext_parent_reference_id
+    c_experian->qual[bcnt].activity_type = substring(1,20,uar_get_code_display(b.ext_owner_cd))
+ 
+foot report
+    if(bcnt>0)
+        c_experian->cnt = bcnt
+        stat = alterlist(c_experian->qual,bcnt)
+    endif
+ 
+with nocounter,time=3900
+ 
+/*************************************************************************************
+;          CPT, CDM,AND REVENUE CODES CODES - BILL ITEM MODIFIERS
+*************************************************************************************/
+select into "NL:"
+    bim.bill_item_id
+    ,bim.key6
+from
+    bill_item_modifier bim
+plan bim
+    where expand(num,1,size(c_experian->qual,5),bim.bill_item_id,c_experian->qual[num].bill_item_id)
+      and bim.bill_item_type_cd = 3459.0
+      and bim.key1_id in (615214.0;cpt
+                          ,2553380743.0;amb rev code profee
+                          ,615217.0;rev code
+                          ;,615215.0;hcpcs
+                          ,3692.0;cpt modifier
+                          ,2559084599.0;fy modifier
+                          ,2553380747.0;amb profee modifier
+                          )
+     and bim.active_ind = 1
+order by
+    bim.bill_item_id
+ 
+head bim.bill_item_id
+    pos = locateval(num,1,size(c_experian->qual,5),bim.bill_item_id,c_experian->qual[num].bill_item_id)
+ 
+detail
+    case (bim.key1_id)
+        of 615214.0:
+            c_experian->qual[pos].cpt = bim.key6
+        of 2553380743.0:
+            c_experian->qual[pos].amb_revcode_profee = '1001';004dkh
+        of 615217.0:
+            c_experian->qual[pos].revcode = bim.key6
+        of 3692.0:
+            c_experian->qual[pos].cpt_modifier = bim.key6
+        of 2553380747.0:
+            c_experian->qual[pos].cpt_profee_modifier = bim.key6
+         of 2559084599.0:
+        	c_experian->qual[pos].fy_modifier = bim.key6
+     endcase
+ 
+with nocounter,expand=1,time=3900
+ 
+/*************************************************************************************
+;          Pharmacy Detail
+*************************************************************************************/
+select distinct into "NL:"
+	m.item_id
+	, m.active_ind
+	, m.med_def_flex_id
+	, mf.med_def_flex_object_id
+	, mf.sequence
+	, mi_med_identifier_type_disp = uar_get_code_display(mi.med_identifier_type_cd)
+	, mi.med_product_id
+	, mi.value
+	, mie_med_identifier_type_disp = uar_get_code_display(mie.med_identifier_type_cd)
+	, mie.med_product_id
+	, mie.value
+	, mc.med_cost_hx_id
+	, mc.cost
+	, mc_cost_type_disp = uar_get_code_display(mc.cost_type_cd)
+	, md.dispense_factor
+ 
+from
+	med_def_flex m
+	, med_flex_object_idx mf
+	, med_identifier mi
+	, med_identifier mie
+	, med_cost_hx mc
+	, med_dispense md
+ 
+plan m
+where expand(num,1,size(c_experian->qual,5),m.med_def_flex_id,c_experian->qual[num].parent_ref_id)
+and m.active_ind = 1
+ 
+join mf where mf.med_def_flex_id = m.med_def_flex_id
+and mf.sequence = 1
+and mf.parent_entity_name = "MED_PRODUCT"
+ 
+join mi where mi.item_id = m.item_id
+and outerjoin(mi.med_def_flex_id) = mf.med_def_flex_id
+and outerjoin(mi.med_product_id) = mf.parent_entity_id
+and mi.med_identifier_type_cd = outerjoin(3097.00)
+ 
+join mie where mie.med_def_flex_id = outerjoin(mf.med_def_flex_id)
+and mie.med_identifier_type_cd = outerjoin(615035.00)
+ 
+join mc where mc.med_product_id = outerjoin(mi.med_product_id)
+and mc.cost_type_cd = outerjoin(2431.00)
+and mc.active_ind = 1
+ 
+join md where md.item_id = m.item_id
+ 
+order by
+	m.med_def_flex_id
+	, mf.sequence
+	, mi_med_identifier_type_disp
+ 
+head m.med_def_flex_id
+    pos = locateval(num,1,size(c_experian->qual,5),m.med_def_flex_id,c_experian->qual[num].parent_ref_id)
+ 
+detail
+	c_experian->qual[pos].desc = mi.value
+	c_experian->qual[pos].hcpcs = mie.value
+	c_experian->qual[pos].item_id = m.item_id
+	c_experian->qual[pos].med_def_flex_id = m.med_def_flex_id
+	c_experian->qual[pos].awp_cost =  mc.cost
+	c_experian->qual[pos].med_disp_factor = md.dispense_factor
+	c_experian->qual[pos].awp_disp_factor =  (c_experian->qual[pos].awp_cost * c_experian->qual[pos].med_disp_factor);awp_disp_fact
+ 
+with nocounter,expand = 1, time=3900
+ 
+/*************************************************************************************
+;          Pharmacy Items with Price Schedule
+*************************************************************************************/
+SELECT DISTINCT
+	m.med_def_flex_id
+	, mo.med_oe_defaults_id
+	, mo.price_sched_id
+	, p.price_sched_short_desc
+	, pr.mark_up
+	, pr.from_cost
+	, pr.to_cost
+	, pr.min_price
+	, pr.round_up
+	, pr.service_fee
+	, pr.admin_fee
+ 
+FROM
+	med_flex_object_idx   m
+	, med_oe_defaults   mo
+	, price_sched   p
+	, price_range   pr
+ 
+plan m
+	where expand(num,1,size(c_experian->qual,5),m.med_def_flex_id,c_experian->qual[num].parent_ref_id)
+join mo where m.parent_entity_id = mo.med_oe_defaults_id
+join p where p.price_sched_id = mo.price_sched_id
+join pr where pr.price_sched_id = p.price_sched_id
+ 
+ORDER BY
+	m.med_def_flex_id
+ 
+head m.med_def_flex_id
+    pos = locateval(num,1,size(c_experian->qual,5),m.med_def_flex_id,c_experian->qual[num].parent_ref_id)
+ 
+detail
+	if (c_experian->qual[pos].awp_disp_factor >= pr.from_cost and c_experian->qual[pos].awp_disp_factor <= pr.to_cost)
+		c_experian->qual[pos].med_from_cost = pr.from_cost
+		c_experian->qual[pos].med_to_cost = pr.to_cost
+		c_experian->qual[pos].med_mark_up = ((pr.mark_up/100)+1)
+		c_experian->qual[pos].med_min_price = pr.min_price
+		c_experian->qual[pos].med_round_up = pr.round_up
+		c_experian->qual[pos].med_service_fee = pr.service_fee
+		c_experian->qual[pos].med_admin_fee = pr.admin_fee
+	endif
+ 
+foot m.med_def_flex_id
+		c_experian->qual[pos].markupprice = ((c_experian->qual[pos].awp_disp_factor * c_experian->qual[pos].med_mark_up)
+								+ c_experian->qual[pos].med_service_fee + c_experian->qual[pos].med_admin_fee)
+ 		c_experian->qual[pos].option3 = cnvtstring(c_experian->qual[pos].markupprice,8,4)
+    	c_experian->qual[pos].floor_price = floor(c_experian->qual[pos].markupprice)
+    	c_experian->qual[pos].floor_price_char = cnvtstring(floor(c_experian->qual[pos].markupprice))
+ 		c_experian->qual[pos].right_of_decimal = piece(c_experian->qual[pos].option3,".",2,"0")
+ 		c_experian->qual[pos].formatting_decimal_places = cnvtreal(piece(c_experian->qual[pos].option3,".",2,"0"))/100
+ 		c_experian->qual[pos].rounding_decimal_places = format(cnvtreal(piece(c_experian->qual[pos].option3,".",2,"0"))/100,"##")
+ 		c_experian->qual[pos].for_rounding_ranges = cnvtreal(format(cnvtreal(piece(c_experian->qual[pos].option3,".",2,"0"))/100,"##"))
+	if (c_experian->qual[pos].markupprice < c_experian->qual[pos].med_min_price)
+		c_experian->qual[pos].price = c_experian->qual[pos].med_min_price
+	elseif (c_experian->qual[pos].markupprice = c_experian->qual[pos].med_service_fee)
+       		c_experian->qual[pos].price = ceil(c_experian->qual[pos].med_service_fee)
+	elseif (c_experian->qual[pos].med_round_up > 2.0)
+		c_experian->qual[pos].price = c_experian->qual[pos].med_round_up
+    elseif (c_experian->qual[pos].med_round_up = 0.250000
+            and c_experian->qual[pos].markupprice > c_experian->qual[pos].med_min_price
+        and (c_experian->qual[pos].for_rounding_ranges < 26))
+            c_experian->qual[pos].price = cnvtreal(build(trim(cnvtstring(c_experian->qual[pos].option3)),".25"))
+    elseif (c_experian->qual[pos].med_round_up = 0.250000
+         and c_experian->qual[pos].markupprice > c_experian->qual[pos].med_min_price
+    	and (c_experian->qual[pos].for_rounding_ranges between 26 and 50))
+            c_experian->qual[pos].price = cnvtreal(build(trim(cnvtstring(c_experian->qual[pos].option3)),".50"))
+    elseif (c_experian->qual[pos].med_round_up = 0.250000
+        and c_experian->qual[pos].markupprice > c_experian->qual[pos].med_min_price
+    	and (c_experian->qual[pos].for_rounding_ranges between 51 and 75))
+            c_experian->qual[pos].price = cnvtreal(build(trim(c_experian->qual[pos].floor_price_char),".75"))
+    elseif(c_experian->qual[pos].med_round_up = 0.250000 and c_experian->qual[pos].markupprice > c_experian->qual[pos].med_min_price
+    	and (c_experian->qual[pos].for_rounding_ranges > 75))
+            c_experian->qual[pos].price = cnvtreal(build(trim(cnvtstring(c_experian->qual[pos].option3)),".00"))
+    else
+		c_experian->qual[pos].price = ceil(c_experian->qual[pos].markupprice)
+	endif
+ 
+WITH nocounter,expand=1, separator=" ", format
+call echorecord(c_experian)
+/*************************************************************************************
+;          REPORTWRITER SECTION
+*************************************************************************************/
+ 
+if($price_sch = 71794790.0) ;Ambulatory Professional Price Schedule
+select into value(mrmg_filepath)
+	cdm_code = trim(substring(1,20,c_master->qual[d1.seq].bill_item))
+    ,cdm_description = trim(substring(1,120,c_master->qual[d1.seq].bill_item_desc))
+    ,cpt_code = trim(substring(1,5,c_master->qual[d1.seq].cpt))
+    ,cpt_modifier = trim(substring(1,20,c_master->qual[d1.seq].cpt_modifier))
+    ,cpt_profee_modifier = trim(substring(1,20,c_master->qual[d1.seq].cpt_profee_modifier))
+    ,revenue_code = trim(substring(1,20,c_master->qual[d1.seq].amb_revcode_profee))
+	,mrmg_price = trim(substring(1,20,c_master->qual[d1.seq].amb_pro_price_sched))
+from
+    (dummyt d1 with seq=value(size(c_master->qual,5)))
+plan d1
+    where d1.seq > 0
+    and c_master->qual[d1.seq].activity_type in ("1","5","7")
+    and c_master->qual[d1.seq].amb_pro_price_sched != "9999"
+ 
+detail
+    line1 = build(cdm_code,"|",cdm_description,"|",cpt_code,"|",cpt_modifier,
+    			 "|",cpt_profee_modifier,"|",revenue_code,"|",mrmg_price
+                  )
+    col 0 line1
+    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900
+ 
+endif
+ 
+ 
+if ($price_sch = 71810815.0) ;marshall price sched
+ 
+select into value(mmc_filepath)
+	cdm_code = trim(substring(1,20,c_master->qual[d1.seq].bill_item))
+    ,cdm_description = trim(substring(1,120,c_master->qual[d1.seq].bill_item_desc))
+    ,cpt_code = trim(substring(1,5,c_master->qual[d1.seq].cpt))
+    ,cpt_modifier = trim(substring(1,20,c_master->qual[d1.seq].cpt_modifier))
+    ,cpt_modifier2 = trim(substring(1,20,c_master->qual[d1.seq].fy_modifier))
+    ,revenue_code = trim(substring(1,20,c_master->qual[d1.seq].revcode))
+    ,marshall_price = trim(substring(1,20,c_master->qual[d1.seq].marshall_price_sched))
+ 
+ 
+ 
+from
+    (dummyt d1 with seq=value(size(c_master->qual,5)))
+plan d1
+    where d1.seq > 0
+    and c_master->qual[d1.seq].activity_type in ("1","2","4")
+    and c_master->qual[d1.seq].marshall_price_sched != "9999"
+ 
+detail
+    line1 = build(cdm_code,"|",cdm_description,"|",cpt_code,"|",cpt_modifier,"|"
+    			  ,cpt_modifier2,"|",revenue_code,"|",marshall_price
+                  )
+    col 0 line1
+    row+1
+ 
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900
+ 
+select into value(mmc_filepath)
+ 
+	bill_item = trim(substring(1,20,c_experian->qual[d1.seq].bill_item ))
+    ,bill_item_desc = trim(substring(1,50,c_experian->qual[d1.seq].bill_item_desc))
+   ; ,parent_ref_id = c_experian->qual[d1.seq].parent_ref_id
+    ,hcpcs = trim(substring(1,5,c_experian->qual[d1.seq].hcpcs))
+    ,modifier1 = ""
+    ,modifier2 = ""
+    ,revcode = trim(substring(1,20,c_experian->qual[d1.seq].revcode))
+	,price = c_experian->qual[d1.seq].price
+ 
+ 
+from
+    (dummyt d1 with seq=value(size(c_experian->qual,5)))
+    ,(dummyt d2 with seq=value(size(c_experian->qual,5)))
+plan d1
+    where d1.seq > 0
+    AND c_experian->qual[d1.seq].item_id != 0.0
+join d2
+	where d1.seq = d2.seq
+ 
+head report
+    line = build("bill_item"
+    		,"|","bill_item_desc"
+  			,"|","hcpcs"
+  			,"|","modifier1"
+  			,"|","modifier2"
+  			,"|","revcode"
+   			,"|","price"
+ 
+			)
+ col 0 line
+    row+1
+ 
+detail
+    line1 = build(bill_item
+    		,"|",bill_item_desc
+  			,"|",hcpcs
+  			,"|",modifier1
+  			,"|",modifier2
+  			,"|",revcode
+   			,"|",price
+			)
+    col 0 line1
+    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900,append
+endif
+ 
+if ($price_sch = 71810816.0);Wayne Price Schedule
+ 
+select into value(wmc_filepath)
+	cdm_code = trim(substring(1,20,c_master->qual[d1.seq].bill_item))
+    ,cdm_description = trim(substring(1,120,c_master->qual[d1.seq].bill_item_desc))
+    ,cpt_code = trim(substring(1,5,c_master->qual[d1.seq].cpt))
+    ,cpt_modifier = trim(substring(1,20,c_master->qual[d1.seq].cpt_modifier))
+    ,cpt_modifier2 = trim(substring(1,20,c_master->qual[d1.seq].fy_modifier))
+    ,revenue_code = trim(substring(1,20,c_master->qual[d1.seq].revcode))
+	,wayne_price = trim(substring(1,20,c_master->qual[d1.seq].wayne_price_sched))
+ 
+from
+    (dummyt d1 with seq=value(size(c_master->qual,5)))
+plan d1
+    where d1.seq > 0
+    and c_master->qual[d1.seq].activity_type in ("1","4","6")
+    and c_master->qual[d1.seq].wayne_price_sched != "9999"
+ 
+detail
+    line1 = build(cdm_code,"|",cdm_description,"|",cpt_code,"|",cpt_modifier,"|"
+    			  ,cpt_modifier2,"|",revenue_code,"|",wayne_price
+                  )
+    col 0 line1
+    row+1
+ 
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900
+ 
+select into value(wmc_filepath)
+ 
+	bill_item = trim(substring(1,20,c_experian->qual[d1.seq].bill_item ))
+    ,bill_item_desc = trim(substring(1,50,c_experian->qual[d1.seq].bill_item_desc))
+   ; ,parent_ref_id = c_experian->qual[d1.seq].parent_ref_id
+    ,hcpcs = trim(substring(1,5,c_experian->qual[d1.seq].hcpcs))
+    ,modifier1 = ""
+    ,modifier2 = ""
+    ,revcode = trim(substring(1,20,c_experian->qual[d1.seq].revcode))
+	,price = c_experian->qual[d1.seq].price
+ 
+ 
+from
+    (dummyt d1 with seq=value(size(c_experian->qual,5)))
+    ,(dummyt d2 with seq=value(size(c_experian->qual,5)))
+plan d1
+    where d1.seq > 0
+    AND c_experian->qual[d1.seq].item_id != 0.0
+join d2
+	where d1.seq = d2.seq
+ 
+head report
+    line = build("bill_item"
+    		,"|","bill_item_desc"
+  			,"|","hcpcs"
+  			,"|","modifier1"
+  			,"|","modifier2"
+  			,"|","revcode"
+   			,"|","price"
+ 
+			)
+ col 0 line
+    row+1
+ 
+detail
+    line1 = build(bill_item
+    		,"|",bill_item_desc
+  			,"|",hcpcs
+  			,"|",modifier1
+  			,"|",modifier2
+  			,"|",revcode
+   			,"|",price
+			)
+    col 0 line1
+    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900,append
+endif
+ 
+if ($price_sch =626883.0);technical price sched mrmc
+ 
+select into value(mrmc_filepath)
+	cdm_code = trim(substring(1,20,c_master->qual[d1.seq].bill_item))
+    ,cdm_description = trim(substring(1,120,c_master->qual[d1.seq].bill_item_desc))
+    ,cpt_code = trim(substring(1,5,c_master->qual[d1.seq].cpt))
+    ,cpt_modifier = trim(substring(1,20,c_master->qual[d1.seq].cpt_modifier))
+    ,cpt_modifier2 = trim(substring(1,20,c_master->qual[d1.seq].fy_modifier))
+    ,revenue_code = trim(substring(1,20,c_master->qual[d1.seq].revcode))
+	,maury_price = trim(substring(1,20,c_master->qual[d1.seq].technical_price_sched))
+ 
+from
+    (dummyt d1 with seq=value(size(c_master->qual,5)))
+plan d1
+    where d1.seq > 0
+    and c_master->qual[d1.seq].activity_type in ("1","3","4","5","6")
+    and c_master->qual[d1.seq].technical_price_sched != "9999"
+ 
+detail
+    line1 = build(cdm_code,"|",cdm_description,"|",cpt_code,"|",cpt_modifier,"|"
+    			  ,cpt_modifier2,"|",revenue_code,"|",maury_price
+                  )
+    col 0 line1
+    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",noformfeed,time=3900
+select into value(mrmc_filepath)
+ 
+	bill_item = trim(substring(1,20,c_experian->qual[d1.seq].bill_item ))
+    ,bill_item_desc = trim(substring(1,50,c_experian->qual[d1.seq].bill_item_desc))
+   ; ,parent_ref_id = c_experian->qual[d1.seq].parent_ref_id
+    ,hcpcs = trim(substring(1,5,c_experian->qual[d1.seq].hcpcs))
+    ,modifier1 = ""
+    ,modifier2 = ""
+    ,revcode = trim(substring(1,20,c_experian->qual[d1.seq].revcode))
+	,price = c_experian->qual[d1.seq].price
+ 
+ 
+from
+    (dummyt d1 with seq=value(size(c_experian->qual,5)))
+    ,(dummyt d2 with seq=value(size(c_experian->qual,5)))
+plan d1
+    where d1.seq > 0
+    AND c_experian->qual[d1.seq].item_id != 0.0
+join d2
+	where d1.seq = d2.seq
+ 
+head report
+    line = build("bill_item"
+    		,"|","bill_item_desc"
+  			,"|","hcpcs"
+  			,"|","modifier1"
+  			,"|","modifier2"
+  			,"|","revcode"
+   			,"|","price"
+ 
+			)
+ col 0 line
+    row+1
+ 
+detail
+    line1 = build(bill_item
+    		,"|",bill_item_desc
+  			,"|",hcpcs
+  			,"|",modifier1
+  			,"|",modifier2
+  			,"|",revcode
+   			,"|",price
+			)
+    col 0 line1
+    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900,append
+endif
+ 
+ 
+end
+go
