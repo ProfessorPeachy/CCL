@@ -1,0 +1,374 @@
+Query CCL Forms 
+ 
+
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare reply_json = vc
+declare form_comp_cd = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",18189,"PRIMARYEVENTID"))
+declare form_event_cd_cnt = i4
+declare event_cd_cnt = i4
+declare cnt = i4
+declare max_rec_cnt = i4
+declare event_start = dq8
+declare event_start_type = vc
+ 
+; temp variables for assigning values
+declare new_result_ind = i2
+declare display_key = vc
+declare description = vc
+declare event_id = f8
+declare result_dt_tm = vc
+declare result_dt_tm_dq8 = dq8
+declare result_val = vc
+ 
+; default date range and max rec
+set event_start = cnvtdatetime(curdate-400,curtime3)
+set max_rec_cnt = 1000
+ 
+set event_start_type = substring(1,1,reflect($EVENT_START))
+ 
+if (event_start_type in ('C','V'))
+    if ($EVENT_START > '')
+     set event_start = cnvtdatetime($EVENT_START)
+    endif
+elseif (event_start_type in ('D','F'))
+    if ($EVENT_START > 100000)
+     set event_start = $EVENT_START
+    elseif ($EVENT_START > 0)
+     set max_rec_cnt = $EVENT_START
+    endif
+elseif (event_start_type in ('I'))
+    if ($EVENT_START > 0)
+     set max_rec_cnt = $EVENT_START
+    endif
+endif
+ 
+ 
+ 
+; If encounter id is 0 then query person level
+declare encntr_parser_str = vc
+declare form_encntr_parser_str = vc
+ 
+if ($E_ID < 1)
+    set encntr_parser_str = ' 1=1 '
+    set form_encntr_parser_str = ' 1=1 '
+else
+    set encntr_parser_str = build(' ce.encntr_id+0=', $E_ID)
+    set form_encntr_parser_str = build(' dfa.encntr_id+0=', $E_ID)
+endif
+ 
+ 
+ 
+free record FORM
+record FORM
+(
+    1 FORM_NAMES_CNT = I4
+    1 FORM_NAMES[*]
+     2 FORM_NAME = VC
+     2 FORM_EVENT_CD = F8
+     2 FORM_REF_ID = F8 ; always return a form ref id so we can launch new forms from mpages
+     2 FORM_DESCRIPTION = VC
+ 
+  1 FIELD_CNT = I4
+    1 FIELDS[*]
+     2 DISPLAY_KEY = VC
+     2 EVENT_CD = F8
+ 
+    1 FORMS_CNT = I4
+  1 FORMS_LIST[*]
+   2 FORM_NAME = VC
+   2 FORM_REF_ID = F8
+   2 FORM_ACTIVITY_ID = F8
+     2 FORM_DT_TM = VC
+     2 FORM_DT_TM_DQ8 = dq8
+     2 FORM_EVENT_ID = F8
+     2 FORM_VERIFY_PRSNL = VC
+ 
+     2 RESULTS_CNT = I4
+   2 RESULTS_LIST[*]
+    3 EVENT_ID = F8
+      3 NAME = VC
+      3 DESCRIPTION = VC
+      3 RESULT_VAL = VC
+      3 RESULT_DT_TM = VC
+      3 RESULT_DT_TM_DQ8 = dq8
+)
+ 
+; Parse FORM name input
+ 
+set stat = alterlist(FORM->FORM_NAMES, PARSED_REC->FIELD_CNT)
+set FORM->FORM_NAMES_CNT = PARSED_REC->FIELD_CNT
+for (cnt = 1 to PARSED_REC->FIELD_CNT)
+    set FORM->FORM_NAMES[cnt]->FORM_NAME = PARSED_REC->FIELDS[cnt]->DISPLAY_KEY
+    set FORM->FORM_NAMES[cnt]->FORM_EVENT_CD = PARSED_REC->FIELDS[cnt]->CODE_VALUE
+endfor
+call echo(build2("fields: ", $fields))
+; Parse fields from the form
+execute thc1_get_prompt_parser $fields, 72
+set stat = cnvtjsontorec(reply_json)
+ 
+set stat = alterlist(FORM->FIELDS, PARSED_REC->FIELD_CNT)
+set FORM->FIELD_CNT = PARSED_REC->FIELD_CNT
+for (cnt = 1 to PARSED_REC->FIELD_CNT)
+    set FORM->FIELDS[cnt]->DISPLAY_KEY = PARSED_REC->FIELDS[cnt]->DISPLAY_KEY
+    set FORM->FIELDS[cnt]->EVENT_CD = PARSED_REC->FIELDS[cnt]->CODE_VALUE
+endfor
+;set FORM->FORM_NAMES[1]->FORM_EVENT_CD =29905044
+   call echo("**********Retrieve ref id for all forms for launching from mpage*********")
+; Retrieve ref id for all forms for launching from mpages
+select into "nl:"
+    dfr.dcp_forms_ref_id
+from
+    (dummyt d with seq = FORM->FORM_NAMES_CNT),
+    dcp_forms_ref dfr
+plan d
+join dfr
+    where dfr.event_cd = FORM->FORM_NAMES[d.seq]->FORM_EVENT_CD
+    and dfr.active_ind = 1
+    and dfr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    ;and dfr.event_set_name > ""
+detail
+    FORM->FORM_NAMES[d.seq]->FORM_REF_ID = dfr.dcp_forms_ref_id
+    FORM->FORM_NAMES[d.seq]->FORM_DESCRIPTION = trim(dfr.description,3)
+with nocounter
+ 
+     call echo("**********Retrieve the most recent forms*********")
+     call echo(build2("$p_id: ",$p_id))
+     call echo(build2("event_start: ",cnvtdatetime(event_start)))
+     call echo(build2("form_encntr_parser_str: ",form_encntr_parser_str))
+     call echo(build2("FORM->FORM_NAMES[d.seq]->FORM_REF_ID: ",FORM->FORM_NAMES[1]->FORM_REF_ID))
+; Retrieve the most recent forms
+select into "nl:"
+    dfa.version_dt_tm,
+    dfa.dcp_forms_ref_id,
+    dfa.dcp_forms_activity_id,
+    dfac.parent_entity_id
+from
+    (dummyt d with seq = FORM->FORM_NAMES_CNT),
+    dcp_forms_activity_comp dfac,
+    dcp_forms_activity dfa
+plan d
+join dfa
+    where dfa.person_id = $p_id
+    and dfa.dcp_forms_ref_id = FORM->FORM_NAMES[d.seq]->FORM_REF_ID
+    and dfa.version_dt_tm+0 > cnvtdatetime(event_start)
+    and parser(form_encntr_parser_str)
+    and dfa.form_status_cd+0 in (34,35,25) ;auth, modified
+    and dfa.active_ind+0 = 1
+join dfac
+    where dfac.dcp_forms_activity_id = dfa.dcp_forms_activity_id
+    and dfac.component_cd+0 = form_comp_cd
+    and dfac.parent_entity_name = "CLINICAL_EVENT"
+order by dfa.version_dt_tm desc
+detail
+    if (FORM->FORMS_CNT < max_rec_cnt)
+     FORM->FORMS_CNT = FORM->FORMS_CNT + 1
+     stat = alterlist(FORM->FORMS_LIST, FORM->FORMS_CNT)
+ 
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_NAME = FORM->FORM_NAMES[d.seq]->FORM_NAME
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_EVENT_ID = dfac.parent_entity_id
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_DT_TM = format(dfa.version_dt_tm, "MM-DD-YYYY HH:MM;;D")
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_DT_TM_DQ8 = dfa.version_dt_tm
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_REF_ID = dfa.dcp_forms_ref_id
+     FORM->FORMS_LIST[FORM->FORMS_CNT]->FORM_ACTIVITY_ID = dfa.dcp_forms_activity_id
+    endif
+WITH NOCOUNTER
+ 
+call echo(build2("forms count: ", FORM->FORMS_CNT))
+if (FORM->FORMS_CNT > 0)
+ 
+    ; hack fix for cnvtjsontorec error
+    set stat = alterlist(FORM->FORMS_LIST[1]->RESULTS_LIST, 1)
+ 
+    ; Retrieve the last personnel to update the form
+    select into "nl:"
+      dfp.prsnl_ft,
+      dfp.activity_dt_tm
+    from (dummyt d with seq = FORM->FORMS_CNT),
+      dcp_forms_activity_prsnl dfp
+    plan d
+    join dfp
+     where dfp.dcp_forms_activity_id = FORM->FORMS_LIST[d.seq]->FORM_ACTIVITY_ID
+    order by dfp.activity_dt_tm
+    detail
+     call echo(d.seq)
+     FORM->FORMS_LIST[d.seq]->FORM_VERIFY_PRSNL= trim(dfp.prsnl_ft,3)
+    with nocounter
+ 
+     set trace callecho
+     call echo("**********Retrieve the requested fields*********")
+    ; Retrieve the requested fields
+    select into "nl:"
+    cb.blob_contents
+    from
+     (dummyt d with seq = FORM->FORMS_CNT),
+     clinical_event ce2,
+     (dummyt d2 with seq = FORM->FIELD_CNT),
+     clinical_event ce3,
+     ce_date_result cdr,
+     ce_blob cb,
+     dummyt d3,
+     clinical_event ce4,
+     clinical_event ce5,
+     clinical_event ce6,
+     ce_date_result cdr2,
+     ce_blob cb2
+ 
+    plan d
+    join ce2
+     where ce2.parent_event_id = FORM->FORMS_LIST[d.seq]->FORM_EVENT_ID
+     and ce2.parent_event_id != ce2.event_id
+     and ce2.result_status_cd in (34,35,25) ;Authenticated Modified
+     and ce2.valid_until_dt_tm>cnvtdatetime(curdate,curtime3)
+    join d2
+    join ce3
+     where ce3.parent_event_id = ce2.event_id
+     ;and (ce3.event_cd = FORM->FIELDS[d2.seq]->EVENT_CD or trim(ce3.event_title_text,3) in ("PowerGrid", "Discrete Grid"))
+     and ce3.result_status_cd in (34,35,25) ;Authenticated Modified
+     and ce3.valid_until_dt_tm>cnvtdatetime(curdate,curtime3)
+    join cdr
+     where cdr.event_id = outerjoin(ce3.event_id)
+     and cdr.valid_until_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    join cb
+     where cb.event_id = outerjoin(ce3.event_id)
+     and cb.valid_until_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    join ce6 ;discrete grid child values
+     where ce6.parent_event_id = outerjoin(ce3.event_id)
+     and ce6.event_cd = outerjoin(FORM->FIELDS[d2.seq]->EVENT_CD)
+     and ce6.valid_until_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+ 
+    join d3
+    join ce4 ;powergrid parent row
+     where ce4.parent_event_id = ce3.event_id
+     and ce4.parent_event_id != ce4.event_id
+     and ce4.result_status_cd in (34,35,25) ;Authenticated Modified
+     and ce4.valid_until_dt_tm > cnvtdatetime(curdate,curtime3)
+    join ce5 ;powergrid child values
+     where ce5.parent_event_id = ce4.event_id
+     and ce5.event_cd = FORM->FIELDS[d2.seq]->EVENT_CD
+     and ce5.result_status_cd in (34,35,25) ;Authenticated Modified
+     and ce5.valid_until_dt_tm > cnvtdatetime(curdate,curtime3)
+    join cdr2
+     where cdr2.event_id = outerjoin(ce5.event_id)
+     and cdr2.valid_until_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    join cb2
+     where cb2.event_id = outerjoin(ce5.event_id)
+     and cb2.valid_until_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+ 
+ 
+    order by ce3.event_end_dt_tm desc
+    detail
+ 
+     new_result_ind = 0
+     display_key = FORM->FIELDS[d2.seq]->DISPLAY_KEY
+     description = ''
+     event_id = 0.0
+     result_dt_tm = ''
+     result_dt_tm_dq8 = 0.0
+     result_val = ''
+ 
+ 
+         if(ce5.event_id = 0.0 and ce6.event_id = 0.0 and trim(ce3.event_title_text,3) not in ("PowerGrid", "Discrete Grid"))
+          new_result_ind = 1
+          description = trim(uar_get_code_description(ce3.event_cd),3)
+          event_id = ce3.event_id
+          result_dt_tm = format(ce3.event_end_dt_tm,"MM-DD-YYYY HH:MM;;D")
+          result_dt_tm_dq8 = ce3.event_end_dt_tm
+ 
+          ; check ce_date_result for data
+          if (cdr.event_id > 1)
+           result_val = format(cdr.result_dt_tm,"MM-DD-YYYY HH:MM;;D")
+          ; check ce_blob for data
+      elseif (cb.event_id > 1)
+        blobout = fillstring(32768," ")
+        blobout2 = fillstring(32768," ")
+         if(cb.compression_cd = 728)
+          call uar_ocf_uncompress(cb.blob_contents,textlen(cb.blob_contents),blobout,size(blobout),32768)
+         elseif(cb.compression_cd = 727)
+          blobout = replace(trim(cb.blob_contents),"ocf_blob",char(0))
+         endif
+        call uar_rtf(blobout,textlen(blobout),blobout2,32768,32768,0)
+        blobout2 = substring(1, 2000, blobout2)
+ 
+            result_val = trim(replace(blobout2,build(char(13),char(10))," "))
+ 
+          ; default to clinical_event result_val
+      else
+       result_val = ce3.result_val
+          endif
+ 
+     elseif(ce5.event_cd > 0.0)
+ 
+      new_result_ind = 1
+          description = trim(uar_get_code_description(ce5.event_cd),3)
+          event_id = ce5.event_id
+          result_dt_tm = format(ce5.event_end_dt_tm,"MM-DD-YYYY HH:MM;;D")
+          result_dt_tm_dq8 = ce5.event_end_dt_tm
+ 
+           ; check ce_date_result for data
+       if (cdr2.event_id > 1)
+        result_val = format(cdr2.result_dt_tm,"MM-DD-YYYY HH:MM;;D")
+ 
+       ; check ce_blob for data
+       elseif (cb2.event_id > 1)
+         blobout = fillstring(32768," ")
+         blobout2 = fillstring(32768," ")
+          if(cb2.compression_cd = 728)
+           call uar_ocf_uncompress(cb2.blob_contents,textlen(cb2.blob_contents),blobout,size(blobout),32768)
+         elseif(cb2.compression_cd = 727)
+           blobout = replace(trim(cb2.blob_contents),"ocf_blob",char(0))
+         endif
+         call uar_rtf(blobout,textlen(blobout),blobout2,32768,32768,0)
+         blobout2 = substring(1, 2000, blobout2)
+ 
+             result_val = trim(replace(blobout2,build(char(13),char(10))," "))
+ 
+           ; default to clinical_event result_val
+       else
+        result_val = ce5.result_val
+       endif
+     elseif(ce6.event_cd > 0.0 and ce6.result_status_cd in (34,35,25) )
+      new_result_ind = 1
+          description = trim(uar_get_code_description(ce6.event_cd),3)
+          event_id = ce6.event_id
+          result_dt_tm = format(ce6.event_end_dt_tm,"MM-DD-YYYY HH:MM;;D")
+          result_dt_tm_dq8 = ce6.event_end_dt_tm
+      result_val = ce6.result_val
+     endif
+ 
+     ; row qualified to be added to record structure
+     if (new_result_ind = 1)
+ 
+      ; replace double qoutes with single qoutes, otherwise cnvtrectojson could blow up.
+      result_val = trim(replace(result_val,'"',"'",0),3)
+ 
+      ; a vc can only hold so much
+      if (size(result_val) >= 920)
+       result_val = concat(substring(1,920,result_val),'...')
+      endif
+ 
+      FORM->FORMS_LIST[d.seq]->RESULTS_CNT = FORM->FORMS_LIST[d.seq]->RESULTS_CNT + 1
+      stat = alterlist(FORM->FORMS_LIST[d.seq]->RESULTS_LIST, FORM->FORMS_LIST[d.seq]->RESULTS_CNT)
+ 
+          FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->NAME = display_key
+          FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->DESCRIPTION = description
+      FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->EVENT_ID = event_id
+      FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->RESULT_DT_TM = result_dt_tm
+      FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->RESULT_DT_TM_DQ8 = result_dt_tm_dq8
+      FORM->FORMS_LIST[d.seq]->RESULTS_LIST[FORM->FORMS_LIST[d.seq]->RESULTS_CNT]->RESULT_VAL = result_val
+     endif
+    with nocounter, outerjoin = d3
+endif ;forms_cnt > 0
+ 
+set reply_json = cnvtrectojson(FORM)
+ 
+call echo("****************** Get Forms Data REC BEGIN ******************")
+call echorecord(FORM)
+call echo("****************** Get Forms Data REC END ******************")
+ 
+end
+go
+ 
+null
