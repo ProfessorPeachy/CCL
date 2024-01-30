@@ -1,0 +1,2853 @@
+drop program 1_maur_tn_activity_log_table go
+create program 1_maur_tn_activity_log_table
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Report Name" = "ED Activity Log"
+	, "Tracking Group" = 103223.000000
+	, "Start Date" = "SYSDATE"
+	, "End Date" = "SYSDATE"
+	, "Sort Order (Optional)" = 0
+	, "Location View" = 0
+	, "Nurse Unit (Optional)" = 0 
+
+with OUTDEV, repName, trackGroupCd, startDate, endDate, sortOrder, locView, nurseUnit
+
+;translated from fnrpt_ed_activity_table
+
+
+ EXECUTE reportrtl
+ DECLARE stat = i4 WITH noconstant(0)
+ DECLARE totalpatcount = i4 WITH noconstant(0)
+ DECLARE sortorder = i2 WITH noconstant(cnvtint( $SORTORDER))
+ DECLARE _createfonts(dummy) = null WITH protect
+ DECLARE _createpens(dummy) = null WITH protect
+ DECLARE layoutquery(dummy) = null WITH protect
+ DECLARE __layoutquery(dummy) = null WITH protect
+ DECLARE pagebreak(dummy) = null WITH protect
+ DECLARE initializereport(dummy) = null WITH protect
+ DECLARE _hreport = i4 WITH noconstant(0), protect
+ DECLARE _yoffset = f8 WITH noconstant(0.0), protect
+ DECLARE _xoffset = f8 WITH noconstant(0.0), protect
+ RECORD _htmlfileinfo(
+   1 file_desc = i4
+   1 file_name = vc
+   1 file_buf = vc
+   1 file_offset = i4
+   1 file_dir = i4
+ ) WITH protect
+ SET _htmlfileinfo->file_desc = 0
+ DECLARE _htmlfilestat = i4 WITH noconstant(0), protect
+ DECLARE _bgeneratehtml = i1 WITH noconstant(evaluate(validate(request->output_device,"N"),"MINE",1,
+   '"MINE"',1,
+   0)), protect
+ DECLARE rpt_render = i2 WITH constant(0), protect
+ DECLARE _crlf = vc WITH constant(concat(char(13),char(10))), protect
+ DECLARE rpt_calcheight = i2 WITH constant(1), protect
+ DECLARE _yshift = f8 WITH noconstant(0.0), protect
+ DECLARE _xshift = f8 WITH noconstant(0.0), protect
+ DECLARE _sendto = vc WITH noconstant(""), protect
+ DECLARE _rpterr = i2 WITH noconstant(0), protect
+ DECLARE _rptstat = i2 WITH noconstant(0), protect
+ DECLARE _oldfont = i4 WITH noconstant(0), protect
+ DECLARE _oldpen = i4 WITH noconstant(0), protect
+ DECLARE _dummyfont = i4 WITH noconstant(0), protect
+ DECLARE _dummypen = i4 WITH noconstant(0), protect
+ DECLARE _fdrawheight = f8 WITH noconstant(0.0), protect
+ DECLARE _rptpage = i4 WITH noconstant(0), protect
+ DECLARE _diotype = i2 WITH noconstant(8), protect
+ DECLARE _outputtype = i2 WITH noconstant(rpt_postscript), protect
+ DECLARE _times8b0 = i4 WITH noconstant(0), protect
+ DECLARE _times80 = i4 WITH noconstant(0), protect
+ DECLARE _times100 = i4 WITH noconstant(0), protect
+ DECLARE _times12b0 = i4 WITH noconstant(0), protect
+ DECLARE _times16b0 = i4 WITH noconstant(0), protect
+ DECLARE _pen14s0c16711680 = i4 WITH noconstant(0), protect
+ DECLARE _pen0s0c0 = i4 WITH noconstant(0), protect
+ DECLARE _pen14s0c0 = i4 WITH noconstant(0), protect
+ DECLARE _pen14s0c255 = i4 WITH noconstant(0), protect
+ SUBROUTINE (cclbuildhlink(vcprogname=vc,vcparams=vc,nwindow=i2,vcdescription=vc) =vc WITH protect)
+   DECLARE vcreturn = vc WITH private, noconstant(vcdescription)
+   IF ((_htmlfileinfo->file_desc != 0))
+    SET vcreturn = build(^<a href='javascript:CCLLINK("^,vcprogname,'","',vcparams,'",',
+     nwindow,")'>",vcdescription,"</a>")
+   ENDIF
+   RETURN(vcreturn)
+ END ;Subroutine
+ SUBROUTINE (cclbuildapplink(nmode=i2,vcappname=vc,vcparams=vc,vcdescription=vc) =vc WITH protect)
+   DECLARE vcreturn = vc WITH private, noconstant(vcdescription)
+   IF ((_htmlfileinfo->file_desc != 0))
+    SET vcreturn = build("<a href='javascript:APPLINK(",nmode,',"',vcappname,'","',
+     vcparams,^")'>^,vcdescription,"</a>")
+   ENDIF
+   RETURN(vcreturn)
+ END ;Subroutine
+ SUBROUTINE (cclbuildweblink(vcaddress=vc,nmode=i2,vcdescription=vc) =vc WITH protect)
+   DECLARE vcreturn = vc WITH private, noconstant(vcdescription)
+   IF ((_htmlfileinfo->file_desc != 0))
+    IF (nmode=1)
+     SET vcreturn = build("<a href='",vcaddress,"'>",vcdescription,"</a>")
+    ELSE
+     SET vcreturn = build("<a href='",vcaddress,"' target='_blank'>",vcdescription,"</a>")
+    ENDIF
+   ENDIF
+   RETURN(vcreturn)
+ END ;Subroutine
+ SUBROUTINE layoutquery(dummy)
+   CALL initializereport(0)
+   CALL __layoutquery(0)
+   CALL finalizereport(_sendto)
+ END ;Subroutine
+ SUBROUTINE __layoutquery(dummy)
+   SELECT INTO "NL:"
+    patient_data_acuity_str = substring(1,100,output_data->patient_data[dtrs1.seq].acuity),
+    patient_data_admit_mode = substring(1,100,output_data->patient_data[dtrs1.seq].admit_mode),
+    patient_data_admitting_physician = substring(1,200,output_data->patient_data[dtrs1.seq].
+     admitting_physician),
+    patient_data_arrive_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+     arrive_date_time), patient_data_attending_physician = substring(1,200,output_data->patient_data[
+     dtrs1.seq].attending_physician), patient_data_birth_date = substring(1,30,output_data->
+     patient_data[dtrs1.seq].birth_date),
+    patient_data_checkout_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+     checkout_date_time), patient_data_checkin_date_time = substring(1,30,output_data->patient_data[
+     dtrs1.seq].checkin_date_time), patient_data_discharge_disposition = substring(1,200,output_data
+     ->patient_data[dtrs1.seq].discharge_disposition),
+    patient_data_discharge_to_location = substring(1,200,output_data->patient_data[dtrs1.seq].
+     discharge_to_location), patient_data_disch_diagnosis = substring(1,200,output_data->
+     patient_data[dtrs1.seq].disch_diagnosis), patient_data_fin = substring(1,200,output_data->
+     patient_data[dtrs1.seq].fin),
+    patient_data_mrn = substring(1,200,output_data->patient_data[dtrs1.seq].mrn),
+    patient_data_name_full_formatted = substring(1,100,output_data->patient_data[dtrs1.seq].
+     name_full_formatted), patient_data_reason_for_visit = substring(1,200,output_data->patient_data[
+     dtrs1.seq].reason_for_visit),
+    patient_data_registration_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+     registration_date_time), patient_data_sex = substring(1,30,output_data->patient_data[dtrs1.seq].
+     sex), patient_data_visit_age = substring(1,30,output_data->patient_data[dtrs1.seq].visit_age),
+    totalpatients = size(output_data->patient_data,5), patient_data_tracking_checkin_id = output_data
+    ->patient_data[dtrs1.seq].tracking_checkin_id, report_data_report_title = substring(1,100,
+     output_data->report_data.report_title),
+    report_data_report_date = substring(1,100,output_data->report_data.report_date),
+    report_data_report_generation_name = substring(1,30,output_data->report_data.
+     report_generation_name), patient_data_los_checkin = substring(1,30,output_data->patient_data[
+     dtrs1.seq].los_checkin),
+    patient_data_primary_provider = substring(1,200,output_data->patient_data[dtrs1.seq].
+     primary_provider), patient_data_secondary_provider = substring(1,200,output_data->patient_data[
+     dtrs1.seq].secondary_provider), patient_data_primary_nurse = substring(1,200,output_data->
+     patient_data[dtrs1.seq].primary_nurse),
+    patient_data_secondary_nurse = substring(1,200,output_data->patient_data[dtrs1.seq].
+     secondary_nurse), report_data_track_group_display = substring(1,30,output_data->report_data.
+     track_group_display), report_data_report_generation_date = substring(1,30,output_data->
+     report_data.report_generation_date),
+    trkgrp_trkgrpcd = output_data->report_data.track_group_cd, patient_data_los_loc = substring(1,30,
+     output_data->patient_data[dtrs1.seq].los_location), patient_data_sortingfield = substring(1,100,
+     output_data->patient_data[dtrs1.seq].sorting_field),
+    report_data_report_nurseunit_name = substring(1,100,output_data->report_data.
+     report_nurseunit_name), patient_data_visitid = output_data->patient_data[dtrs1.seq].visit_id,
+    patient_data_personid = output_data->patient_data[dtrs1.seq].person_id
+    FROM dummyt d1,
+     (dummyt dtrs1  WITH seq = value(size(output_data->patient_data,5)))
+    ORDER BY patient_data_sortingfield
+    HEAD REPORT
+     _d0 = patient_data_acuity_str, _d1 = patient_data_admit_mode, _d2 =
+     patient_data_admitting_physician,
+     _d3 = patient_data_birth_date, _d4 = patient_data_checkout_date_time, _d5 =
+     patient_data_checkin_date_time,
+     _d6 = patient_data_discharge_disposition, _d7 = patient_data_discharge_to_location, _d8 =
+     patient_data_disch_diagnosis,
+     _d9 = patient_data_fin, _d10 = patient_data_mrn, _d11 = patient_data_name_full_formatted,
+     _d12 = patient_data_reason_for_visit, _d13 = patient_data_sex, _d14 = patient_data_visit_age,
+     _d15 = report_data_report_title, _d16 = patient_data_los_checkin, _d17 =
+     patient_data_primary_provider,
+     _d18 = patient_data_primary_nurse, _d19 = patient_data_visitid, _d20 = patient_data_personid,
+     _fenddetail = (rptreport->m_pagewidth - rptreport->m_marginbottom), _fenddetail -= fieldname08(
+      rpt_calcheight), _fdrawheight = fieldname00(rpt_calcheight)
+     IF (_fdrawheight > 0)
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname01(rpt_calcheight)
+      ENDIF
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname02(rpt_calcheight)
+      ENDIF
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname03(rpt_calcheight)
+      ENDIF
+     ENDIF
+     IF (((_yoffset+ _fdrawheight) > (rptreport->m_pagewidth - rptreport->m_marginbottom)))
+      CALL pagebreak(0)
+     ENDIF
+     dummy_val = fieldname00(rpt_render), _fdrawheight = fieldname01(rpt_calcheight)
+     IF (_fdrawheight > 0)
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname02(rpt_calcheight)
+      ENDIF
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname03(rpt_calcheight)
+      ENDIF
+     ENDIF
+     IF (((_yoffset+ _fdrawheight) > (rptreport->m_pagewidth - rptreport->m_marginbottom)))
+      CALL pagebreak(0)
+     ENDIF
+     dummy_val = fieldname01(rpt_render), _fdrawheight = fieldname02(rpt_calcheight)
+     IF (_fdrawheight > 0)
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname03(rpt_calcheight)
+      ENDIF
+     ENDIF
+     IF (((_yoffset+ _fdrawheight) > (rptreport->m_pagewidth - rptreport->m_marginbottom)))
+      CALL pagebreak(0)
+     ENDIF
+     dummy_val = fieldname02(rpt_render), _fdrawheight = fieldname03(rpt_calcheight)
+     IF (((_yoffset+ _fdrawheight) > (rptreport->m_pagewidth - rptreport->m_marginbottom)))
+      CALL pagebreak(0)
+     ENDIF
+     dummy_val = fieldname03(rpt_render)
+    HEAD PAGE
+     IF (curpage > 1)
+      dummy_val = pagebreak(0)
+     ENDIF
+     dummy_val = fieldname04(rpt_render), dummy_val = fieldname05(rpt_render)
+    HEAD patient_data_sortingfield
+     row + 0
+    DETAIL
+     _fdrawheight = fieldname06(rpt_calcheight)
+     IF (_fdrawheight > 0)
+      IF ((_fenddetail >= (_yoffset+ _fdrawheight)))
+       _fdrawheight += fieldname07(rpt_calcheight)
+      ENDIF
+     ENDIF
+     IF (((_yoffset+ _fdrawheight) > _fenddetail))
+      BREAK
+     ENDIF
+     dummy_val = fieldname06(rpt_render), _fdrawheight = fieldname07(rpt_calcheight)
+     IF (((_yoffset+ _fdrawheight) > _fenddetail))
+      BREAK
+     ENDIF
+     dummy_val = fieldname07(rpt_render)
+    FOOT  patient_data_sortingfield
+     row + 0
+    FOOT PAGE
+     _yhold = _yoffset, _yoffset = _fenddetail, dummy_val = fieldname08(rpt_render),
+     _yoffset = _yhold
+    WITH nocounter, separator = " ", format
+   ;end select
+ END ;Subroutine
+ SUBROUTINE (layoutqueryhtml(ndummy=i2) =null WITH protect)
+  DECLARE rpt_pageofpage = vc WITH noconstant("Page 1 of 1"), protect
+  SELECT INTO "NL:"
+   patient_data_acuity_str = substring(1,100,output_data->patient_data[dtrs1.seq].acuity),
+   patient_data_admit_mode = substring(1,100,output_data->patient_data[dtrs1.seq].admit_mode),
+   patient_data_admitting_physician = substring(1,200,output_data->patient_data[dtrs1.seq].
+    admitting_physician),
+   patient_data_arrive_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+    arrive_date_time), patient_data_attending_physician = substring(1,200,output_data->patient_data[
+    dtrs1.seq].attending_physician), patient_data_birth_date = substring(1,30,output_data->
+    patient_data[dtrs1.seq].birth_date),
+   patient_data_checkout_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+    checkout_date_time), patient_data_checkin_date_time = substring(1,30,output_data->patient_data[
+    dtrs1.seq].checkin_date_time), patient_data_discharge_disposition = substring(1,200,output_data->
+    patient_data[dtrs1.seq].discharge_disposition),
+   patient_data_discharge_to_location = substring(1,200,output_data->patient_data[dtrs1.seq].
+    discharge_to_location), patient_data_disch_diagnosis = substring(1,200,output_data->patient_data[
+    dtrs1.seq].disch_diagnosis), patient_data_fin = substring(1,200,output_data->patient_data[dtrs1
+    .seq].fin),
+   patient_data_mrn = substring(1,200,output_data->patient_data[dtrs1.seq].mrn),
+   patient_data_name_full_formatted = substring(1,100,output_data->patient_data[dtrs1.seq].
+    name_full_formatted), patient_data_reason_for_visit = substring(1,200,output_data->patient_data[
+    dtrs1.seq].reason_for_visit),
+   patient_data_registration_date_time = substring(1,30,output_data->patient_data[dtrs1.seq].
+    registration_date_time), patient_data_sex = substring(1,30,output_data->patient_data[dtrs1.seq].
+    sex), patient_data_visit_age = substring(1,30,output_data->patient_data[dtrs1.seq].visit_age),
+   totalpatients = size(output_data->patient_data,5), patient_data_tracking_checkin_id = output_data
+   ->patient_data[dtrs1.seq].tracking_checkin_id, report_data_report_title = substring(1,100,
+    output_data->report_data.report_title),
+   report_data_report_date = substring(1,100,output_data->report_data.report_date),
+   report_data_report_generation_name = substring(1,30,output_data->report_data.
+    report_generation_name), patient_data_los_checkin = substring(1,30,output_data->patient_data[
+    dtrs1.seq].los_checkin),
+   patient_data_primary_provider = substring(1,200,output_data->patient_data[dtrs1.seq].
+    primary_provider), patient_data_secondary_provider = substring(1,200,output_data->patient_data[
+    dtrs1.seq].secondary_provider), patient_data_primary_nurse = substring(1,200,output_data->
+    patient_data[dtrs1.seq].primary_nurse),
+   patient_data_secondary_nurse = substring(1,200,output_data->patient_data[dtrs1.seq].
+    secondary_nurse), report_data_track_group_display = substring(1,30,output_data->report_data.
+    track_group_display), report_data_report_generation_date = substring(1,30,output_data->
+    report_data.report_generation_date),
+   trkgrp_trkgrpcd = output_data->report_data.track_group_cd, patient_data_los_loc = substring(1,30,
+    output_data->patient_data[dtrs1.seq].los_location), patient_data_sortingfield = substring(1,100,
+    output_data->patient_data[dtrs1.seq].sorting_field),
+   report_data_report_nurseunit_name = substring(1,100,output_data->report_data.report_nurseunit_name
+    ), patient_data_visitid = output_data->patient_data[dtrs1.seq].visit_id, patient_data_personid =
+   output_data->patient_data[dtrs1.seq].person_id
+   FROM dummyt d1,
+    (dummyt dtrs1  WITH seq = value(size(output_data->patient_data,5)))
+   ORDER BY patient_data_sortingfield
+   HEAD REPORT
+    _d0 = patient_data_acuity_str, _d1 = patient_data_admit_mode, _d2 =
+    patient_data_admitting_physician,
+    _d3 = patient_data_birth_date, _d4 = patient_data_checkout_date_time, _d5 =
+    patient_data_checkin_date_time,
+    _d6 = patient_data_discharge_disposition, _d7 = patient_data_discharge_to_location, _d8 =
+    patient_data_disch_diagnosis,
+    _d9 = patient_data_fin, _d10 = patient_data_mrn, _d11 = patient_data_name_full_formatted,
+    _d12 = patient_data_reason_for_visit, _d13 = patient_data_sex, _d14 = patient_data_visit_age,
+    _d15 = report_data_report_title, _d16 = patient_data_los_checkin, _d17 =
+    patient_data_primary_provider,
+    _d18 = patient_data_primary_nurse, _d19 = patient_data_visitid, _d20 = patient_data_personid,
+    _htmlfileinfo->file_buf = build2("<STYLE>",
+     "table {border-collapse: collapse; empty-cells: show;  border: 0.000in none #000000;  }",
+     ".FieldName000 { border-width: 0.014in; border-color: #000000;",
+     " border-style: solid solid none solid;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 16pt Times;"," "," color: #000000;"," background: #ffff00;"," text-align: center;",
+     " vertical-align: top;}",".FieldName010 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none solid;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 12pt Times;",
+     " "," color: #000000;"," background: #c0c0c0;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName011 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none solid none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 12pt Times;"," ",
+     " color: #000000;"," background: #c0c0c0;"," text-align: right;"," vertical-align: top;}",
+     ".FieldName021 { border-width: 0.000in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 12pt Times;"," "," color: #000000;",
+     " background: #c0c0c0;"," text-align: center;"," vertical-align: top;}",
+     ".FieldName030 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid solid;",
+     " padding: 0.000in 0.000in 0.000in 0.000in;"," font:  bold 12pt Times;"," "," color: #000000;",
+     " background: #c0c0c0;",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName031 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none solid solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 12pt Times;"," "," color: #000000;"," background: #c0c0c0;"," text-align: right;",
+     " vertical-align: top;}",".FieldName040 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none solid;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;",
+     " "," color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName041 { border-width: 0.014in; border-color: #ff0000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," ",
+     " color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName042 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.050in;",
+     " font:  bold 8pt Times;"," "," color: #000000;",
+     " background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName043 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;",
+     " padding: 0.000in 0.000in 0.000in 0.000in;"," font:  bold 8pt Times;"," "," color: #000000;",
+     " background: #00ffff;",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName045 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," "," color: #000000;"," background: #00ffff;"," text-align: left;",
+     " vertical-align: top;}",".FieldName048 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none solid none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;",
+     " "," color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName050 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid solid;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," ",
+     " color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName051 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," "," color: #000000;",
+     " background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName052 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid none;",
+     " padding: 0.000in 0.000in 0.000in 0.050in;"," font:  bold 8pt Times;"," "," color: #000000;",
+     " background: #00ffff;",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName053 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," "," color: #000000;"," background: #00ffff;"," text-align: left;",
+     " vertical-align: top;}",".FieldName054 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;",
+     " "," color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName055 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," ",
+     " color: #000000;"," background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName058 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none solid solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:  bold 8pt Times;"," "," color: #000000;",
+     " background: #00ffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName060 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none none solid;",
+     " padding: 0.000in 0.000in 0.000in 0.000in;"," font:   8pt Times;"," "," color: #000000;"," ",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName061 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," "," color: #000000;"," background: #ffffff;"," text-align: left;",
+     " vertical-align: top;}",".FieldName062 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.050in;",
+     " font:   8pt Times;",
+     " "," color: #000000;"," "," text-align: left;"," vertical-align: top;}",
+     ".FieldName063 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," ",
+     " color: #000000;"," "," text-align: left;"," vertical-align: top;}",
+     ".FieldName064 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," "," color: #000000;",
+     " "," text-align: left;"," vertical-align: top;}",
+     ".FieldName065 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none none none none;",
+     " padding: 0.000in 0.000in 0.000in 0.000in;"," font:   8pt Times;"," "," color: #000000;"," ",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName067 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none none none;"," padding: 0.000in 0.000in 0.000in 0.050in;",
+     " font:   8pt Times;"," "," color: #000000;"," "," text-align: left;",
+     " vertical-align: top;}",".FieldName068 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none solid none none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;",
+     " "," color: #000000;"," "," text-align: left;"," vertical-align: top;}",
+     ".FieldName070 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid solid;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," ",
+     " color: #000000;"," "," text-align: left;"," vertical-align: top;}",
+     ".FieldName071 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," "," color: #000000;",
+     " "," text-align: left;"," vertical-align: top;}",
+     ".FieldName072 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid none;",
+     " padding: 0.000in 0.000in 0.000in 0.050in;"," font:   8pt Times;"," "," color: #000000;"," ",
+     " text-align: left;"," vertical-align: top;}",
+     ".FieldName074 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," "," color: #000000;"," "," text-align: left;",
+     " vertical-align: top;}",".FieldName075 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;",
+     " "," color: #000000;"," background: #ffffff;"," text-align: left;"," vertical-align: top;}",
+     ".FieldName077 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none none solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," ",
+     " color: #000000;"," "," text-align: left;"," vertical-align: top;}",
+     ".FieldName078 { border-width: 0.014in; border-color: #0000ff;",
+     " border-style: none solid solid none;"," padding: 0.000in 0.000in 0.000in 0.000in;",
+     " font:   8pt Times;"," "," color: #000000;",
+     " "," text-align: left;"," vertical-align: top;}",
+     ".FieldName080 { border-width: 0.014in; border-color: #000000;",
+     " border-style: none solid solid solid;",
+     " padding: 0.000in 0.000in 0.000in 0.000in;"," font:  bold 12pt Times;"," "," color: #000000;",
+     " background: #ff8080;",
+     " text-align: center;"," vertical-align: top;}","</STYLE>"), _htmlfilestat = cclio("WRITE",
+     _htmlfileinfo), _htmlfileinfo->file_buf = "<table width='100%'><caption>",
+    _htmlfilestat = cclio("WRITE",_htmlfileinfo), _htmlfileinfo->file_buf = build2(
+     "<colgroup span=11>","<col width=125/>","<col width=101/>","<col width=100/>","<col width=96/>",
+     "<col width=84/>","<col width=57/>","<col width=146/>","<col width=68/>","<col width=23/>",
+     "<col width=125/>","<col width=108/>","</colgroup>"), _htmlfilestat = cclio("WRITE",
+     _htmlfileinfo),
+    _htmlfileinfo->file_buf = "<thead>", _htmlfilestat = cclio("WRITE",_htmlfileinfo), dummy_val =
+    fieldname00html(0),
+    dummy_val = fieldname01html(0), dummy_val = fieldname02html(0), dummy_val = fieldname03html(0),
+    dummy_val = fieldname04html(0), dummy_val = fieldname05html(0), _htmlfileinfo->file_buf =
+    "</thead>",
+    _htmlfilestat = cclio("WRITE",_htmlfileinfo), _htmlfileinfo->file_buf = "<tbody>", _htmlfilestat
+     = cclio("WRITE",_htmlfileinfo)
+   DETAIL
+    dummy_val = fieldname06html(0), dummy_val = fieldname07html(0)
+   FOOT REPORT
+    _htmlfileinfo->file_buf = "</tbody>", _htmlfilestat = cclio("WRITE",_htmlfileinfo), _htmlfileinfo
+    ->file_buf = "<tfoot>",
+    _htmlfilestat = cclio("WRITE",_htmlfileinfo), dummy_val = fieldname08html(0), _htmlfileinfo->
+    file_buf = "</tfoot>",
+    _htmlfilestat = cclio("WRITE",_htmlfileinfo), _htmlfileinfo->file_buf = "</table>", _htmlfilestat
+     = cclio("WRITE",_htmlfileinfo)
+   WITH nocounter, separator = " ", format
+  ;end select
+ END ;Subroutine
+ SUBROUTINE pagebreak(dummy)
+   SET _rptpage = uar_rptendpage(_hreport)
+   SET _rptpage = uar_rptstartpage(_hreport)
+   SET _yoffset = rptreport->m_margintop
+ END ;Subroutine
+ SUBROUTINE (finalizereport(ssendreport=vc) =null WITH protect)
+   IF (_htmlfileinfo->file_desc)
+    SET _htmlfileinfo->file_buf = "</html>"
+    SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+    SET _htmlfilestat = cclio("CLOSE",_htmlfileinfo)
+   ELSE
+    SET _rptpage = uar_rptendpage(_hreport)
+    SET _rptstat = uar_rptendreport(_hreport)
+    DECLARE sfilename = vc WITH noconstant(trim(ssendreport)), private
+    DECLARE bprint = i2 WITH noconstant(0), private
+    IF (textlen(sfilename) > 0)
+     SET bprint = checkqueue(sfilename)
+     IF (bprint)
+      EXECUTE cpm_create_file_name "RPT", "PS"
+      SET sfilename = cpm_cfn_info->file_name_path
+     ENDIF
+    ENDIF
+    SET _rptstat = uar_rptprinttofile(_hreport,nullterm(sfilename))
+    IF (bprint)
+     SET spool value(sfilename) value(ssendreport) WITH deleted
+    ENDIF
+    DECLARE _errorfound = i2 WITH noconstant(0), protect
+    DECLARE _errcnt = i2 WITH noconstant(0), protect
+    SET _errorfound = uar_rptfirsterror(_hreport,rpterror)
+    WHILE (_errorfound=rpt_errorfound
+     AND _errcnt < 512)
+      SET _errcnt += 1
+      SET stat = alterlist(rpterrors->errors,_errcnt)
+      SET rpterrors->errors[_errcnt].m_severity = rpterror->m_severity
+      SET rpterrors->errors[_errcnt].m_text = rpterror->m_text
+      SET rpterrors->errors[_errcnt].m_source = rpterror->m_source
+      SET _errorfound = uar_rptnexterror(_hreport,rpterror)
+    ENDWHILE
+    SET _rptstat = uar_rptdestroyreport(_hreport)
+   ENDIF
+ END ;Subroutine
+ SUBROUTINE (fieldname00(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname00abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname00abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.310000), private
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 16
+    SET rptsd->m_borders = bor(bor(rpt_sdtopborder,rpt_sdleftborder),rpt_sdrightborder)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 10.500
+    SET rptsd->m_height = 0.313
+    SET _oldfont = uar_rptsetfont(_hreport,_times16b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_yellow)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(report_data_report_title,char(0)))
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname00html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName000' colspan='11'>",
+   report_data_report_title,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname01(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname01abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname01abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.250000), private
+   DECLARE __generationdate = vc WITH noconstant(build(output_data->report_data.
+     report_generation_date,char(0))), protect
+   DECLARE __trackgroup = vc WITH noconstant(build(output_data->report_data.track_group_display,char(
+      0))), protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 64
+    SET rptsd->m_borders = rpt_sdrightborder
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 4.813)
+    SET rptsd->m_width = 5.438
+    SET rptsd->m_height = 0.260
+    SET _oldfont = uar_rptsetfont(_hreport,_times12b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__generationdate)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = rpt_sdleftborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 5.063
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__trackgroup)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 4.813),offsety,(offsetx+ 4.813),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname01html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName010' colspan='5'>",output_data->
+   report_data.track_group_display,"</td>","<td class='FieldName011' colspan='6'>",
+   output_data->report_data.report_generation_date,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname02(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname02abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname02abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.240000), private
+   DECLARE __generationuser = vc WITH noconstant(build(output_data->report_data.
+     report_generation_name,char(0))), protect
+   DECLARE __summary = vc WITH noconstant(build(cclbuildhlink("fnrpt_dashboard_table",build("MINE,",
+       "^","Summary","^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+        $LOCVIEW,",", $NURSEUNIT),1,report_labels->summary),char(0))), protect
+   DECLARE __report_data_report_nurseunit_name = vc WITH noconstant(build(output_data->report_data.
+     report_nurseunit_name,char(0))), protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 64
+    SET rptsd->m_borders = rpt_sdrightborder
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 5.375)
+    SET rptsd->m_width = 4.875
+    SET rptsd->m_height = 0.240
+    SET _oldfont = uar_rptsetfont(_hreport,_times12b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__generationuser)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 16
+    SET rptsd->m_borders = rpt_sdnoborders
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.010)
+    SET rptsd->m_width = 2.365
+    SET rptsd->m_height = 0.240
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__summary)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = rpt_sdleftborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 3.260
+    SET rptsd->m_height = 0.240
+    SET _dummypen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__report_data_report_nurseunit_name)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.010),offsety,(offsetx+ 3.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 5.375),offsety,(offsetx+ 5.375),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname02html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName010' colspan='3'>",output_data->
+   report_data.report_nurseunit_name,"</td>","<td class='FieldName021' colspan='3'>",
+   cclbuildhlink("fnrpt_dashboard_table",build("MINE,","^","Summary","^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+      $LOCVIEW,",", $NURSEUNIT),1,report_labels->summary),"</td>",
+   "<td class='FieldName011' colspan='5'>",output_data->report_data.report_generation_name,"</td>",
+   "</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname03(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname03abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname03abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.240000), private
+   DECLARE __totaled = vc WITH noconstant(build(report_labels->total_pats,char(0))), protect
+   DECLARE __reportdate = vc WITH noconstant(build(output_data->report_data.report_date,char(0))),
+   protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 64
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdrightborder)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 7.521)
+    SET rptsd->m_width = 2.729
+    SET rptsd->m_height = 0.240
+    SET _oldfont = uar_rptsetfont(_hreport,_times12b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__totaled)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdleftborder)
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 7.771
+    SET rptsd->m_height = 0.240
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(192,192,192))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__reportdate)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 7.521),offsety,(offsetx+ 7.521),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname03html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName030' colspan='8'>",output_data->
+   report_data.report_date,"</td>","<td class='FieldName031' colspan='3'>",
+   report_labels->total_pats,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname04(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname04abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname04abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.250000), private
+   DECLARE __dischloc = vc WITH noconstant(build(report_labels->discharge,char(0))), protect
+   DECLARE __admphys = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "9",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->admitting),char(0))), protect
+   DECLARE __edphysician = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build
+      ("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "7",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->ed_physician),char(0))), protect
+   DECLARE __rfv24 = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "5",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->rfv),char(0))), protect
+   DECLARE __arrivalmod = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "6",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->arrival_mode),char(0))), protect
+   DECLARE __checkindate = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build
+      ("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "3",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->checkin_date),char(0))), protect
+   DECLARE __age = vc WITH noconstant(build(report_labels->age_gender,char(0))), protect
+   DECLARE __mrncell = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "12",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->mrn),char(0))), protect
+   DECLARE __cellname = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "1",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->person_name),char(0))), protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 40
+    SET rptsd->m_borders = rpt_sdrightborder
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 9.000)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _oldfont = uar_rptsetfont(_hreport,_times8b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__dischloc)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = rpt_sdnoborders
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 7.750)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__admphys)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 36
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 6.844)
+    SET rptsd->m_width = 0.906
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__edphysician)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 4.813)
+    SET rptsd->m_width = 2.031
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__rfv24)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.969)
+    SET rptsd->m_width = 0.844
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__arrivalmod)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.010)
+    SET rptsd->m_width = 0.958
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__checkindate)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 2.010)
+    SET rptsd->m_width = 1.000
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__age)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 1.000)
+    SET rptsd->m_width = 1.010
+    SET rptsd->m_height = 0.260
+    SET _dummypen = uar_rptsetpen(_hreport,_pen14s0c255)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__mrncell)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_borders = rpt_sdleftborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _dummypen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__cellname)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 1.000),offsety,(offsetx+ 1.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 2.010),offsety,(offsetx+ 2.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.010),offsety,(offsetx+ 3.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.969),offsety,(offsetx+ 3.969),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 4.813),offsety,(offsetx+ 4.813),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 6.844),offsety,(offsetx+ 6.844),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 7.750),offsety,(offsetx+ 7.750),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 9.000),offsety,(offsetx+ 9.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname04html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName040' colspan='1'>",cclbuildhlink(
+    "1_maur_tn_activity_log_table",build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "1",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->person_name),"</td>",
+   "<td class='FieldName041' colspan='1'>",
+   cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "12",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->mrn),"</td>",
+   "<td class='FieldName042' colspan='1'>",report_labels->age_gender,"</td>",
+   "<td class='FieldName043' colspan='1'>",cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,",
+     "^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "3",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->checkin_date),"</td>",
+   "<td class='FieldName043' colspan='1'>",cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,",
+     "^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "6",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->arrival_mode),
+   "</td>","<td class='FieldName045' colspan='2'>",cclbuildhlink("1_maur_tn_activity_log_table",build(
+     "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "5",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->rfv),"</td>",
+   "<td class='FieldName045' colspan='2'>",
+   cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "7",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->ed_physician),"</td>",
+   "<td class='FieldName042' colspan='1'>",cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,",
+     "^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "9",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->admitting),"</td>",
+   "<td class='FieldName048' colspan='1'>",report_labels->discharge,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname05(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname05abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname05abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.250000), private
+   DECLARE __disposition = vc WITH noconstant(build(report_labels->disposition,char(0))), protect
+   DECLARE __primarynur = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "10",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->primary_nurse),char(0))), protect
+   DECLARE __diagnosis = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "11",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->diagnosis),char(0))), protect
+   DECLARE __acuity = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "2",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->acuity),char(0))), protect
+   DECLARE __checkoutdate = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",
+      build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "4",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->checkout_date),char(0))), protect
+   DECLARE __birthdat = vc WITH noconstant(build(cclbuildhlink("1_maur_tn_activity_log_table",build(
+       "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+       ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+       "8",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->birth_date),char(0))), protect
+   DECLARE __cellfin = vc WITH noconstant(build(report_labels->fin,char(0))), protect
+   DECLARE __los = vc WITH noconstant(build(report_labels->los_checkin,char(0))), protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdrightborder)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 9.000)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _oldfont = uar_rptsetfont(_hreport,_times8b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__disposition)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_borders = rpt_sdbottomborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 7.750)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build("",char(0)))
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 36
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 6.844)
+    SET rptsd->m_width = 0.906
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__primarynur)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 4.813)
+    SET rptsd->m_width = 2.031
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__diagnosis)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 36
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.969)
+    SET rptsd->m_width = 0.844
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__acuity)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 40
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.010)
+    SET rptsd->m_width = 0.958
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__checkoutdate)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 2.010)
+    SET rptsd->m_width = 1.000
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__birthdat)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 1.000)
+    SET rptsd->m_width = 1.010
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__cellfin)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 40
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdleftborder)
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_aqua)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__los)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 1.000),offsety,(offsetx+ 1.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 2.010),offsety,(offsetx+ 2.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.010),offsety,(offsetx+ 3.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.969),offsety,(offsetx+ 3.969),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 4.813),offsety,(offsetx+ 4.813),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 6.844),offsety,(offsetx+ 6.844),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 7.750),offsety,(offsetx+ 7.750),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 9.000),offsety,(offsetx+ 9.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname05html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName050' colspan='1'>",report_labels->
+   los_checkin,"</td>","<td class='FieldName051' colspan='1'>",
+   report_labels->fin,"</td>","<td class='FieldName052' colspan='1'>",cclbuildhlink(
+    "1_maur_tn_activity_log_table",build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "8",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->birth_date),"</td>",
+   "<td class='FieldName053' colspan='1'>",cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,",
+     "^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "4",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->checkout_date),"</td>",
+   "<td class='FieldName054' colspan='1'>",cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,",
+     "^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "2",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->acuity),
+   "</td>","<td class='FieldName055' colspan='2'>",cclbuildhlink("1_maur_tn_activity_log_table",build(
+     "MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "11",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->diagnosis),"</td>",
+   "<td class='FieldName054' colspan='2'>",
+   cclbuildhlink("1_maur_tn_activity_log_table",build("MINE,","^", $REPNAME,"^,", $TRACKGROUPCD,
+     ",^", $STARTDATE,"^,^", $ENDDATE,"^,",
+     "10",",", $LOCVIEW,",", $NURSEUNIT),1,report_labels->primary_nurse),"</td>",
+   "<td class='FieldName051' colspan='1'>","","</td>",
+   "<td class='FieldName058' colspan='1'>",report_labels->disposition,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname06(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname06abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname06abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.270000), private
+   DECLARE __checkindatetm = vc WITH noconstant(build(cclbuildhlink("fnrpt_pat_summary",build(
+        $TRACKGROUPCD,",",patient_data_visitid),1,patient_data_checkin_date_time),char(0))), protect
+   DECLARE __gender = vc WITH noconstant(build(build(patient_data_visit_age,"/",patient_data_sex),
+     char(0))), protect
+   DECLARE __name = vc WITH noconstant(build(cclbuildhlink("fnrpt_open_chart",build(
+       patient_data_personid,",",patient_data_visitid),1,patient_data_name_full_formatted),char(0))),
+   protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 0
+    SET rptsd->m_borders = rpt_sdrightborder
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 9.000)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.271
+    SET _oldfont = uar_rptsetfont(_hreport,_times80)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c16711680)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_discharge_to_location,char
+      (0)))
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = rpt_sdnoborders
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 7.750)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.271
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_admitting_physician,char(0
+       )))
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 6.844)
+    SET rptsd->m_width = 0.906
+    SET rptsd->m_height = 0.271
+    SET _dummypen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_primary_provider,char(0)))
+    SET rptsd->m_flags = 36
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 4.813)
+    SET rptsd->m_width = 2.031
+    SET rptsd->m_height = 0.271
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_reason_for_visit,char(0)))
+    SET rptsd->m_flags = 32
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.969)
+    SET rptsd->m_width = 0.844
+    SET rptsd->m_height = 0.271
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_admit_mode,char(0)))
+    SET rptsd->m_flags = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.010)
+    SET rptsd->m_width = 0.958
+    SET rptsd->m_height = 0.271
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__checkindatetm)
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 2.010)
+    SET rptsd->m_width = 1.000
+    SET rptsd->m_height = 0.271
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__gender)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 1.000)
+    SET rptsd->m_width = 1.010
+    SET rptsd->m_height = 0.271
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_white)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_mrn,char(0)))
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 36
+    SET rptsd->m_borders = rpt_sdleftborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.271
+    SET _dummypen = uar_rptsetpen(_hreport,_pen14s0c16711680)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__name)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 1.000),offsety,(offsetx+ 1.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 2.010),offsety,(offsetx+ 2.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.010),offsety,(offsetx+ 3.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.969),offsety,(offsetx+ 3.969),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 4.813),offsety,(offsetx+ 4.813),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 6.844),offsety,(offsetx+ 6.844),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 7.750),offsety,(offsetx+ 7.750),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 9.000),offsety,(offsetx+ 9.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname06html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName060' colspan='1'>",cclbuildhlink(
+    "fnrpt_open_chart",build(patient_data_personid,",",patient_data_visitid),1,
+    patient_data_name_full_formatted),"</td>","<td class='FieldName061' colspan='1'>",
+   patient_data_mrn,"</td>","<td class='FieldName062' colspan='1'>",build(patient_data_visit_age,"/",
+    patient_data_sex),"</td>",
+   "<td class='FieldName063' colspan='1'>",cclbuildhlink("fnrpt_pat_summary",build( $TRACKGROUPCD,",",
+     patient_data_visitid),1,patient_data_checkin_date_time),"</td>",
+   "<td class='FieldName064' colspan='1'>",patient_data_admit_mode,
+   "</td>","<td class='FieldName065' colspan='2'>",patient_data_reason_for_visit,"</td>",
+   "<td class='FieldName064' colspan='2'>",
+   patient_data_primary_provider,"</td>","<td class='FieldName067' colspan='1'>",
+   patient_data_admitting_physician,"</td>",
+   "<td class='FieldName068' colspan='1'>",patient_data_discharge_to_location,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname07(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname07abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname07abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.250000), private
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 32
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdrightborder)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 9.000)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _oldfont = uar_rptsetfont(_hreport,_times80)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c16711680)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_discharge_disposition,char
+      (0)))
+    SET rptsd->m_borders = rpt_sdbottomborder
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 7.750)
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build("",char(0)))
+    SET rptsd->m_flags = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 6.844)
+    SET rptsd->m_width = 0.906
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_primary_nurse,char(0)))
+    SET rptsd->m_flags = 4
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 4.813)
+    SET rptsd->m_width = 2.031
+    SET rptsd->m_height = 0.260
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,rpt_white)
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_disch_diagnosis,char(0)))
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET rptsd->m_flags = 36
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.969)
+    SET rptsd->m_width = 0.844
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_acuity_str,char(0)))
+    SET rptsd->m_flags = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 3.010)
+    SET rptsd->m_width = 0.958
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_checkout_date_time,char(0)
+      ))
+    SET rptsd->m_padding = rpt_sdleftborder
+    SET rptsd->m_paddingwidth = 0.050
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 2.010)
+    SET rptsd->m_width = 1.000
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_birth_date,char(0)))
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ 1.000)
+    SET rptsd->m_width = 1.010
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_fin,char(0)))
+    SET rptsd->m_borders = bor(rpt_sdbottomborder,rpt_sdleftborder)
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 1.250
+    SET rptsd->m_height = 0.260
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,build(patient_data_los_checkin,char(0)))
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 1.000),offsety,(offsetx+ 1.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 2.010),offsety,(offsetx+ 2.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.010),offsety,(offsetx+ 3.010),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 3.969),offsety,(offsetx+ 3.969),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 4.813),offsety,(offsetx+ 4.813),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 6.844),offsety,(offsetx+ 6.844),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 7.750),offsety,(offsetx+ 7.750),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 9.000),offsety,(offsetx+ 9.000),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname07html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName070' colspan='1'>",
+   patient_data_los_checkin,"</td>","<td class='FieldName071' colspan='1'>",
+   patient_data_fin,"</td>","<td class='FieldName072' colspan='1'>",patient_data_birth_date,"</td>",
+   "<td class='FieldName071' colspan='1'>",patient_data_checkout_date_time,"</td>",
+   "<td class='FieldName074' colspan='1'>",patient_data_acuity_str,
+   "</td>","<td class='FieldName075' colspan='2'>",patient_data_disch_diagnosis,"</td>",
+   "<td class='FieldName071' colspan='2'>",
+   patient_data_primary_nurse,"</td>","<td class='FieldName077' colspan='1'>","","</td>",
+   "<td class='FieldName078' colspan='1'>",patient_data_discharge_disposition,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE (fieldname08(ncalc=i2) =f8 WITH protect)
+   DECLARE a1 = f8 WITH noconstant(0.0), private
+   SET a1 = fieldname08abs(ncalc,_xoffset,_yoffset)
+   RETURN(a1)
+ END ;Subroutine
+ SUBROUTINE (fieldname08abs(ncalc=i2,offsetx=f8,offsety=f8) =f8 WITH protect)
+   DECLARE sectionheight = f8 WITH noconstant(0.250000), private
+   DECLARE __totalpatients = vc WITH noconstant(build(report_labels->total_qual_pats,char(0))),
+   protect
+   IF (ncalc=rpt_render)
+    SET rptsd->m_flags = 16
+    SET rptsd->m_borders = bor(bor(rpt_sdbottomborder,rpt_sdleftborder),rpt_sdrightborder)
+    SET rptsd->m_padding = rpt_sdnoborders
+    SET rptsd->m_paddingwidth = 0.000
+    SET rptsd->m_linespacing = rpt_single
+    SET rptsd->m_rotationangle = 0
+    SET rptsd->m_y = (offsety+ 0.000)
+    SET rptsd->m_x = (offsetx+ - (0.250))
+    SET rptsd->m_width = 10.500
+    SET rptsd->m_height = 0.260
+    SET _oldfont = uar_rptsetfont(_hreport,_times12b0)
+    SET _oldpen = uar_rptsetpen(_hreport,_pen14s0c0)
+    SET oldbackcolor = uar_rptsetbackcolor(_hreport,uar_rptencodecolor(255,128,128))
+    SET _fdrawheight = uar_rptstringdraw(_hreport,rptsd,__totalpatients)
+    SET oldbackcolor = uar_rptresetbackcolor(_hreport)
+    SET _dummypen = uar_rptsetpen(_hreport,_pen0s0c0)
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ 0.000),(offsetx+ 10.250),(
+     offsety+ 0.000))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),offsety,(offsetx+ - (0.250)),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ 10.250),offsety,(offsetx+ 10.250),(offsety+
+     sectionheight))
+    SET _rptstat = uar_rptline(_hreport,(offsetx+ - (0.250)),(offsety+ sectionheight),(offsetx+
+     10.250),(offsety+ sectionheight))
+    SET _dummyfont = uar_rptsetfont(_hreport,_oldfont)
+    SET _dummypen = uar_rptsetpen(_hreport,_oldpen)
+    SET _yoffset = (offsety+ sectionheight)
+   ENDIF
+   RETURN(sectionheight)
+ END ;Subroutine
+ SUBROUTINE (fieldname08html(dummy=i2) =null WITH protect)
+  SET _htmlfileinfo->file_buf = build2("<tr>","<td class='FieldName080' colspan='11'>",report_labels
+   ->total_qual_pats,"</td>","</tr>")
+  SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+ END ;Subroutine
+ SUBROUTINE initializereport(dummy)
+   IF (_bgeneratehtml=1)
+    SET _htmlfileinfo->file_name = _sendto
+    SET _htmlfileinfo->file_buf = "w+b"
+    SET _htmlfilestat = cclio("OPEN",_htmlfileinfo)
+    SET _htmlfileinfo->file_buf = "<html><head><META content=CCLLINK,APPLINK name=discern /></head>"
+    SET _htmlfilestat = cclio("WRITE",_htmlfileinfo)
+   ELSE
+    SET rptreport->m_recsize = 100
+    SET rptreport->m_reportname = "1_maur_tn_activity_log_table"
+    SET rptreport->m_pagewidth = 8.50
+    SET rptreport->m_pageheight = 11.00
+    SET rptreport->m_orientation = rpt_landscape
+    SET rptreport->m_marginleft = 0.50
+    SET rptreport->m_marginright = 0.50
+    SET rptreport->m_margintop = 0.50
+    SET rptreport->m_marginbottom = 0.50
+    SET rptreport->m_horzprintoffset = _xshift
+    SET rptreport->m_vertprintoffset = _yshift
+    SET _yoffset = rptreport->m_margintop
+    SET _xoffset = rptreport->m_marginleft
+    SET _hreport = uar_rptcreatereport(rptreport,_outputtype,rpt_inches)
+    SET _rpterr = uar_rptseterrorlevel(_hreport,rpt_error)
+    SET _rptstat = uar_rptstartreport(_hreport)
+    SET _rptpage = uar_rptstartpage(_hreport)
+   ENDIF
+   CALL _createfonts(0)
+   CALL _createpens(0)
+ END ;Subroutine
+ SUBROUTINE _createfonts(dummy)
+   SET rptfont->m_recsize = 50
+   SET rptfont->m_fontname = rpt_times
+   SET rptfont->m_pointsize = 10
+   SET rptfont->m_bold = rpt_off
+   SET rptfont->m_italic = rpt_off
+   SET rptfont->m_underline = rpt_off
+   SET rptfont->m_strikethrough = rpt_off
+   SET rptfont->m_rgbcolor = rpt_black
+   SET _times100 = uar_rptcreatefont(_hreport,rptfont)
+   SET rptfont->m_pointsize = 16
+   SET rptfont->m_bold = rpt_on
+   SET _times16b0 = uar_rptcreatefont(_hreport,rptfont)
+   SET rptfont->m_pointsize = 12
+   SET _times12b0 = uar_rptcreatefont(_hreport,rptfont)
+   SET rptfont->m_pointsize = 8
+   SET _times8b0 = uar_rptcreatefont(_hreport,rptfont)
+   SET rptfont->m_bold = rpt_off
+   SET _times80 = uar_rptcreatefont(_hreport,rptfont)
+ END ;Subroutine
+ SUBROUTINE _createpens(dummy)
+   SET rptpen->m_recsize = 16
+   SET rptpen->m_penwidth = 0.014
+   SET rptpen->m_penstyle = 0
+   SET rptpen->m_rgbcolor = rpt_black
+   SET _pen14s0c0 = uar_rptcreatepen(_hreport,rptpen)
+   SET rptpen->m_penwidth = 0.000
+   SET _pen0s0c0 = uar_rptcreatepen(_hreport,rptpen)
+   SET rptpen->m_penwidth = 0.014
+   SET rptpen->m_rgbcolor = rpt_red
+   SET _pen14s0c255 = uar_rptcreatepen(_hreport,rptpen)
+   SET rptpen->m_rgbcolor = rpt_blue
+   SET _pen14s0c16711680 = uar_rptcreatepen(_hreport,rptpen)
+ END ;Subroutine
+ DECLARE pat_count = i4 WITH noconstant(0)
+ DECLARE disch_cd = f8
+ DECLARE rfv_cd = f8
+ DECLARE admitdoc_cd = f8
+ DECLARE attnddoc_cd = f8
+ DECLARE refdoc_cd = f8
+ DECLARE trkcommenttype = f8
+ DECLARE acuitycd = f8
+ DECLARE regstatuscd = f8
+ DECLARE specialtycd = f8
+ DECLARE teamcd = f8
+ DECLARE pcpdoc_cd = f8
+ DECLARE space_pos = i4
+ DECLARE cut_pos = i4
+ DECLARE age = vc
+ DECLARE new_age = vc
+ DECLARE user_name = vc
+ DECLARE provsrc = f8 WITH noconstant(0.0)
+ DECLARE prvrelncd = f8
+ DECLARE len = i4
+ DECLARE comp_pref = vc
+ DECLARE comp_name_unq = vc
+ DECLARE counter = i4 WITH noconstant(0)
+ DECLARE counter1 = i4 WITH noconstant(0)
+ DECLARE counter2 = i4 WITH noconstant(0)
+ RECORD output_data(
+   1 total_los = vc
+   1 report_data
+     2 report_title = vc
+     2 facility_cd = f8
+     2 facility_display = vc
+     2 track_group_cd = f8
+     2 track_group_display = vc
+     2 report_date = vc
+     2 start_date = vc
+     2 end_date = vc
+     2 report_generation_date = vc
+     2 report_generation_id = f8
+     2 report_generation_name = vc
+     2 report_nurseunit_name = vc
+     2 criteria = vc
+     2 report_parameters[*]
+       3 parameter_type = f8
+       3 parameter_value = vc
+   1 patient_data[*]
+     2 current_location_display = vc
+     2 sorting_field = vc
+     2 accompanied_by = vc
+     2 acuity = vc
+     2 admit_mode = vc
+     2 admitting_physician = vc
+     2 admit_source = vc
+     2 arrive_date_time = vc
+     2 visit_id = f8
+     2 attending_physician = vc
+     2 avl = vc
+     2 birth_date = vc
+     2 checkout_date_time = vc
+     2 checkout_date = vc
+     2 checkout_time = vc
+     2 checkin_date_time = vc
+     2 checkin_date = vc
+     2 checkin_time = vc
+     2 chief_complaint = vc
+     2 other_info = c32000
+     2 prearrival_author = vc
+     2 prearrival_form_date_time = vc
+     2 cancelled_by = vc
+     2 coded_by = vc
+     2 coded_by_id = f8
+     2 coded_dt_tm = vc
+     2 comment1 = vc
+     2 comment2 = vc
+     2 comment3 = vc
+     2 comment4 = vc
+     2 comment5 = vc
+     2 comment6 = vc
+     2 comment7 = vc
+     2 comment8 = vc
+     2 comment9 = vc
+     2 comment10 = vc
+     2 depart_date_time = vc
+     2 discharge_disposition = vc
+     2 discharge_to_location = vc
+     2 discharge_date_time = vc
+     2 current_age = vc
+     2 disch_diagnosis = vc
+     2 encounter_comment = vc
+     2 encntr_id = f8
+     2 encounter_type = vc
+     2 family_present = vc
+     2 fin = vc
+     2 financial_class = vc
+     2 form_status = vc
+     2 isolation = vc
+     2 los = vc
+     2 los_checkin = vc
+     2 los_checkin_hours = vc
+     2 los_hours = vc
+     2 los_location = vc
+     2 medical_service = vc
+     2 mrn = vc
+     2 name_full_formatted = vc
+     2 order_id = f8
+     2 order_display = vc
+     2 order_result_display = vc
+     2 indvordercnt = i4
+     2 pcp = vc
+     2 person_id = f8
+     2 prearrival_type = vc
+     2 primary_provider = vc
+     2 secondary_provider = vc
+     2 primary_nurse = vc
+     2 secondary_nurse = vc
+     2 reason_for_visit = vc
+     2 referring_comment = vc
+     2 referring_physician = vc
+     2 referring_source = vc
+     2 registration_provider = vc
+     2 registration_status = vc
+     2 registration_date_time = vc
+     2 security_vip = vc
+     2 sex = vc
+     2 specialty = vc
+     2 ssn = vc
+     2 team = vc
+     2 track_group_cd = cv
+     2 track_group = vc
+     2 tracking_checkin_id = f8
+     2 tracking_comment1 = vc
+     2 tracking_comment2 = vc
+     2 tracking_comment3 = vc
+     2 tracking_comment4 = vc
+     2 tracking_comment5 = vc
+     2 tracking_comment6 = vc
+     2 tracking_comment7 = vc
+     2 tracking_comment8 = vc
+     2 tracking_comment9 = vc
+     2 tracking_comment10 = vc
+     2 tracking_id = f8
+     2 tvl = vc
+     2 visit_age = vc
+     2 documentation_status = vc
+     2 region_cd = f8
+     2 disaster_name = c30
+     2 pa_type = vc
+     2 pa_eta = vc
+     2 pa_ta = vc
+     2 pa_user = vc
+     2 pa_ref_source = vc
+     2 radiologist = vc
+     2 event_id = f8
+     2 note_title = vc
+     2 checkout_update_name = vc
+     2 disch_action_reason = vc
+     2 clinician = vc
+     2 nurse = vc
+     2 num_pat_seen = i4
+     2 num_pat_admitted = i4
+     2 num_pat_disch = i4
+     2 admit_pat_info = vc
+     2 disch_pat_info = vc
+     2 interval_median = vc
+     2 interval_max = vc
+     2 interval_avg = vc
+     2 ed_physician = vc
+     2 ed_reviewer = vc
+     2 discrepancy = vc
+     2 cardiologist = vc
+     2 proc_dt_tm = vc
+     2 acknowledged_ind = i2
+     2 presenting_problem_name = vc
+     2 assigned_nurse = vc
+     2 location_info[*]
+       3 arrival_date = vc
+       3 location_nurse_cd = vc
+       3 location_room_cd = vc
+       3 location_bed_cd = vc
+       3 location_updated_by = vc
+       3 location_moved_by = vc
+     2 event_info[*]
+       3 event_name = vc
+       3 event_status_display = vc
+       3 request_date_time = vc
+       3 request_time = vc
+       3 start_date_time = vc
+       3 start_time = vc
+       3 complete_date_time = vc
+       3 complete_time = vc
+     2 provider_info[*]
+       3 provider_name = vc
+       3 provider_role = vc
+       3 assign_date_time = vc
+       3 unassign_date_time = vc
+     2 em_charge = vc
+     2 em_charges[*]
+       3 charge_item_id = f8
+       3 bill_item_id = f8
+       3 charge_cnt = i4
+       3 cdm = vc
+       3 cpt = vc
+       3 mods[*]
+         4 modifier = vc
+     2 iv_charge = vc
+     2 iv_charges[*]
+       3 charge_item_id = f8
+       3 bill_item_id = f8
+       3 charge_cnt = i4
+       3 cdm = vc
+       3 cpt = vc
+       3 mods[*]
+         4 modifier = vc
+     2 encntr_text_key = vc
+     2 incident_cd = f8
+     2 incident_name = c30
+   1 tracking_loc[*]
+     2 location_cd = f8
+     2 location_value = vc
+   1 results[*]
+     2 event_display = vc
+     2 result_display = vc
+   1 orders[*]
+     2 order_display = vc
+     2 order_result_display = vc
+     2 hna_order_mnemonic = vc
+     2 orig_ord_date = vc
+     2 doc_name = vc
+     2 status_display = vc
+     2 start_date = vc
+     2 catalog_type_display = vc
+     2 catalog_type_cd = f8
+     2 start_date = vc
+     2 stop_date = vc
+   1 view_wet_read = vc
+   1 track_group_cd = f8
+ )
+ RECORD acuities(
+   1 total = i4
+   1 acuity[*]
+     2 censuscnt = i4
+     2 acuitystr = c50
+     2 average = f8
+ )
+ RECORD events(
+   1 total = i4
+   1 firsteventdisplay = vc
+   1 secondeventdisplay = vc
+   1 avgtime = vc
+   1 eventtime[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 numberofpatients = i4
+     2 averagetime = vc
+ )
+ RECORD orders(
+   1 total = i4
+   1 orderdisplay = vc
+   1 avgtime = vc
+   1 ordertime[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 numberofpatients = i4
+     2 averagetime = vc
+ )
+ RECORD emsstruct(
+   1 intervaltime[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 patientcount = vc
+ )
+ RECORD dispostruct(
+   1 intervaltime[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 dispostring = vc
+     2 interval_total = i2
+     2 startcount = i2
+     2 endcount = i2
+     2 averagetime = vc
+     2 dispo[*]
+       3 starttime = vc
+       3 endtime = vc
+       3 dispositiondisplay = vc
+       3 patientcount = i2
+ )
+ RECORD topproblemsstruct(
+   1 tvlgroup[*]
+     2 tvl = c255
+     2 totallos = f8
+     2 tvlpatcount = i4
+     2 rfvgroup[*]
+       3 tvldisplay = c255
+       3 rfv = c255
+       3 numberrfv = c255
+       3 percentrfv = c255
+       3 minlos = c255
+       3 minlosf = f8
+       3 avelos = c255
+       3 totallos = f8
+       3 maxlos = c255
+       3 maxlosf = f8
+       3 sortingfield = c255
+   1 total_number = c255
+   1 total_percent = c255
+   1 total_min_los = c255
+   1 total_ave_los = c255
+   1 total_max_los = c255
+   1 disposition = c255
+   1 statistics = c255
+ )
+ RECORD diagchiefcomp(
+   1 qual[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 intervalpatcount = i4
+     2 diagnosis[*]
+       3 diagnosiscnt = i4
+       3 diagccdisplay = vc
+       3 nomenclatureid = f8
+ )
+ RECORD dispodetailstruct(
+   1 dispo[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 dispositiondisplay = vc
+     2 dispositioncd = f8
+     2 patientcount = i2
+     2 encntr_id = f8
+     2 averagetime = vc
+ )
+ RECORD dashboard(
+   1 totalpatients = i4
+   1 totallos = i4
+   1 avglos = vc
+   1 highestlos = i4
+   1 highestlostrackingid = f8
+   1 bedcount = i4
+   1 waitroomcount = i4
+   1 lwbsdispocount = i4
+   1 dispo1count = i4
+   1 dispo1name = vc
+   1 dispo2name = vc
+   1 dispo3name = vc
+   1 dispo4name = vc
+   1 dispo2count = i4
+   1 dispo3count = i4
+   1 dispo4count = i4
+   1 eventpair1time = vc
+   1 eventpair2time = vc
+   1 eventpair3time = vc
+   1 eventpair4time = vc
+   1 eventpair1name = vc
+   1 eventpair2name = vc
+   1 eventpair3name = vc
+   1 eventpair4name = vc
+   1 bed_status[*]
+     2 bed_status = vc
+     2 bed_status_cnt = i4
+     2 bed_status_cd = f8
+   1 acuities[*]
+     2 acuity_desc = vc
+     2 acuity_cnt = i4
+     2 acuity_cd = f8
+ )
+ RECORD totals(
+   1 total = i4
+   1 avgtime = vc
+   1 alllos = i4
+   1 admittotals = i4
+   1 intervaltime[*]
+     2 starttime = vc
+     2 endtime = vc
+     2 starttimeformat = vc
+     2 endtimeformat = vc
+     2 patientcount = i4
+     2 intervalhour = i4
+     2 averagetime = vc
+     2 startcount = i2
+     2 endcount = i2
+     2 total_los = i4
+     2 admittedcount = i4
+ )
+ RECORD topdiagnosis(
+   1 total = i4
+   1 diagnosis[*]
+     2 nomenclatureid = f8
+     2 display = vc
+     2 diagnosiscnt = i4
+ )
+ DECLARE pri_doc_role = f8 WITH noconstant(0.0)
+ DECLARE sec_doc_role = f8 WITH noconstant(0.0)
+ DECLARE pri_nur_role = f8 WITH noconstant(0.0)
+ DECLARE sec_nur_role = f8 WITH noconstant(0.0)
+ DECLARE pcpdoc_cd = f8 WITH noconstant(uar_get_code_by("MEANING",331,"PCP"))
+ DECLARE attnddoc_cd = f8 WITH noconstant(uar_get_code_by("MEANING",333,"ATTENDDOC"))
+ DECLARE admitdoc_cd = f8 WITH noconstant(uar_get_code_by("MEANING",333,"ADMITDOC"))
+ DECLARE refdoc_cd = f8 WITH noconstant(uar_get_code_by("MEANING",333,"REFERDOC"))
+ DECLARE rfv_cd = f8 WITH noconstant(uar_get_code_by("MEANING",17,"RFV"))
+ DECLARE disch_cd = f8 WITH noconstant(uar_get_code_by("MEANING",17,"DISCHARGE"))
+ DECLARE trkcommenttype = f8 WITH noconstant(uar_get_code_by("MEANING",355,"TRACKCOMMENT"))
+ DECLARE acuitycd = f8 WITH noconstant(uar_get_code_by("MEANING",16409,"ACUITY"))
+ DECLARE regstatuscd = f8 WITH noconstant(uar_get_code_by("MEANING",16409,"REGSTAT"))
+ DECLARE specialtycd = f8 WITH noconstant(uar_get_code_by("MEANING",16409,"SPECIALTY"))
+ DECLARE teamcd = f8 WITH noconstant(uar_get_code_by("MEANING",16409,"TEAM"))
+ DECLARE provsrc = f8 WITH noconstant(uar_get_code_by("MEANING",19009,"PSFENABLED"))
+ DECLARE prvrole_assoc = f8 WITH noconstant(uar_get_code_by("MEANING",20500,"PRVROLEASSOC"))
+ DECLARE comp_pref = vc
+ DECLARE comp_name_unique = vc
+ DECLARE len = i4 WITH noconstant(0)
+ DECLARE delimpos1 = i4 WITH noconstant(0)
+ DECLARE delimpos2 = i4 WITH noconstant(0)
+ DECLARE delimpos3 = i4 WITH noconstant(0)
+ SELECT INTO "nl:"
+  FROM location loc,
+   organization o,
+   track_group tg
+  PLAN (tg
+   WHERE (tg.tracking_group_cd= $TRACKGROUPCD)
+    AND tg.child_table="TRACK_ASSOC")
+   JOIN (loc
+   WHERE loc.location_cd=tg.parent_value
+    AND loc.active_ind=1)
+   JOIN (o
+   WHERE o.organization_id=loc.organization_id)
+  DETAIL
+   output_data->report_data.facility_display = o.org_name
+  WITH nocounter, maxrec = 1
+ ;end select
+ IF (provsrc != 0.0)
+  SET comp_name_unique = concat(trim(cnvtstring( $TRACKGROUPCD)),";",trim(cnvtstring(prvrole_assoc)))
+  SELECT INTO "nl:"
+   FROM track_prefs tp
+   WHERE tp.comp_name_unq=comp_name_unique
+   DETAIL
+    comp_pref = tp.comp_pref
+   WITH nocounter
+  ;end select
+  CALL echo(build("comp_pref: ",comp_pref))
+  SET len = textlen(comp_pref)
+  SET delimpos1 = findstring(";",comp_pref)
+  SET pri_doc_role = cnvtreal(substring(1,(delimpos1 - 1),comp_pref))
+  SET delimpos2 = findstring(";",comp_pref,(delimpos1+ 1))
+  SET sec_doc_role = cnvtreal(substring((delimpos1+ 1),(delimpos2 - (delimpos1+ 1)),comp_pref))
+  SET delimpos3 = findstring(";",comp_pref,(delimpos2+ 1))
+  SET pri_nur_role = cnvtreal(substring((delimpos2+ 1),(delimpos3 - (delimpos2+ 1)),comp_pref))
+  SET sec_nur_role = cnvtreal(substring((delimpos3+ 1),(len - delimpos3),comp_pref))
+ ENDIF
+ IF (validate(i18nuar_def,999)=999)
+  CALL echo("Declaring i18nuar_def")
+  DECLARE i18nuar_def = i2 WITH persist
+  SET i18nuar_def = 1
+  DECLARE uar_i18nlocalizationinit(p1=i4,p2=vc,p3=vc,p4=f8) = i4 WITH persist
+  DECLARE uar_i18ngetmessage(p1=i4,p2=vc,p3=vc) = vc WITH persist
+  DECLARE uar_i18nbuildmessage() = vc WITH persist
+  DECLARE uar_i18ngethijridate(imonth=i2(val),iday=i2(val),iyear=i2(val),sdateformattype=vc(ref)) =
+  c50 WITH image_axp = "shri18nuar", image_aix = "libi18n_locale.a(libi18n_locale.o)", uar =
+  "uar_i18nGetHijriDate",
+  persist
+  DECLARE uar_i18nbuildfullformatname(sfirst=vc(ref),slast=vc(ref),smiddle=vc(ref),sdegree=vc(ref),
+   stitle=vc(ref),
+   sprefix=vc(ref),ssuffix=vc(ref),sinitials=vc(ref),soriginal=vc(ref)) = c250 WITH image_axp =
+  "shri18nuar", image_aix = "libi18n_locale.a(libi18n_locale.o)", uar = "i18nBuildFullFormatName",
+  persist
+  DECLARE uar_i18ngetarabictime(ctime=vc(ref)) = c20 WITH image_axp = "shri18nuar", image_aix =
+  "libi18n_locale.a(libi18n_locale.o)", uar = "i18n_GetArabicTime",
+  persist
+ ENDIF
+ DECLARE i18nhandle = i4 WITH persistscript
+ CALL uar_i18nlocalizationinit(i18nhandle,curprog,"",curcclrev)
+ SET output_data->report_data.report_title =  $REPNAME
+ SET output_data->report_data.track_group_display = uar_i18nbuildmessage(i18nhandle,"fn_TrkGroup",
+  "For: %1","s",nullterm(trim(uar_get_code_description( $TRACKGROUPCD))))
+ SET output_data->report_data.report_generation_date = uar_i18nbuildmessage(i18nhandle,
+  "fn_GenReportDate","Printed At: %1","s",nullterm(concat(format(curdate,"@SHORTDATE"),"  ",format(
+     curtime3,"@TIMENOSECONDS"))))
+ SELECT INTO "nl:"
+  FROM prsnl p
+  WHERE (p.person_id=reqinfo->updt_id)
+  DETAIL
+   output_data->report_data.report_generation_name = uar_i18nbuildmessage(i18nhandle,"fn_GenName",
+    "Printed By: %1","s",nullterm(p.name_full_formatted))
+  WITH nocounter
+ ;end select
+ IF (( $NURSEUNIT=0))
+  DECLARE bedcount = i4
+  DECLARE bedpatcount = i4
+  DECLARE pt_count = i4
+  DECLARE emptybed = i4
+  DECLARE waitpatcount = i4
+  DECLARE cocount = i4
+  DECLARE copatcount = i4
+  DECLARE heldbedstatus = i4
+  DECLARE waitcount = i4
+  RECORD requestcopy(
+    1 view_id = f8
+  )
+  RECORD reply2(
+    1 qual[*]
+      2 code = f8
+      2 desc = cv
+      2 cdf = cv
+      2 status = cv
+      2 status_cd = f8
+      2 pt_count = i2
+      2 held_for = vc
+      2 held_count = i2
+    1 status_data
+      2 status = c1
+      2 subeventstatus[1]
+        3 operationname = c15
+        3 operationstatus = c1
+        3 targetobjectname = c15
+        3 targetobjectvalue = vc
+  )
+  RECORD locview(
+    1 totalbedcount = i4
+    1 totalbedpatcount = i4
+    1 totalwrcount = i4
+    1 totalwrpatcount = i4
+    1 bunkedbeds = vc
+    1 emptybedcount = i4
+    1 heldbedcount = i4
+    1 prearrivalcount = i4
+    1 emptybeds = vc
+    1 bed[*]
+      2 bedname = vc
+      2 bedcount = i4
+      2 bunked = i2
+      2 loc_cd = f8
+    1 wait[*]
+      2 roomname = vc
+      2 roomcount = i4
+      2 loc_cd = f8
+    1 checkout[*]
+      2 roomname = vc
+      2 roomcount = i4
+      2 loc_cd = f8
+  )
+  DECLARE expandindex = i4 WITH noconstant(0)
+  DECLARE loccount = i4 WITH noconstant(0)
+  SET requestcopy->view_id =  $LOCVIEW
+  EXECUTE trkcsp_get_load_locview  WITH replace(reply,reply2), replace(request,requestcopy)
+  SET loccount = size(reply2->qual,5)
+  DECLARE bedcount = i4 WITH noconstant(0)
+  DECLARE bedpatcount = i4 WITH noconstant(0)
+  DECLARE pt_count = i4 WITH noconstant(0)
+  DECLARE emptybed = i4 WITH noconstant(0)
+  DECLARE waitpatcount = i4 WITH noconstant(0)
+  DECLARE cocount = i4 WITH noconstant(0)
+  DECLARE copatcount = i4 WITH noconstant(0)
+  DECLARE heldbedstatus = i4 WITH noconstant(0)
+  DECLARE waitcount = i4 WITH noconstant(0)
+  IF (size(reply2->qual,5) > 0)
+   SELECT INTO "nl:"
+    FROM (dummyt d  WITH seq = size(reply2->qual,5))
+    DETAIL
+     IF ((reply2->qual[d.seq].cdf="BED"))
+      bedcount += 1, bedpatcount += reply2->qual[d.seq].pt_count, stat = alterlist(locview->bed,
+       bedcount),
+      locview->bed[bedcount].bedname = reply2->qual[d.seq].desc, locview->bed[bedcount].bedcount =
+      reply2->qual[d.seq].pt_count, locview->bed[bedcount].loc_cd = reply2->qual[d.seq].code
+     ELSEIF ((reply2->qual[d.seq].cdf="WAITROOM"))
+      waitcount += 1, stat = alterlist(locview->wait,waitcount), waitpatcount += reply2->qual[d.seq].
+      pt_count,
+      locview->wait[waitcount].roomname = reply2->qual[d.seq].desc, locview->wait[waitcount].
+      roomcount = reply2->qual[d.seq].pt_count, locview->wait[waitcount].loc_cd = reply2->qual[d.seq]
+      .code
+     ELSEIF ((reply2->qual[d.seq].cdf="CHECKOUT"))
+      cocount += 1, stat = alterlist(locview->checkout,cocount), copatcount += reply2->qual[d.seq].
+      pt_count,
+      locview->checkout[cocount].roomname = reply2->qual[d.seq].desc, locview->checkout[cocount].
+      roomcount = reply2->qual[d.seq].pt_count, locview->checkout[cocount].loc_cd = reply2->qual[d
+      .seq].code
+     ENDIF
+    WITH nocounter
+   ;end select
+  ENDIF
+  SET output_data->report_data.report_nurseunit_name = trim(uar_get_code_description( $LOCVIEW))
+ ELSE
+  SET output_data->report_data.report_nurseunit_name = trim(uar_get_code_description( $NURSEUNIT))
+ ENDIF
+ SET output_data->report_data.report_nurseunit_name = uar_i18nbuildmessage(i18nhandle,"fn_NurseUnit",
+  "Location: %1","s",nullterm(output_data->report_data.report_nurseunit_name))
+ DECLARE date_range_size = f8 WITH noconstant(0.0)
+ DECLARE sbegin = vc WITH noconstant
+ DECLARE send = vc WITH noconstant
+ SET date_range_size = datetimediff(cnvtdatetime( $ENDDATE),cnvtdatetime( $STARTDATE))
+ SET sbegin = uar_i18nbuildmessage(i18nhandle,"fn_GenStartDate","From: %1","s",nullterm(format(
+    cnvtdatetime( $STARTDATE),"@SHORTDATETIMENOSEC")))
+ SET send = uar_i18nbuildmessage(i18nhandle,"fn_GenEndDate","To: %1","s",nullterm(format(
+    cnvtdatetime( $ENDDATE),"@SHORTDATETIMENOSEC")))
+ SET output_data->report_data.start_date = sbegin
+ SET output_data->report_data.end_date = send
+ SET output_data->report_data.report_date = trim(concat(sbegin,"&nbsp;&nbsp;",send))
+ DECLARE totalpats = i4 WITH persistscript, noconstant(0)
+ SELECT INTO "nl:"
+  FROM tracking_checkin tc,
+   tracking_item ti,
+   encounter e,
+   person p
+  PLAN (tc
+   WHERE tc.checkin_dt_tm >= cnvtdatetime( $STARTDATE)
+    AND tc.checkin_dt_tm < cnvtdatetime( $ENDDATE)
+    
+    
+    
+    AND ((tc.tracking_group_cd+ 0)= $TRACKGROUPCD)
+    AND ((tc.active_ind+ 0)=1))
+   JOIN (ti
+   WHERE ti.tracking_id=tc.tracking_id
+    AND ti.active_ind=1)
+   JOIN (p
+   WHERE p.person_id=ti.person_id
+    AND p.active_ind=1)
+   JOIN (e
+   WHERE e.encntr_id=ti.encntr_id
+    AND e.active_ind=1)
+  ORDER BY tc.tracking_id
+  HEAD tc.tracking_id
+   totalpats += 1
+  WITH nocounter
+ ;end select
+ DECLARE calclos(timedbl,patientcount) = cv
+ FREE RECORD report_labels
+ RECORD report_labels(
+   1 summary = vc
+   1 total_pats = vc
+   1 person_name = vc
+   1 mrn = vc
+   1 age_gender = vc
+   1 checkin_date = vc
+   1 rfv = vc
+   1 ed_physician = vc
+   1 admitting = vc
+   1 arrival_mode = vc
+   1 los_checkin = vc
+   1 fin = vc
+   1 birth_date = vc
+   1 primary_nurse = vc
+   1 acuity = vc
+   1 diagnosis = vc
+   1 checkout_date = vc
+   1 discharge = vc
+   1 disposition = vc
+   1 total_qual_pats = vc
+ )
+ DECLARE snotvalued = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_NotValued","not valued"))
+ DECLARE snotcheckedout = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_NotCheckout","Not checkedout"))
+ DECLARE idisplaynhs = i2 WITH noconstant(0)
+ DECLARE dob_utc_dt_tm = dq8
+ DECLARE dnurseunit_cd = f8 WITH protect, constant(cnvtreal( $NURSEUNIT))
+ DECLARE dtrackinggroupcd = f8 WITH protect, constant(cnvtreal( $TRACKGROUPCD))
+ SELECT
+  IF (dnurseunit_cd > 0.0)
+   PLAN (tc
+    WHERE tc.tracking_group_cd=dtrackinggroupcd
+;     AND tc.checkin_dt_tm >= cnvtdatetime( $STARTDATE)
+;     AND tc.checkin_dt_tm < cnvtdatetime( $ENDDATE)
+	and (tc.checkin_dt_tm between cnvtdatetime($STARTDATE) and cnvtdatetime($ENDDATE)            
+	;ended in time period
+    or tc.checkout_dt_tm between cnvtdatetime($STARTDATE) and cnvtdatetime($ENDDATE)         
+	;started before and ended after time period 
+    or (tc.checkin_dt_tm <= cnvtdatetime($STARTDATE) and tc.checkout_dt_tm >= cnvtdatetime($ENDDATE)))
+         
+     AND tc.active_ind=1)
+    JOIN (ti
+    WHERE ti.tracking_id=tc.tracking_id
+     AND ti.active_ind=1)
+    JOIN (e
+    WHERE e.encntr_id=ti.encntr_id
+     AND e.active_ind=1)
+    JOIN (p
+    WHERE p.person_id=ti.person_id
+     AND p.active_ind=1)
+    JOIN (t
+    WHERE t.tracking_ref_id=tc.acuity_level_id)
+    JOIN (tl
+    WHERE tl.tracking_id=tc.tracking_id
+     AND tl.loc_nurse_unit_cd=dnurseunit_cd)
+  ELSE
+   PLAN (tc
+    WHERE tc.tracking_group_cd=dtrackinggroupcd
+     AND tc.checkin_dt_tm >= cnvtdatetime( $STARTDATE)
+     AND tc.checkin_dt_tm < cnvtdatetime( $ENDDATE)
+     AND tc.active_ind=1)
+    JOIN (ti
+    WHERE ti.tracking_id=tc.tracking_id)
+    JOIN (e
+    WHERE e.encntr_id=ti.encntr_id
+     AND e.active_ind=1)
+    JOIN (p
+    WHERE p.person_id=ti.person_id
+     AND p.active_ind=1)
+    JOIN (t
+    WHERE t.tracking_ref_id=tc.acuity_level_id)
+    JOIN (tl
+    WHERE tl.tracking_id=tc.tracking_id
+     AND ((expand(expandindex,1,bedcount,tl.loc_bed_cd,locview->bed[expandindex].loc_cd)) OR (((
+    expand(expandindex,1,waitcount,tl.loc_room_cd,locview->wait[expandindex].loc_cd)) OR (expand(
+     expandindex,1,cocount,tl.loc_room_cd,locview->checkout[expandindex].loc_cd))) )) )
+  ENDIF
+  DISTINCT INTO "nl:"
+  p.person_id, e.encntr_id, tc.tracking_id,
+  t.description
+  FROM tracking_checkin tc,
+   tracking_item ti,
+   person p,
+   encounter e,
+   track_reference t,
+   tracking_locator tl
+  ORDER BY tc.tracking_id
+  HEAD REPORT
+   pat_count = 0, age = fillstring(12," "), space_pos = 0
+  HEAD tc.tracking_id
+   pat_count += 1
+   IF (pat_count > size(output_data->patient_data,5))
+    stat = alterlist(output_data->patient_data,(pat_count+ 100))
+   ENDIF
+   dob_utc_dt_tm = cnvtdatetimeutc(datetimezone(p.birth_dt_tm,p.birth_tz),1)
+   IF (sortorder=1)
+    output_data->patient_data[pat_count].sorting_field = cnvtupper(p.name_full_formatted)
+   ELSEIF (sortorder=2)
+    output_data->patient_data[pat_count].sorting_field = cnvtupper(t.description)
+   ELSEIF (sortorder=3)
+    output_data->patient_data[pat_count].sorting_field = format(tc.checkin_dt_tm,"YYYYMMDDHHMMSSCC;;D")
+   ELSEIF (sortorder=4)
+    output_data->patient_data[pat_count].sorting_field = format(tc.checkout_dt_tm,"YYYYMMDDHHMMSSCC;;D")
+   ELSEIF (sortorder=5)
+    output_data->patient_data[pat_count].sorting_field = format(tc.checkin_dt_tm, "YYYYMMDDHHMMSSCC;;D")
+   ELSEIF (sortorder=6)
+    output_data->patient_data[pat_count].sorting_field = cnvtupper(uar_get_code_display(e.admit_mode_cd))
+   ELSEIF (sortorder=8)
+    output_data->patient_data[pat_count].sorting_field = format(dob_utc_dt_tm,"YYYYMMDDHHMMSSCC;;D")
+   ELSE
+    output_data->patient_data[pat_count].sorting_field = format(tc.checkin_dt_tm,"YYYYMMDDHHMMSSCC;;D")
+   ENDIF
+   output_data->patient_data[pat_count].name_full_formatted = trim(p.name_full_formatted),
+   output_data->patient_data[pat_count].visit_id = e.encntr_id, output_data->patient_data[pat_count].
+   person_id = p.person_id,
+   output_data->patient_data[pat_count].tracking_id = tc.tracking_id, output_data->patient_data[
+   pat_count].sex = uar_get_code_display(p.sex_cd), output_data->patient_data[pat_count].birth_date
+    = format(dob_utc_dt_tm,"@SHORTDATE"),
+   age = trim(cnvtage(dob_utc_dt_tm,tc.checkin_dt_tm,1)), space_pos = findstring(" ",age,1,1)
+   IF (space_pos > 0)
+    cut_pos = (space_pos+ 1), new_age = substring(1,cut_pos,age), output_data->patient_data[pat_count
+    ].visit_age = new_age
+   ELSE
+    output_data->patient_data[pat_count].visit_age = age
+   ENDIF
+   output_data->patient_data[pat_count].admit_mode = uar_get_code_display(e.admit_mode_cd),
+   output_data->patient_data[pat_count].arrive_date_time = concat(format(e.arrive_dt_tm,"@SHORTDATE"),
+    " ",format(e.arrive_dt_tm,"@TIMENOSECONDS")), output_data->patient_data[pat_count].
+   discharge_disposition = uar_get_code_display(tc.checkout_disposition_cd),
+   output_data->patient_data[pat_count].discharge_to_location = uar_get_code_display(e
+    .disch_to_loctn_cd), output_data->patient_data[pat_count].discharge_date_time = concat(format(e
+     .disch_dt_tm,"@SHORTDATE")," ",format(e.disch_dt_tm,"@TIMENOSECONDS")), output_data->
+   patient_data[pat_count].encntr_id = e.encntr_id,
+   output_data->patient_data[pat_count].mrn = snotvalued, output_data->patient_data[pat_count].
+   registration_date_time = concat(format(e.reg_dt_tm,"@SHORTDATE")," ",format(e.reg_dt_tm,
+     "@TIMENOSECONDS")), output_data->patient_data[pat_count].checkin_date = format(tc.checkin_dt_tm,
+    "@SHORTDATE"),
+   output_data->patient_data[pat_count].checkin_time = format(tc.checkin_dt_tm,"@TIMENOSECONDS"),
+   output_data->patient_data[pat_count].checkin_date_time = concat(output_data->patient_data[
+    pat_count].checkin_date," ",output_data->patient_data[pat_count].checkin_time)
+   IF (tc.checkout_dt_tm < cnvtdatetime(sysdate))
+    output_data->patient_data[pat_count].checkout_date = format(tc.checkout_dt_tm,"@SHORTDATE"),
+    output_data->patient_data[pat_count].checkout_time = format(tc.checkout_dt_tm,"@TIMENOSECONDS")
+   ELSE
+    output_data->patient_data[pat_count].checkout_date = snotcheckedout
+   ENDIF
+   output_data->patient_data[pat_count].checkout_date_time = concat(output_data->patient_data[
+    pat_count].checkout_date," ",output_data->patient_data[pat_count].checkout_time), output_data->
+   patient_data[pat_count].family_present = uar_get_code_display(tc.family_present_cd)
+   IF (tc.checkout_dt_tm < cnvtdatetime(sysdate))
+    output_data->patient_data[pat_count].los_checkin = calclos(((cnvtdatetime(tc.checkout_dt_tm) -
+     cnvtdatetime(tc.checkin_dt_tm))/ 600000000),1)
+   ELSE
+    output_data->patient_data[pat_count].los_checkin = calclos(((cnvtdatetime(sysdate) - cnvtdatetime
+     (tc.checkin_dt_tm))/ 600000000),1)
+   ENDIF
+   output_data->patient_data[pat_count].tracking_checkin_id = tc.tracking_checkin_id, output_data->
+   patient_data[pat_count].track_group = trim(uar_get_code_display(tc.tracking_group_cd)),
+   output_data->patient_data[pat_count].track_group_cd = cnvtstring(cnvtint(tc.tracking_group_cd)),
+   output_data->patient_data[pat_count].acuity = t.description
+  FOOT REPORT
+   stat = alterlist(output_data->patient_data,pat_count)
+  WITH nocounter, orahintcbo("leading(tc ti e p t tl) use_nl(ti e p t tl)",
+    "index(tc xie6tracking_checkin)","index(ti xpktracking_item)","index(e xpkencounter)",
+    "index(p xpkperson)",
+    "index(tl xif2tracking_locator)")
+ ;end select
+ IF (dtrackinggroupcd > 0.0)
+  SET output_data->track_group_cd = dtrackinggroupcd
+ ENDIF
+ DECLARE actual_size = i4 WITH noconstant(size(output_data->patient_data,5))
+ DECLARE expand_size = i4 WITH noconstant(50)
+ DECLARE expand_total = i4 WITH noconstant((ceil((cnvtreal(actual_size)/ expand_size)) * expand_size)
+  )
+ DECLARE expand_index = i4 WITH noconstant(0)
+ IF (actual_size > 0)
+  DECLARE tempcnt = i4 WITH noconstant(0)
+  SET stat = alterlist(output_data->patient_data,expand_total)
+  FOR (tempcnt = (actual_size+ 1) TO expand_total)
+    SET output_data->patient_data[tempcnt].person_id = output_data->patient_data[actual_size].
+    person_id
+    SET output_data->patient_data[tempcnt].encntr_id = output_data->patient_data[actual_size].
+    encntr_id
+    SET output_data->patient_data[tempcnt].tracking_id = output_data->patient_data[actual_size].
+    tracking_id
+    SET output_data->patient_data[tempcnt].tracking_checkin_id = output_data->patient_data[
+    actual_size].tracking_checkin_id
+  ENDFOR
+ ENDIF
+ CALL echo("fnrpt_get_aliases.inc")
+ DECLARE p_alias_type_cd_mrn = f8
+ DECLARE p_alias_type_cd_ssn = f8
+ DECLARE e_alias_type_cd_fin = f8
+ DECLARE e_alias_type_cd_mrn = f8
+ SET p_alias_type_cd_mrn = uar_get_code_by("MEANING",4,"MRN")
+ SET p_alias_type_cd_ssn = uar_get_code_by("MEANING",4,"SSN")
+ SET e_alias_type_cd_fin = uar_get_code_by("MEANING",319,"FIN NBR")
+ SET e_alias_type_cd_mrn = uar_get_code_by("MEANING",319,"MRN")
+ IF (actual_size > 0)
+  SELECT INTO "nl:"
+   FROM person_alias pa,
+    (dummyt d  WITH seq = value((expand_total/ expand_size)))
+   PLAN (d)
+    JOIN (pa
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),pa.person_id,
+     output_data->patient_data[expand_index].person_id)
+     AND pa.person_alias_type_cd IN (p_alias_type_cd_mrn, p_alias_type_cd_ssn)
+     AND pa.active_ind=1
+     AND pa.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+     AND pa.end_effective_dt_tm >= cnvtdatetime(sysdate))
+   DETAIL
+    lvindex = locateval(expand_index,1,actual_size,pa.person_id,output_data->patient_data[
+     expand_index].person_id)
+    WHILE (lvindex > 0)
+     IF (pa.person_alias_type_cd=p_alias_type_cd_mrn)
+      output_data->patient_data[lvindex].mrn = trim(cnvtalias(pa.alias,pa.alias_pool_cd))
+     ELSE
+      output_data->patient_data[lvindex].ssn = trim(cnvtalias(pa.alias,pa.alias_pool_cd))
+     ENDIF
+     ,lvindex = locateval(expand_index,(lvindex+ 1),actual_size,pa.person_id,output_data->
+      patient_data[expand_index].person_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+  SELECT INTO "nl:"
+   FROM encntr_alias ea,
+    (dummyt d  WITH seq = value((expand_total/ expand_size)))
+   PLAN (d)
+    JOIN (ea
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),ea.encntr_id,
+     output_data->patient_data[expand_index].encntr_id)
+     AND ea.encntr_alias_type_cd IN (e_alias_type_cd_fin, e_alias_type_cd_mrn)
+     AND ea.active_ind=1
+     AND ea.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+     AND ea.end_effective_dt_tm >= cnvtdatetime(sysdate))
+   DETAIL
+    lvindex = locateval(expand_index,1,actual_size,ea.encntr_id,output_data->patient_data[
+     expand_index].encntr_id)
+    WHILE (lvindex > 0)
+     IF (ea.encntr_alias_type_cd=e_alias_type_cd_mrn)
+      output_data->patient_data[lvindex].mrn = trim(cnvtalias(ea.alias,ea.alias_pool_cd))
+     ELSE
+      output_data->patient_data[lvindex].fin = trim(cnvtalias(ea.alias,ea.alias_pool_cd))
+     ENDIF
+     ,lvindex = locateval(expand_index,(lvindex+ 1),actual_size,ea.encntr_id,output_data->
+      patient_data[expand_index].encntr_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+ ENDIF
+ DECLARE curvalue = i4 WITH noconstant(0)
+ DECLARE curpref = i4 WITH noconstant(0)
+ DECLARE prefcnt = i4 WITH noconstant(0)
+ FREE RECORD pref_request
+ RECORD pref_request(
+   1 context = vc
+   1 context_id = vc
+   1 section = vc
+   1 section_id = vc
+   1 groups[*]
+     2 name = vc
+   1 debug = vc
+ )
+ FREE RECORD pref_reply
+ RECORD pref_reply(
+   1 entries[*]
+     2 name = vc
+     2 values[*]
+       3 value = vc
+   1 status_data
+     2 status = c1
+     2 subeventstatus[1]
+       3 operationname = c25
+       3 operationstatus = c1
+       3 targetobjectname = c25
+       3 targetobjectvalue = vc
+ )
+ SET pref_request->context = "default"
+ SET pref_request->context_id = "system"
+ SET pref_request->section = "module"
+ SET pref_request->section_id = "FirstNet Reports"
+ SET stat = alterlist(pref_request->groups,1)
+ SET pref_request->groups[1].name = "layout reports"
+ SET pref_request->debug = "0"
+ EXECUTE fn_get_prefs  WITH replace("REQUEST",pref_request), replace("REPLY",pref_reply)
+ IF ((pref_reply->status_data.status="F"))
+  CALL echo("fn_get_prefs failed")
+ ELSE
+  SET prefcnt = size(pref_reply->entries,5)
+  FOR (curpref = 1 TO prefcnt)
+    IF ((pref_reply->entries[curpref].name="display nhs"))
+     FOR (curvalue = 1 TO size(pref_reply->entries[curpref].values,5))
+       IF ((pref_reply->entries[curpref].values[curvalue].value="1"))
+        SET idisplaynhs = 1
+       ENDIF
+     ENDFOR
+    ENDIF
+  ENDFOR
+ ENDIF
+ CALL echo(build("iDisplayNHS: ",idisplaynhs))
+ IF (idisplaynhs=1)
+  DECLARE iidx = i4 WITH noconstant(0)
+  DECLARE sbuildmrn = vc
+  FOR (iidx = 1 TO actual_size)
+    IF (size(output_data->patient_data[iidx].ssn) > 0)
+     SET sbuildmrn = build(output_data->patient_data[iidx].mrn,"<br>",output_data->patient_data[iidx]
+      .ssn)
+     SET output_data->patient_data[iidx].mrn = sbuildmrn
+    ENDIF
+  ENDFOR
+ ENDIF
+ CALL echo("fnrpt_get_rfv_and_diag.inc")
+ IF (actual_size > 0)
+  SELECT INTO "nl:"
+   FROM diagnosis diag,
+    (dummyt d  WITH seq = value((expand_total/ expand_size)))
+   PLAN (d)
+    JOIN (diag
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),diag.encntr_id,
+     output_data->patient_data[expand_index].encntr_id)
+     AND ((diag.end_effective_dt_tm+ 0) > cnvtdatetime(sysdate))
+     AND ((diag.diag_type_cd+ 0) IN (disch_cd, rfv_cd)))
+   DETAIL
+    lvindex = locateval(expand_index,1,actual_size,diag.encntr_id,output_data->patient_data[
+     expand_index].encntr_id)
+    WHILE (lvindex > 0)
+     IF (diag.diag_type_cd=rfv_cd)
+      IF ((output_data->patient_data[lvindex].reason_for_visit != null))
+       output_data->patient_data[lvindex].reason_for_visit = concat(output_data->patient_data[lvindex
+        ].reason_for_visit,", ",trim(diag.diagnosis_display))
+      ELSE
+       output_data->patient_data[lvindex].reason_for_visit = trim(diag.diagnosis_display)
+      ENDIF
+     ELSEIF (diag.diag_type_cd=disch_cd)
+      IF ((output_data->patient_data[lvindex].disch_diagnosis != null))
+       output_data->patient_data[lvindex].disch_diagnosis = concat(output_data->patient_data[lvindex]
+        .disch_diagnosis,", ",trim(diag.diagnosis_display))
+      ELSE
+       output_data->patient_data[lvindex].disch_diagnosis = trim(diag.diagnosis_display)
+      ENDIF
+     ENDIF
+     ,lvindex = locateval(expand_index,(lvindex+ 1),actual_size,diag.encntr_id,output_data->
+      patient_data[expand_index].encntr_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+  CALL echo("Test")
+  SELECT INTO "nl:"
+   FROM encounter e,
+    (dummyt d  WITH seq = value((expand_total/ expand_size)))
+   PLAN (d)
+    JOIN (e
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),e.encntr_id,
+     output_data->patient_data[expand_index].encntr_id))
+   DETAIL
+    lvindex = locateval(expand_index,1,actual_size,e.encntr_id,output_data->patient_data[expand_index
+     ].encntr_id)
+    WHILE (lvindex > 0)
+     IF ((output_data->patient_data[lvindex].reason_for_visit=null))
+      output_data->patient_data[lvindex].reason_for_visit = e.reason_for_visit
+     ENDIF
+     ,lvindex = locateval(expand_index,(lvindex+ 1),actual_size,e.encntr_id,output_data->
+      patient_data[expand_index].encntr_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+ ENDIF
+ CALL echo("fnrpt_get_providers.inc")
+ DECLARE provider_count = i4 WITH noconstant(0)
+ DECLARE sprimaryphysician = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_PrimaryPhysician",
+   "Primary Physician"))
+ DECLARE ssecondaryphysician = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_SecondaryPhysician",
+   "Secondary Physician"))
+ DECLARE sprimarynurse = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_PrimaryNurse",
+   "Primary Nurse"))
+ DECLARE ssecondarynurse = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_SecondaryNurse",
+   "Secondary Nurse"))
+ IF (actual_size > 0)
+  SELECT INTO "nl:"
+   FROM (dummyt d  WITH seq = value((expand_total/ expand_size))),
+    encntr_prsnl_reltn epr,
+    prsnl p
+   PLAN (d)
+    JOIN (epr
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),epr.encntr_id,
+     output_data->patient_data[expand_index].encntr_id)
+     AND epr.encntr_prsnl_r_cd IN (admitdoc_cd, attnddoc_cd, refdoc_cd)
+     AND ((epr.prsnl_person_id+ 0) != 0.0))
+    JOIN (p
+    WHERE p.person_id=epr.prsnl_person_id)
+   ORDER BY epr.beg_effective_dt_tm
+   DETAIL
+    lvindex = locateval(expand_index,1,actual_size,epr.encntr_id,output_data->patient_data[
+     expand_index].encntr_id)
+    WHILE (lvindex > 0)
+     IF (epr.encntr_prsnl_r_cd=admitdoc_cd)
+      output_data->patient_data[lvindex].admitting_physician = trim(p.name_full_formatted)
+     ELSEIF (epr.encntr_prsnl_r_cd=attnddoc_cd)
+      output_data->patient_data[lvindex].attending_physician = trim(p.name_full_formatted)
+     ELSEIF (epr.encntr_prsnl_r_cd=refdoc_cd)
+      output_data->patient_data[lvindex].referring_physician = trim(p.name_full_formatted)
+     ENDIF
+     ,lvindex = locateval(expand_index,(lvindex+ 1),actual_size,epr.encntr_id,output_data->
+      patient_data[expand_index].encntr_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+  IF (provsrc != 0)
+   SELECT
+    IF ((output_data->track_group_cd > 0.0))
+     FROM (dummyt d  WITH seq = value((expand_total/ expand_size))),
+      tracking_checkin tc,
+      tracking_prv_reln tpr,
+      tracking_prsnl tp,
+      track_reference tr,
+      prsnl p
+     PLAN (d)
+      JOIN (tc
+      WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),tc
+       .tracking_checkin_id,output_data->patient_data[expand_index].tracking_checkin_id))
+      JOIN (tpr
+      WHERE tpr.tracking_id=tc.tracking_id)
+      JOIN (p
+      WHERE p.person_id=tpr.tracking_provider_id)
+      JOIN (tp
+      WHERE tp.person_id=tpr.tracking_provider_id
+       AND tp.tracking_prsnl_task_id > 0
+       AND ((tp.tracking_group_cd+ 0)=output_data->track_group_cd))
+      JOIN (tr
+      WHERE tr.tracking_ref_id=tp.tracking_prsnl_task_id)
+    ELSE
+     FROM (dummyt d  WITH seq = value((expand_total/ expand_size))),
+      tracking_checkin tc,
+      tracking_prv_reln tpr,
+      tracking_prsnl tp,
+      track_reference tr,
+      prsnl p
+     PLAN (d)
+      JOIN (tc
+      WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),tc
+       .tracking_checkin_id,output_data->patient_data[expand_index].tracking_checkin_id))
+      JOIN (tpr
+      WHERE tpr.tracking_id=tc.tracking_id)
+      JOIN (p
+      WHERE p.person_id=tpr.tracking_provider_id)
+      JOIN (tp
+      WHERE tp.person_id=tpr.tracking_provider_id
+       AND tp.tracking_prsnl_task_id > 0)
+      JOIN (tr
+      WHERE tr.tracking_ref_id=tp.tracking_prsnl_task_id)
+    ENDIF
+    DISTINCT INTO "nl:"
+    tc.tracking_checkin_id, tpr.assign_dt_tm, tpr.unassign_dt_tm,
+    tr.display, tp.tracking_prsnl_task_id, p.person_id
+    ORDER BY tc.tracking_checkin_id, tpr.assign_dt_tm DESC, tpr.unassign_dt_tm DESC,
+     tr.display, tp.tracking_prsnl_task_id DESC, p.person_id DESC
+    HEAD tc.tracking_checkin_id
+     provider_count = 0
+    DETAIL
+     lvindex = locateval(expand_index,1,actual_size,tc.tracking_checkin_id,output_data->patient_data[
+      expand_index].tracking_checkin_id)
+     WHILE (lvindex > 0)
+       provider_count += 1, stat = alterlist(output_data->patient_data[lvindex].provider_info,
+        provider_count)
+       IF (tp.tracking_prsnl_task_id=pri_doc_role)
+        IF ((output_data->patient_data[lvindex].primary_provider=""))
+         output_data->patient_data[lvindex].primary_provider = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].primary_provider = concat(output_data->patient_data[
+          lvindex].primary_provider,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (tp.tracking_prsnl_task_id=sec_doc_role)
+        IF ((output_data->patient_data[lvindex].secondary_provider=""))
+         output_data->patient_data[lvindex].secondary_provider = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].secondary_provider = concat(output_data->patient_data[
+          lvindex].secondary_provider,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (tp.tracking_prsnl_task_id=pri_nur_role)
+        IF ((output_data->patient_data[lvindex].primary_nurse=""))
+         output_data->patient_data[lvindex].primary_nurse = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].primary_nurse = concat(output_data->patient_data[lvindex]
+          .primary_nurse,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (tp.tracking_prsnl_task_id=sec_nur_role)
+        IF ((output_data->patient_data[lvindex].secondary_nurse=""))
+         output_data->patient_data[lvindex].secondary_nurse = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].secondary_nurse = concat(output_data->patient_data[
+          lvindex].secondary_nurse,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ENDIF
+       output_data->patient_data[lvindex].provider_info[provider_count].provider_name = trim(p
+        .name_full_formatted), output_data->patient_data[lvindex].provider_info[provider_count].
+       provider_role = trim(tr.display), output_data->patient_data[lvindex].provider_info[
+       provider_count].assign_date_time = format(tpr.assign_dt_tm,"@SHORTDATETIME")
+       IF (tpr.unassign_dt_tm < cnvtdatetime("31-DEC-2100"))
+        output_data->patient_data[lvindex].provider_info[provider_count].unassign_date_time = format(
+         tpr.unassign_dt_tm,"@SHORTDATETIME")
+       ELSE
+        output_data->patient_data[lvindex].provider_info[provider_count].unassign_date_time = ""
+       ENDIF
+       lvindex = locateval(expand_index,(lvindex+ 1),actual_size,tc.tracking_checkin_id,output_data->
+        patient_data[expand_index].tracking_checkin_id)
+     ENDWHILE
+    WITH nocounter
+   ;end select
+  ELSE
+   SELECT
+    IF ((output_data->track_group_cd > 0.0))
+     FROM (dummyt d  WITH seq = value((expand_total/ expand_size))),
+      tracking_checkin tc,
+      prsnl p,
+      tracking_prsnl tp
+     PLAN (d)
+      JOIN (tc
+      WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),tc
+       .tracking_checkin_id,output_data->patient_data[expand_index].tracking_checkin_id))
+      JOIN (p
+      WHERE p.person_id IN (tc.primary_doc_id, tc.secondary_doc_id, tc.primary_nurse_id, tc
+      .secondary_nurse_id))
+      JOIN (tp
+      WHERE tp.person_id=p.person_id
+       AND ((tp.tracking_group_cd+ 0)=output_data->track_group_cd))
+    ELSE
+     FROM (dummyt d  WITH seq = value((expand_total/ expand_size))),
+      tracking_checkin tc,
+      prsnl p,
+      tracking_prsnl tp
+     PLAN (d)
+      JOIN (tc
+      WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),tc
+       .tracking_checkin_id,output_data->patient_data[expand_index].tracking_checkin_id))
+      JOIN (p
+      WHERE p.person_id IN (tc.primary_doc_id, tc.secondary_doc_id, tc.primary_nurse_id, tc
+      .secondary_nurse_id))
+      JOIN (tp
+      WHERE tp.person_id=p.person_id
+       AND ((tp.tracking_group_cd+ 0)=tc.tracking_group_cd))
+    ENDIF
+    INTO "nl:"
+    ORDER BY tc.tracking_checkin_id
+    HEAD tc.tracking_checkin_id
+     provider_count = 0
+    DETAIL
+     lvindex = locateval(expand_index,1,actual_size,tc.tracking_checkin_id,output_data->patient_data[
+      expand_index].tracking_checkin_id)
+     WHILE (lvindex > 0)
+       provider_count += 1, stat = alterlist(output_data->patient_data[lvindex].provider_info,
+        provider_count)
+       IF (p.person_id=tc.primary_doc_id)
+        output_data->patient_data[lvindex].provider_info[provider_count].provider_name = trim(p
+         .name_full_formatted), output_data->patient_data[lvindex].provider_info[provider_count].
+        provider_role = sprimaryphysician
+        IF ((output_data->patient_data[lvindex].primary_provider=""))
+         output_data->patient_data[lvindex].primary_provider = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].primary_provider = concat(output_data->patient_data[
+          lvindex].primary_provider,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (p.person_id=tc.secondary_doc_id)
+        output_data->patient_data[lvindex].provider_info[provider_count].provider_name = trim(p
+         .name_full_formatted), output_data->patient_data[lvindex].provider_info[provider_count].
+        provider_role = ssecondaryphysician
+        IF ((output_data->patient_data[lvindex].secondary_provider=""))
+         output_data->patient_data[lvindex].secondary_provider = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].secondary_provider = concat(output_data->patient_data[
+          lvindex].secondary_provider,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (p.person_id=tc.primary_nurse_id)
+        output_data->patient_data[lvindex].provider_info[provider_count].provider_name = trim(p
+         .name_full_formatted), output_data->patient_data[lvindex].provider_info[provider_count].
+        provider_role = sprimarynurse
+        IF ((output_data->patient_data[lvindex].primary_nurse=""))
+         output_data->patient_data[lvindex].primary_nurse = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].primary_nurse = concat(output_data->patient_data[lvindex]
+          .primary_nurse,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ELSEIF (p.person_id=tc.secondary_nurse_id)
+        output_data->patient_data[lvindex].provider_info[provider_count].provider_name = trim(p
+         .name_full_formatted), output_data->patient_data[lvindex].provider_info[provider_count].
+        provider_role = ssecondarynurse
+        IF ((output_data->patient_data[lvindex].secondary_nurse=""))
+         output_data->patient_data[lvindex].secondary_nurse = trim(p.name_full_formatted)
+        ELSE
+         output_data->patient_data[lvindex].secondary_nurse = concat(output_data->patient_data[
+          lvindex].secondary_nurse,"; ",trim(p.name_full_formatted))
+        ENDIF
+       ENDIF
+       lvindex = locateval(expand_index,(lvindex+ 1),actual_size,tc.tracking_checkin_id,output_data->
+        patient_data[expand_index].tracking_checkin_id)
+     ENDWHILE
+    WITH nocounter
+   ;end select
+  ENDIF
+ ENDIF
+ DECLARE location_in_dt = q8
+ DECLARE location_out_dt = q8
+ DECLARE lostimediff = i4 WITH noconstant(0)
+ DECLARE dateset = i4 WITH noconstant(0)
+ IF (actual_size > 0
+  AND ( $NURSEUNIT > 0))
+  SELECT DISTINCT INTO "nl:"
+   tl.locator_create_date, tl.arrive_dt_tm, tl.depart_dt_tm,
+   tl.tracking_id
+   FROM tracking_locator tl,
+    tracking_checkin tc,
+    (dummyt d  WITH seq = value((expand_total/ expand_size)))
+   PLAN (d)
+    JOIN (tc
+    WHERE expand(expand_index,(((d.seq - 1) * expand_size)+ 1),(d.seq * expand_size),tc.tracking_id,
+     output_data->patient_data[expand_index].tracking_id)
+     AND ((tc.tracking_group_cd+ 0)= $TRACKGROUPCD))
+    JOIN (tl
+    WHERE tl.tracking_id=tc.tracking_id
+     AND ((tl.loc_nurse_unit_cd+ 0)= $NURSEUNIT))
+   ORDER BY tl.locator_create_date DESC, tl.arrive_dt_tm DESC, tl.depart_dt_tm DESC,
+    tl.tracking_id DESC
+   HEAD tl.tracking_id
+    lvindex = locateval(expand_index,1,actual_size,tc.tracking_id,output_data->patient_data[
+     expand_index].tracking_id)
+    WHILE (lvindex > 0)
+      location_in_dt = tl.arrive_dt_tm
+      IF (tl.depart_dt_tm < cnvtdatetime(sysdate))
+       location_out_dt = tl.depart_dt_tm
+      ELSE
+       location_out_dt = cnvtdatetime(sysdate)
+      ENDIF
+      IF (location_out_dt > location_in_dt)
+       lostimediff = datetimediff(location_out_dt,location_in_dt,4), output_data->patient_data[
+       lvindex].los_location = calclos(lostimediff,1)
+      ELSE
+       lostimediff = datetimediff(cnvtdatetime(sysdate),location_in_dt,4), output_data->patient_data[
+       lvindex].los_location = calclos(lostimediff,1)
+      ENDIF
+      lvindex = locateval(expand_index,(lvindex+ 1),actual_size,tc.tracking_id,output_data->
+       patient_data[expand_index].tracking_id)
+    ENDWHILE
+   WITH nocounter
+  ;end select
+ ENDIF
+ SET stat = alterlist(output_data->patient_data,actual_size)
+ SUBROUTINE (calclos(time_minutes=i4,patient_cnt=i4) =vc)
+   DECLARE hours = i4 WITH noconstant(0)
+   DECLARE minutes = i4 WITH noconstant(0)
+   IF (patient_cnt > 0)
+    SET time_minutes /= patient_cnt
+   ENDIF
+   SET hours = (time_minutes/ 60)
+   SET minutes = mod(time_minutes,60)
+   IF (hours < 100)
+    RETURN(concat(" ",format(trim(cnvtstring(hours)),"##;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 1000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"###;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 10000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"####;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 100000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"#####;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 1000000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"######;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 10000000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"#######;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 100000000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"########;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ELSEIF (hours < 1000000000)
+    RETURN(concat(format(trim(cnvtstring(hours)),"#########;P0"),":",format(trim(cnvtstring(minutes)),
+      "##;P0")))
+   ENDIF
+ END ;Subroutine
+ IF (sortorder=5)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].
+     reason_for_visit)
+  ENDFOR
+ ELSEIF (sortorder=7)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].
+     primary_provider)
+  ENDFOR
+ ELSEIF (sortorder=9)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].
+     admitting_physician)
+  ENDFOR
+ ELSEIF (sortorder=10)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].
+     primary_nurse)
+  ENDFOR
+ ELSEIF (sortorder=11)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].
+     disch_diagnosis)
+  ENDFOR
+ ELSEIF (sortorder=12)
+  FOR (i = 1 TO pat_count)
+    SET output_data->patient_data[i].sorting_field = cnvtupper(output_data->patient_data[i].mrn)
+  ENDFOR
+ ENDIF
+ SET totalpatcount = size(output_data->patient_data,5)
+ SET sortorder = 1
+ DECLARE smrn = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_MRN","MRN"))
+ DECLARE snhs = vc WITH constant(uar_i18ngetmessage(i18nhandle,"fn_NHS","NHS"))
+ SET report_labels->total_pats = uar_i18nbuildmessage(i18nhandle,"fn_TotalPatients",
+  "Total Patients = %1","i",totalpats)
+ SET report_labels->total_qual_pats = uar_i18nbuildmessage(i18nhandle,"fn_TotalQualPats",
+  "Patients who Qualify = %1","i",totalpatcount)
+ SET report_labels->person_name = uar_i18ngetmessage(i18nhandle,"fn_Name","Patient Name")
+ IF (idisplaynhs=0)
+  SET report_labels->mrn = smrn
+ ELSE
+  SET report_labels->mrn = build(smrn,"<br>",snhs)
+ ENDIF
+ SET report_labels->age_gender = uar_i18ngetmessage(i18nhandle,"fn_Age","Age/Sex")
+ SET report_labels->checkin_date = uar_i18ngetmessage(i18nhandle,"fn_Checkin","Checkin Date")
+ SET report_labels->rfv = uar_i18ngetmessage(i18nhandle,"fn_RFV","Reason For Visit")
+ SET report_labels->ed_physician = uar_i18ngetmessage(i18nhandle,"fn_EDPhys","ED Physician")
+ SET report_labels->admitting = uar_i18ngetmessage(i18nhandle,"fn_AdmitPhys","Admit Physician")
+ SET report_labels->arrival_mode = uar_i18ngetmessage(i18nhandle,"fn_ArrivalMode","Arrival Mode")
+ SET report_labels->los_checkin = uar_i18ngetmessage(i18nhandle,"fn_LOSCheckin","LOS(checkin)")
+ SET report_labels->fin = uar_i18ngetmessage(i18nhandle,"fn_FIN","FIN")
+ SET report_labels->birth_date = uar_i18ngetmessage(i18nhandle,"fn_BirthDate","Birth Date")
+ SET report_labels->primary_nurse = uar_i18ngetmessage(i18nhandle,"fn_PrimNurse","Primary Nurse")
+ SET report_labels->acuity = uar_i18ngetmessage(i18nhandle,"fn_Acuity","Acuity")
+ SET report_labels->diagnosis = uar_i18ngetmessage(i18nhandle,"fn_Diagnosis","Diagnosis")
+ SET report_labels->checkout_date = uar_i18ngetmessage(i18nhandle,"fn_CheckoutDate","Checkout Date")
+ SET report_labels->discharge = uar_i18ngetmessage(i18nhandle,"fn_Discharge","Discharge Loc")
+ SET report_labels->disposition = uar_i18ngetmessage(i18nhandle,"fn_Disposition","Disposition")
+ SET report_labels->summary = uar_i18ngetmessage(i18nhandle,"fn_Summary","Summary")
+ DECLARE htmlfileind = i4 WITH noconstant(0)
+ SET _sendto =  $OUTDEV
+ CALL initializereport(0)
+ IF (validate(_htmlfileinfo))
+  SET htmlfileind = _htmlfileinfo->file_desc
+ ELSEIF (validate(_htmlfilehandle))
+  SET htmlfileind = _htmlfilehandle
+ ENDIF
+ IF (htmlfileind=0)
+  IF (checkfun(cnvtupper("__LayoutQuery"))=7)
+   CALL __layoutquery(0)
+  ELSEIF (checkfun(cnvtupper("LayoutSection0"))=7)
+   SET _fenddetail = (rptreport->m_pageheight - rptreport->m_marginbottom)
+   IF (((_yoffset+ layoutsection0(1)) > _fenddetail))
+    CALL pagebreak(0)
+   ENDIF
+   CALL layoutsection0(0)
+  ENDIF
+ ELSE
+  IF (checkfun(cnvtupper("LayoutQueryHTML"))=7)
+   CALL layoutqueryhtml(0)
+  ELSEIF (checkfun(cnvtupper("FieldName0HTML"))=7)
+   CALL fieldname0html(0)
+  ENDIF
+ ENDIF
+ CALL finalizereport(_sendto)
+END GO
+
