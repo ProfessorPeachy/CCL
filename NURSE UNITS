@@ -1,0 +1,14 @@
+select l.location_cd , LOCATION_NAME = UAR_GET_CODE_DESCRIPTION(L.LOCATION_CD)
+from code_value cv, location l
+where cv.code_set = 220
+and cv.cdf_meaning =  'FACILITY'
+and cv.code_value = l.location_cd
+and l.active_ind = 1	
+
+and EXISTS (select 1 from location loc, code_value cv1
+                   where loc.organization_id = l.organization_id
+                     and loc.location_cd = cv1.code_value
+                     and cv1.code_set = 220
+                     and cv1.cdf_meaning in ('NURSEUNIT','AMBULATORY')
+                     and loc.active_ind = 1)
+order by LOCATION_NAME
