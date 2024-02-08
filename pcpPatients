@@ -1,0 +1,66 @@
+drop program 1_maur_provider_pcp_patients go
+create program 1_maur_provider_pcp_patients
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "PCP Name" = 0 
+
+with OUTDEV, pcp
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+;    Your Code Goes Here
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+SET CODE_VALUE = 0.0
+SET CDF_MEANING = "PCP"
+SET CODE_SET = 331
+EXECUTE CPM_GET_CD_FOR_CDF
+SET PCP_CD = CODE_VALUE
+
+
+
+select into $outdev
+	pcp_name = trim(substring(1,200,pr.name_full_formatted),3)
+	, patient_name = trim(substring(1,200,p.name_full_formatted),3)
+	, patient_dob = trim(substring(1,20,format(p.birth_dt_tm,"MM/dd/YYYY")),3)
+	;, ppr.person_prsnl_r_cd
+from 
+	person_prsnl_reltn ppr
+	,prsnl pr			;personnel
+	,person p			;patient
+plan ppr
+	where ppr.prsnl_person_id = $pcp
+	;where ppr.person_prsnl_r_cd = pcp_cd  ;1115
+	and ppr.active_ind = 1
+	and ppr.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3)  
+	and ppr.end_effective_dt_tm >=cnvtdatetime (curdate ,curtime3)  
+join pr
+	where pr.person_id = ppr.prsnl_person_id  
+	and pr.active_ind = 1  
+	and pr.beg_effective_dt_tm <=cnvtdatetime(curdate ,curtime3)   
+	and pr.end_effective_dt_tm >= cnvtdatetime(curdate ,curtime3)
+join p
+	where p.person_id = ppr.person_id
+	and p.active_ind = 1	
+order by pr.name_full_formatted, p.name_full_formatted
+with nocounter, format, separator =  " ", time = 600, maxrec=100
+
+end
+go
