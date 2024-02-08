@@ -1,0 +1,295 @@
+select * from encntr_alias ea
+plan ea
+where ea.alias = "203577751"
+;
+;  1013585735.00	  108730950.00	          0	  07/19/23	   12556167.00	     100000	 1058572862.00	         1	          188.00	           07/19/23	           12556167.00	   38741899.00	             1077.00	203577751	                    0.00	          0	                 0.00	           07/19/23	           12/31/00	         25.00	         07/19/23	         12556167.00	                 0.00	                   0.00	   07/19/23	1.10.145123669	          1.00
+;
+;
+
+/* Discern SQL Engine (EJS) v. 3.14.3: Secondary Clinical Reviews - Details by Facility [04da2bc3-63fb-483c-914c-ca6af56eb937] */
+
+select 
+E.organization_id
+,clin_rvw.version_dt_tm "@SHORTDATE"
+,sec_rvw.version_dt_tm
+,rcmseca.action_dt_tm "@SHORTDATETIME"
+,Sec_rvw.sec_review_outcome_cd
+,PER.name_full_formatted
+,sec_rvw.*
+,* 
+from 
+	encounter e
+	,person per
+	,encntr_clin_review clin_rvw
+	,ENCNTR_CLIN_SEC_REVIEW SEC_RVW
+	,RCM_ACTION RCMSECA
+  , RCM_ACTION RCMA
+  , ENCNTR_PLAN_RELTN EPR_PRIM
+  , RCM_MSG_CENTER_COMM_RELTN RCM_MCC_RELTN
+ , RCM_MSG_CENTER_COMM RCM_MCC	
+plan e
+	where e.encntr_id =   108730950.00
+join per
+	where per.person_id = e.person_id
+JOIN CLIN_RVW
+	WHERE CLIN_RVW.encntr_id	= E.encntr_id
+	AND FORMAT(CLIN_RVW.version_dt_tm, "@SHORTDATE") = "12/31/00"
+	;AND to_char(clin_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00')
+JOIN SEC_RVW
+	WHERE SEC_RVW.clinical_review_id = clin_rvw.clinical_review_id 
+	AND FORMAT(sec_rvw.version_dt_tm, "@SHORTDATE") = "12/31/00"
+;	AND to_char(sec_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00'
+JOIN RCMSECA
+	WHERE rcmseca.parent_entity_id = sec_rvw.clinical_review_id
+	AND rcmseca.parent_entity_name = 'ENCNTR_CLIN_REVIEW'
+JOIN RCMA
+	WHERE rcma.parent_entity_id = clin_rvw.clinical_review_id 
+	and rcma.action_meaning = 'CREATED'
+JOIN EPR_PRIM
+	WHERE epr_prim.encntr_id= e.encntr_id
+	AND epr_prim.priority_seq=  1
+	AND epr_prim.end_effective_dt_tm  >= sysdate
+	AND epr_prim.beg_effective_dt_tm <= sysdate
+	AND epr_prim.active_ind = 1	
+JOIN RCM_MCC
+	WHERE rcm_mcc.parent_entity_id = sec_rvw.clin_sec_review_id
+	AND rcm_mcc.parent_entity_name= 'ENCNTR_CLIN_SEC_REVIEW'
+JOIN RCM_MCC_RELTN
+	WHERE RCM_MCC_RELTN.RCM_MSG_CENTER_COMM_ID = RCM_MCC.RCM_MSG_CENTER_COMM_ID
+;	AND (RCM_MCC.RCM_MSG_CENTER_COMM_ID = )
+;AND (enc.organization_id + 0 IN (675844.00)
+;  AND rcmseca.action_dt_tm BETWEEN to_date('2023-07-16 05:00:00','YYYY-MM-DD HH24:MI:SS') AND to_date('2023-07-21 04:59:59','YYYY-MM-DD HH24:MI:SS')
+;  AND sec_rvw.sec_review_outcome_cd > 0)
+;AND (rcmseca.parent_entity_id = sec_rvw.clinical_review_id
+;
+;AND rcmseca.parent_entity_name = 'ENCNTR_CLIN_REVIEW'
+;
+;AND to_char(sec_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00'
+;
+;AND rcmseca.action_meaning  = 'OUTCOME')	
+;	
+;AND (enc.encntr_id = clin_rvw.encntr_id
+
+;AND to_char(clin_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00')
+;AND (rcm_mcc.parent_entity_id = sec_rvw.clin_sec_review_id
+
+;AND rcm_mcc.parent_entity_name = 'ENCNTR_CLIN_SEC_REVIEW')
+;AND (rcma.parent_entity_id = clin_rvw.clinical_review_id and
+
+;rcma.action_meaning = 'CREATED')
+;AND (clin_rvw.clinical_review_id = sec_rvw.clinical_review_id)
+
+
+
+SELECT
+*
+;  omf_get_org_name(enc.organization_id) as "Facility"
+;  , omf_get_cv_display(enc.encntr_type_cd) as "Encounter Type"
+;  , omf_get_org_name(epr_prim.organization_id) as "Primary Payer"
+;  , per.name_full_formatted as "Person Name - Full"
+;  , pm_get_alias('MRN', 0, enc.person_id, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) as "MRN"
+;  , pm_get_alias('FIN NBR', enc.encntr_id, 0, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) as "Financial Number"
+;  , CASE WHEN (cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75) IS NULL) THEN
+;
+;	'-'
+;ELSE
+;	to_char(cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75), 'MM/DD/YYYY')
+;
+;END as "Admit Date"
+;  , CASE WHEN (cclsql_utc_cnvt(enc.disch_dt_tm,1,75) IS NULL) THEN
+;
+;	'-'
+;ELSE
+;	to_char(cclsql_utc_cnvt(enc.disch_dt_tm,1,75), 'MM/DD/YYYY')
+;END as "Discharge Date"
+;  , CASE WHEN (rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME') IS NULL) THEN
+;	'-'
+;ELSE 
+;	to_char(rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME'),'MM/DD/YYYY')
+;END as "Secondary Review Outcome Date"
+;  , omf_get_prsnl_full(rcma.action_prsnl_id) as "Clinical Reviewer Name"
+;  , omf_get_cv_display(sec_rvw.sec_review_reason_cd) as "Secondary Review Reason"
+;  , CASE WHEN (sec_rvw.sec_review_resp_party_txt IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	sec_rvw.sec_review_resp_party_txt
+;
+;END as "Sec Review Responsible Party"
+;  , omf_get_cv_display(sec_rvw.sec_review_outcome_cd) as "Secondary Review Outcome"
+;  , CASE WHEN (pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;
+;END as "Attending Physician Name"
+;  , rcm_get_primary_drg(enc.encntr_id, 0, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) as "Group Source ID"
+;  , rcm_get_primary_drg(enc.encntr_id, 2, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) as "DRG Type"
+;  , rcm_get_primary_drg(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) as "DRG Description"
+;  , sec_rvw.external_review_ind as "Secondary Review External Ind"
+;  , clin_rvw.encntr_clin_review_id as "Encounter Clinical Review ID"
+;  , omf_get_prsnl_grp_name(rcm_mcc_reltn.recipient_prsnl_group_id) as "MessCenGrpRecipient"
+;  , omf_get_prsnl_full(rcm_mcc_reltn.recipient_prsnl_id) as "MessCenSingRecipient"
+;  , rcm_mcc_reltn.recipient_prsnl_group_id as "MessCenGrpId"
+;  , rcm_mcc_reltn.recipient_prsnl_id as "MessCenSingId"
+FROM ENCOUNTER ENC
+  , PERSON PER
+  , ENCNTR_CLIN_REVIEW CLIN_RVW
+  , RCM_ACTION RCMSECA
+  , RCM_ACTION RCMA
+  , ENCNTR_CLIN_SEC_REVIEW SEC_RVW
+  , ENCNTR_PLAN_RELTN EPR_PRIM
+  , RCM_MSG_CENTER_COMM_RELTN RCM_MCC_RELTN
+  , RCM_MSG_CENTER_COMM RCM_MCC
+WHERE (per.person_id =    13079328.00)
+AND (enc.encntr_id = clin_rvw.encntr_id
+;AND to_char(clin_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00')
+AND (rcm_mcc.parent_entity_id = sec_rvw.clin_sec_review_id
+AND rcm_mcc.parent_entity_name = 'ENCNTR_CLIN_SEC_REVIEW')
+AND (rcma.parent_entity_id = clin_rvw.clinical_review_id 
+and rcma.action_meaning = 'CREATED')
+AND (clin_rvw.clinical_review_id = sec_rvw.clinical_review_id)
+AND (rcmseca.parent_entity_id = sec_rvw.clinical_review_id
+AND rcmseca.parent_entity_name = 'ENCNTR_CLIN_REVIEW'
+;AND to_char(sec_rvw.version_dt_tm, 'DD-MON-YY') = '31-DEC-00'
+AND rcmseca.action_meaning  = 'OUTCOME')
+AND (enc.active_ind = 1)
+AND (epr_prim.encntr_id  = enc.encntr_id
+AND epr_prim.priority_seq  = 1
+;AND epr_prim.end_effective_dt_tm  >= cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)
+;AND epr_prim.beg_effective_dt_tm  <= cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)
+AND epr_prim.active_ind  = 1)
+AND (per.active_ind = 1 )
+AND (RCM_MCC.RCM_MSG_CENTER_COMM_ID = RCM_MCC_RELTN.RCM_MSG_CENTER_COMM_ID)
+
+ ; AND rcmseca.action_dt_tm BETWEEN to_date('2023-07-16 05:00:00','YYYY-MM-DD HH24:MI:SS') 
+;  AND to_date('2023-07-21 04:59:59','YYYY-MM-DD HH24:MI:SS')
+AND sec_rvw.sec_review_outcome_cd > 0)
+;GROUP BY enc.organization_id
+;  , enc.encntr_type_cd
+;  , omf_get_org_name(epr_prim.organization_id)
+;  , per.name_full_formatted
+;  , pm_get_alias('MRN', 0, enc.person_id, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;  , pm_get_alias('FIN NBR', enc.encntr_id, 0, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;  , CASE WHEN (cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE
+;
+;	to_char(cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75), 'MM/DD/YYYY')
+;
+;END
+;  , CASE WHEN (cclsql_utc_cnvt(enc.disch_dt_tm,1,75) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE
+;
+;	to_char(cclsql_utc_cnvt(enc.disch_dt_tm,1,75), 'MM/DD/YYYY')
+;
+;END
+;  , CASE WHEN (rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME') IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	to_char(rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME'),'MM/DD/YYYY')
+;
+;END
+;  , omf_get_prsnl_full(rcma.action_prsnl_id)
+;  , sec_rvw.sec_review_reason_cd
+;  , CASE WHEN (sec_rvw.sec_review_resp_party_txt IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	sec_rvw.sec_review_resp_party_txt
+;
+;END
+;  , sec_rvw.sec_review_outcome_cd
+;  , CASE WHEN (pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;
+;END
+;  , rcm_get_primary_drg(enc.encntr_id, 0, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;  , rcm_get_primary_drg(enc.encntr_id, 2, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;  , rcm_get_primary_drg(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;  , sec_rvw.external_review_ind
+;  , clin_rvw.encntr_clin_review_id
+;  , omf_get_prsnl_grp_name(rcm_mcc_reltn.recipient_prsnl_group_id)
+;  , omf_get_prsnl_full(rcm_mcc_reltn.recipient_prsnl_id)
+;  , rcm_mcc_reltn.recipient_prsnl_group_id
+;  , rcm_mcc_reltn.recipient_prsnl_id
+;ORDER BY omf_get_org_name(enc.organization_id) nulls first
+;  , omf_get_cv_display(enc.encntr_type_cd) nulls first
+;  , omf_get_org_name(epr_prim.organization_id) nulls first
+;  , per.name_full_formatted nulls first
+;  , pm_get_alias('MRN', 0, enc.person_id, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) nulls first
+;  , pm_get_alias('FIN NBR', enc.encntr_id, 0, enc.organization_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) nulls first
+;  , CASE WHEN (cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE
+;
+;	to_char(cclsql_utc_cnvt(pm_inp_admit_dt_tm(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)),1,75), 'MM/DD/YYYY')
+;
+;END nulls first
+;  , CASE WHEN (cclsql_utc_cnvt(enc.disch_dt_tm,1,75) IS NULL) THEN
+;
+;	'-'
+;
+;ELSE
+;
+;	to_char(cclsql_utc_cnvt(enc.disch_dt_tm,1,75), 'MM/DD/YYYY')
+;
+;END nulls first
+;  , CASE WHEN (rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME') IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	to_char(rcm_get_action_date(sec_rvw.clinical_review_id, 'ENCNTR_CLIN_REVIEW', 'OUTCOME'),'MM/DD/YYYY')
+;
+;END nulls first
+;  , omf_get_prsnl_full(rcma.action_prsnl_id) nulls first
+;  , omf_get_cv_display(sec_rvw.sec_review_reason_cd) nulls first
+;  , CASE WHEN (sec_rvw.sec_review_resp_party_txt IS NULL) THEN
+;
+;	'-'
+;
+;ELSE 
+;
+;	sec_rvw.sec_review_resp_party_txt
+;END nulls first
+;  , omf_get_cv_display(sec_rvw.sec_review_outcome_cd) nulls first
+;  , CASE WHEN (pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) IS NULL) THEN
+;
+;	'-'
+;ELSE 
+;	pm_get_encntr_prsnl('ATTENDDOC', enc.encntr_id, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1))
+;END nulls first
+;  , rcm_get_primary_drg(enc.encntr_id, 0, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) nulls first
+;  , rcm_get_primary_drg(enc.encntr_id, 2, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) nulls first
+;  , rcm_get_primary_drg(enc.encntr_id, 1, cclsql_cnvtdatetimeutc(sysdate, 1, 75, 1)) nulls first
+;  , sec_rvw.external_review_ind nulls first
+;  , clin_rvw.encntr_clin_review_id nulls first
+;  , omf_get_prsnl_grp_name(rcm_mcc_reltn.recipient_prsnl_group_id) nulls first
+;  , omf_get_prsnl_full(rcm_mcc_reltn.recipient_prsnl_id) nulls first
+;  , rcm_mcc_reltn.recipient_prsnl_group_id nulls first
+;  , rcm_mcc_reltn.recipient_prsnl_id nulls first
+;  
