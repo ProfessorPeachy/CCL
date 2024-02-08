@@ -1,0 +1,49 @@
+;call echo(format(curdate, ";;Q")) go		;10-AUG-2022 00:00:00.00
+;call echo(format(curdate, "YYYY ;;Q")) go	;2022
+;call echo(format(curdate, "YYYY MM ;;Q")) go	;2022 08
+;call echo(format(curdate, "YYYY_MM ;;Q")) go	;2022_08
+;call echo(format(curdate, "YYYY_MM;;Q")) go	;2022_08
+;declare filedate = vc with noconstant(format(trim(curdate),"YYYY_MM;;Q")), protect go
+;declare filedate = vc with noconstant(format(cnvtdatetime($BEG_DT),"YYYY_MM;;D")), protect
+;call echo(filedate) go
+;CALL ECHO(cnvtdatetime("10/19/22 00:00")) GO
+;CALL ECHO(cnvtdatetime("10/19/22")) GO
+
+; DECLARE file_name = vc WITH protect ,constant (trim (cnvtlower (build2 ("giquic_" ,trim (format (
+;       cnvtdatetime ( $SDT ) ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_to_" ,trim (format (cnvtdatetime ( $EDT )
+;       ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_" ,trim ( $FAC_ID ,3 ) ,"_" ,trim ( $NPI ,3 ) ,"_extract.txt" )
+;        ) ,3 ) )
+
+;call echo(trim (format (cnvtdatetime (curdate,0) ,"ddmmmyy_hhmm;;q" ) ,3 ) ) go
+call echo(format(cnvtdatetime(curdate,curtime3),'mmddyyyyhhmm;;Q')) go
+call echo(format(curdate,'mmddyyyyhhmm;;d')) go
+
+
+DECLARE EVENTDATESTART = DQ8 GO
+SET EVENTDATESTART = CNVTDATETIME(CURDATE-3,0) GO
+CALL ECHO(EVENTDATESTART) GO
+CALL echo(build2("Date Selected: ",format(cnvtdatetime(VALUE(EVENTDATESTART),0),"@SHORTDATE"))) GO
+
+declare bdate = dq8 with constant(CNVTDATETIME(EVENTDATESTART,0)), PROTECT GO
+CALL ECHO(bdate) GO
+
+;mmddyyyy
+
+call echo(cnvtdatetime(cnvtdate(08182023),0)) go
+
+;  cnvttime(104) "HH:MM;;M"
+;  , substring(4,  2, format(cnvttime(104), "HH:MM;;M"))
+
+
+;call echo(format(curtime,"hhmmss;;m")) go
+
+;call echo(curtime) go
+;call echo(FORMAT(SYSDATE, "DD-MMM-YYYY;;D")) go
+;call echo(CONCAT("/cerner/d_p698/data/batch_files/ccl_extracts/vandycardiologyprofee/Cardiology_Profee_Extract_",  FORMAT(SYSDATE, "DD-MMM-YYYY;;D"), ".pdf")) go
+;call echo(CONCAT("/cerner/d_p698/data/batch_files/ccl_extracts/vandycardiologyprofee/Cardiology_Profee_Extract_",  FORMAT(SYSDATE, "DD-MMM-YYYY;;D"), ".pdf")) go
+;call echo("cnvtdate curdate,curtime3") go
+;CALL ECHO(cnvtdate(curdate,curtime3)) GO
+;call echo("cnvttime curtime3") go
+;CALL ECHO(cnvttime(curtime3)) GO
+;call echo("cnvttime curdate, curtime3") go
+;CALL ECHO(cnvttime(curdate,curtime3)) GO
