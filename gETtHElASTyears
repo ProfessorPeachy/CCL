@@ -1,0 +1,9 @@
+Get the most recent years dynamically from querying the calendar table
+
+
+SELECT DISTINCT YEAR
+FROM OMF_DATE
+WHERE YEAR >= 2018
+AND YEAR <= DATETIMEPART(SYSDATE,1)
+ORDER BY YEAR ASC
+WITH MAXREC = 1000
