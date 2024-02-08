@@ -1,0 +1,1081 @@
+
+drop program amj_tn_trauma_registry6 go
+create program amj_tn_trauma_registry6
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE"
+	, "Run As:" = "" 
+
+with OUTDEV, START_DATE, END_DATE, run_type
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+
+set rundate 			= format(curdate,'mmddyy;;Q')
+ 
+declare filepath		= vc with constant("/cerner/d_p698/data/batch_files/ccl_extracts/eso/"), protect
+declare filename		= vc with constant(build2("trauma_registry_",rundate,".csv")),protect
+declare filenamepath	= VC with constant(concat(filepath,filename)),protect
+declare file_output		= c200 with noconstant(""), protect
+
+DECLARE injury_date 				= f8 with constant(uar_get_code_by("DISPLAYKEY",72,"DATEANDTIMEOFINJURY")), protect ;4315350871.00	
+declare	adt_cd 						= f8 with protect, constant(uar_get_code_by("DISPLAYKEY",6000,"ADMITTRANSFERDISCHARGE"));  636727.00
+declare	dischargepatient_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'DISCHARGEPATIENT')); 3224545.00
+declare	ventilatoractivity_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'VENTILATORACTIVITY'));16806092.00
+declare	transfuse_plasma_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'TRANSFUSEFRESHFROZENPLASMANURSING'));63291625.00
+declare	transfuse_rbc_cd 			= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'TRANSFUSEREDBLOODCELLSLEUKOREDUCED'));63291687.00
+declare	transfuse_platelet_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'TRANSFUSEPLATELETPRODUCTNURSING'));63291775.00
+declare	cm_pso_inpatient_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'CMPSOINPATIENT'));	 2569084515.00
+declare	trauma_activ_lvl_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'TRAUMATEAMACTIVATIONLEVEL'));	 4272602799.00
+declare home_address_cd 			= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'HOME'))
+declare ssn_var 					= f8 with protect, constant(uar_get_code_by("DISPLAYKEY",4,"SSN"))
+DECLARE emergency_admit_type_cd 	= f8 with constant(uar_get_code_by("DISPLAYKEY",3,"EMERGENCY")), protect
+DECLARE urgent_admit_type_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",3,"URGENT")), protect
+DECLARE home_discharge_disp_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",19,"HOME")), protect ;exclude
+DECLARE snf_discharge_disp_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",19,"HOME")), protect ; qualify
+DECLARE expire_discharge_disp_cd 	= f8 with constant(uar_get_code_by("DISPLAYKEY",19,"EXPIRED")), protect ; qualify
+declare date_time_of_death_cd 		= f8 with protect, constant(uar_get_code_by("DISPLAYKEY",72,"DATETIMEOFDEATH"))
+DECLARE dischage_dx_type_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",17,"DISCHARGE")), protect
+DECLARE final_dx_type_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",17,"FINAL")), protect
+DECLARE maury_facility_cd 			= f8 with noconstant(0.0), protect
+declare vent_cd 					= f8 with constant(uar_get_code_by("DISPLAYKEY",106,"VENTILATOR")),PROTECT
+declare inpatient_order_cd			= f8 with constant(uar_get_code_by("DISPLAYKEY",200,"VENTILATOR")),PROTECT
+declare observation_order_cd		= f8 with constant(uar_get_code_by("DISPLAYKEY",200,"VENTILATOR")),PROTECT
+declare fin_cd						= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR"));1077.0
+declare mrn_cd						= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;2.0
+declare ems_cd						= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"EMS")),PROTECT ; 2554078677.00
+declare location_code				= vc with noconstant(""), protect
+declare mechanism_code				= vc with noconstant(""), protect
+declare activity_code				= vc with noconstant(""), protect
+declare quote_char 					= c1 with constant('"')
+declare ecnt						= i4
+declare num 						= i4
+declare pos 						= i4
+declare strlength					= i4
+declare icu_days 					= i4
+declare imc_days 					= i4
+declare icu_start_dq8 				= dq8
+declare imc_start_dq8 				= dq8
+declare dis_start_dq8 				= dq8
+declare vent_start_dq8				= dq8
+declare vent_end_dq8				= dq8
+declare vent_days					= f8
+declare vent_days_total 			= i4
+
+declare date_parser_str 			= vc
+declare opsFlag 					= i2
+
+declare ops_variable = vc
+declare bdate = vc
+declare eDate = vc
+
+if($run_type = "O" or $run_type = "")
+    set opsFlag = 1
+else
+    set opsFlag = 0
+endif
+
+
+IF (opsFlag = 1) ;run for 30 days ago
+	set bdate   = format(datetimefind(cnvtlookbehind("30,D"),"D","B","B"),"dd-mmm-yyyy hh:mm;;d")
+	set eDate	= format(datetimefind(cnvtlookbehind("1,D"),"D","E","E"),"dd-mmm-yyyy hh:mm;;d")
+;	SET OPS_VARIABLE = "Y"
+	CALL ECHO("OPS")
+	
+	set date_parser_str = BUILD2(' e.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '")')
+ELSE ;run for date entered at prompt and run manually
+  SET bdate = build2($START_DATE, " 00:00:00")
+  set eDate = build2($END_DATE, " 23:59:59")
+
+  set date_parser_str = BUILD2(' e.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '")')
+;  SET OPS_VARIABLE = "N"
+  CALL ECHO("NOT OPS")
+ENDIF
+
+
+;set bdate   = format(datetimefind(cnvtlookbehind("30,D"),"D","B","B"),"dd-mmm-yyyy hh:mm;;d")
+;set eDate	= format(datetimefind(cnvtlookbehind("1,D"),"D","E","E"),"dd-mmm-yyyy hh:mm;;d")
+;set date_parser_str = BUILD2(' e.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '")')
+
+
+;get code value for maury facility code
+select into "nl:" 
+	cv.code_value
+from code_value cv
+plan cv
+where cv.code_set = 220
+and cv.display_key = "MAURY"
+and cv.cdf_meaning = "FACILITY"
+and cv.active_ind = 1
+head report
+	maury_facility_cd = cv.code_value
+with nocounter
+
+;dischage dispositions
+free record disp_rec
+record disp_rec
+(
+	1 cnt				= i4
+	1 dispositions[*]	
+		2 display_key	= vc
+		2 code_value	= f8
+)
+
+free record encntr_rec
+record encntr_rec
+(
+	1 cnt						= i4
+	1 encntrs[*]
+		2 diagnosis_qualifier   	= vc  ;1.  Is icd10 code for injury included in s00-s99, T07, T12,T79.A1-A79.A9
+		2 expiration_qualifier		= vc
+		2 injury_qualifier			= vc  ;2.1 Did the patient's injury result in death? 
+		2 transfer_qualifier		= vc  ;2.2 Was the patient transferred from one acute care hospital to another acute care hospital?
+		2 admit_qualifier			= vc  ;2.3 Was the patient directly·admitted to your hospital exclude pats w/ isolated injuries and 
+		2 inpat_obs_qualifier 		= vc  ;2.4 Was the patient an in-patient admission and/ or observed?
+		2 ed_to_home_disqualifier 	= vc  ;do not include patients who went from ED to Home
+		2 include_registry_flag	= i2  ;FINAL flag to decide if this patient qualifies for registry
+		2 encntrid				= f8
+		2 personid				= f8		
+		2 mrn					= vc
+		2 fin					= vc
+		2 arrival_date			= vc
+		2 arrival_time  		= vc
+		2 patient_name_first	= vc
+		2 patient_name_last		= vc
+		2 dob					= vc
+		2 race					= vc
+		2 ethnicity				= vc	
+		2 gender				= vc
+		2 address				= vc
+		2 diagnosis2_qualifier	= vc  ;is icd10 there an additional injury with s00,s10,s20,s30,s40,s50,s60,s70,s80,s90	
+		2 admit_type_cd			= f8
+		2 admit_type			= vc
+		2 admit_source_cd		= f8
+		2 admit_source			= vc		
+		2 discharge_disp_cd		= f8
+		2 discharge_disp		= vc	
+		2 begin_date_dq8		= dq8
+		2 discharge_date_dq8	= dq8
+		2 begin_date_vc			= vc
+		2 discharge_date_vc		= vc	
+		2 discharge_time_vc		= vc
+;		2 patient_street_addr	= vc	
+		2 patient_ssn			= vc	
+		2 vent_days				= i4	
+		2 red_blood_cells		= vc
+		2 response_level		= vc
+		2 injury_date_time		= vc
+		2 injury_date_time_dq8	= dq8
+		2 discharge_death_date	= vc
+		2 discharge_death_time	= vc
+		2 inpat_admit_date		= vc
+		2 inpat_admit_time		= vc
+		2 inpat_days			= vc
+		2 inpat_admit_dttm_dq8	= dq8
+		2 icu_days				= vc
+		2 icu_dttm_dq8	= dq8
+		2 stepdown_imc_days		= vc
+		2 stepdown_imc_dttm_dq8	= dq8			
+		2 discharge_order_date	= vc
+		2 discharge_order_time	= vc
+		2 ed_depart_order_date	= vc
+		2 ed_depart_order_time	= vc
+		2 ed_depart_admit_date	= vc
+		2 ed_depart_admit_time  = vc
+		2 plasma				= vc
+		2 platelets				= vc
+		2 icd10_location_cd		= vc
+		2 icd10_prim_mechanism	= vc
+		2 icd10_activity_code	= vc
+		2 patient_qualify_flag	= i2
+		2 traumatic_injury_flag	= i2
+		2 traumatic_death_flag	= i2
+		2 direct_admit_flag		= i2
+		2 inpat_adm_or_obs_flag = i2
+		2 deceased_person_dttm	= vc
+		2 deceased_person_flag	= i2
+		2 deceased_notific_dttm	= vc
+		2 deceased_notific_flag	= i2	
+		
+
+)
+
+;where cv.code_value = 21250403.00
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+;1. Is icd10 code for injury included in s00-s99, T07, T12,T79.A1-A79.A9
+;2. Did the patient's injury result in death?
+;discharge dispositions for transferring out
+select into "nl:"
+	cv.code_value
+	,cv.display
+	,cv.cdf_meaning
+	,cv.description
+	,cv.display_key
+	,cv.cki
+	,cv.definition
+from code_value cv 
+plan cv
+	where cv.code_set =  19 
+	and cv.active_ind = 1 
+	and cv.display_key in (
+;"ADMITTEDASINPATIENT"
+;,"ADMITTOICUCRITICALCARE"
+;"LEFTAGAINSTMEDICALADVICE"
+"TRANSFERTOACUTECAREFACILITY"
+,"CANCERCENTERORCHILDRENSHOSPITAL"
+,"DISCHARGETRANSFEROTHERTYPEOFINST"
+,"DISCHARGETRANSFERTOGENHOSPASINPT"
+,"FEDERALHEALTHCAREFACILITY"
+,"SKILLEDNURSINGFACILITY"
+,"INPATIENTREHABFACILITYUNIT"
+;,"EXPIRED"
+;,"LEFTWITHOUTBEINGSEEN"
+	)
+detail
+	disp_rec->cnt += 1
+	stat = alterlist(disp_rec->dispositions, disp_rec->cnt)
+	disp_rec->dispositions[disp_rec->cnt].code_value 	= cv.code_value
+	disp_rec->dispositions[disp_rec->cnt].display_key	= cv.display_key
+with  format, time = 60
+
+
+;did patient sustain one or more traumatic injuries within 14 days of initial hospital encounter
+;1. where is the injury date charted WITHIN 14 DAYS
+select into "nl:"
+	fin = ea.alias
+	,age = cnvtage(p.birth_dt_tm)
+	,encounter_type=uar_get_code_display(e.encntr_type_cd)
+	,admit_source = uar_get_code_display(e.admit_src_cd)
+	,admit_type = uar_get_code_display(e.admit_type_cd)
+	,p.deceased_dt_tm
+	,p.deceased_cd
+	,uar_get_code_display(dx1.diag_type_cd)
+	,dx1.active_ind
+	,dx1.end_effective_dt_tm
+	,discharge_disposition = uar_get_code_display(e.disch_disposition_cd)
+	,facility = uar_get_code_display(e.loc_facility_cd)
+	,discharge_dttm = e.disch_dt_tm
+	,discharge_to_loc = uar_get_code_display(e.disch_to_loctn_cd)	
+	,e.disch_to_loctn_cd
+	,dx_type = uar_get_code_display(dx1.diag_type_cd)	
+;	,p.name_full_formatted
+	,status = uar_get_code_display(e.encntr_status_cd)
+	,e.trauma_dt_tm
+	,e.beg_effective_dt_tm
+	,e.arrive_dt_tm
+	,e.reg_dt_tm
+	,p.deceased_dt_tm
+	,e.disch_to_loctn_cd	
+	,dx1.diagnosis_group
+	,dx1.clinical_diag_priority
+	,dx1.diagnosis_display
+	,diag_include = n.source_identifier
+	,n.source_vocabulary_cd
+	,uar_get_code_display(n.source_vocabulary_cd)
+from 
+	encounter 		e
+	,encntr_alias 	ea
+	,encntr_alias 	ea2
+	,diagnosis 		dx1
+	,nomenclature 	n		;is icd10 code for injury included in s00-s99, T07, T12,T79.A1-A79.A9
+	,person 		p
+	,dummyt			d1 		;for outerjoin on ce
+	,clinical_event ce
+	,dummyt			d2 		;for outerjoin on cdr
+	,ce_date_result cdr
+plan e
+	;where e.disch_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)
+	where parser(date_parser_str)
+	and e.admit_type_cd in (emergency_admit_type_cd,urgent_admit_type_cd)
+	and e.loc_facility_cd = maury_facility_cd
+	and e.encntr_type_cd != ems_cd
+	and e.active_ind = 1
+	;only  ed encounters that are discharged home or any DC disposition other than transfer to acute care facility should be excluded from the file. 
+join ea
+	where ea.encntr_id = e.encntr_id
+	and ea.active_ind = 1
+	AND ea.encntr_alias_type_cd = fin_cd; 1077 ; FIN
+join ea2
+	where ea2.encntr_id = ea.encntr_id
+	and ea2.active_ind = 1
+	AND EA2.encntr_alias_type_cd = mrn_cd; 1077 ; FIN
+join dx1 where dx1.encntr_id = e.encntr_id
+	and dx1.diag_type_cd in (final_dx_type_cd)  ; 88.00
+	and dx1.end_effective_dt_tm >= cnvtdate(12302100)
+	and dx1.active_ind = 1
+Join n 
+	where n.nomenclature_id = dx1.nomenclature_id
+	and N.source_vocabulary_cd = 19350056.00 ;ICD-10-CM	         19350056.00
+;    and operator(n.source_identifier,"REGEXPLIKE", "(S\d\d\....A)|(S\d\d\....B)|(S\d\d\....C)|(T07)|(T14)|(T79\.A\d.A)")   
+    and operator(n.source_identifier,"REGEXPLIKE", "(S\d\d\....A)|(S\d\d\....B)|(S\d\d\....C)|(T07.XXXA)|(T14.8XXA)|(T79\.A\d.A)") 
+    and notoperator(n.source_identifier,"REGEXPLIKE", "^(S\d0)")  ;not IF IT STARTS W/s00,s10,s20,s30,s40,s50,s60,s70,s80,s90                    
+	and n.active_ind = 1
+	and n.end_effective_dt_tm >= cnvtdate(12302100)
+join p
+	where p.person_id 	= e.person_id
+	and p.active_ind 	= 1	
+join d1
+join ce
+	where ce.encntr_id = e.encntr_id
+	and ce.event_cd = injury_date ;4315350871.00	;Date and Time of Injury
+join d2
+join cdr
+	where cdr.event_id = ce.event_id	
+order by E.arrive_dt_tm, e.person_id, e.encntr_id;, dx1.clinical_diag_priority;, d2.clinical_diag_priority 
+head report
+	ecnt = 0            
+head e.encntr_id
+	encntr_rec->cnt += 1
+	stat = alterlist(encntr_rec->encntrs,encntr_rec->cnt)	
+	encntr_rec->encntrs[encntr_rec->cnt].encntrid 				= e.encntr_id
+	encntr_rec->encntrs[encntr_rec->cnt].personid 				= e.person_id
+	encntr_rec->encntrs[encntr_rec->cnt].fin					= ea.alias
+	encntr_rec->encntrs[encntr_rec->cnt].mrn					= ea2.alias
+	encntr_rec->encntrs[encntr_rec->cnt].arrival_date 			= format(e.arrive_dt_tm, "@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].arrival_time 			= format(e.arrive_dt_tm, "@TIMENOSECONDS")
+	encntr_rec->encntrs[encntr_rec->cnt].patient_name_first		= p.name_first
+	encntr_rec->encntrs[encntr_rec->cnt].patient_name_last 		= p.name_last
+	encntr_rec->encntrs[encntr_rec->cnt].dob 					= format(p.birth_dt_tm,"@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].race 					= uar_get_code_display(p.race_cd)
+	encntr_rec->encntrs[encntr_rec->cnt].ethnicity 				= uar_get_code_display(p.ethnic_grp_cd)
+	encntr_rec->encntrs[encntr_rec->cnt].gender 				= uar_get_code_display(p.sex_cd)
+	encntr_rec->encntrs[encntr_rec->cnt].diagnosis_qualifier	= n.source_identifier
+	encntr_rec->encntrs[encntr_rec->cnt].deceased_person_dttm	= format(p.deceased_dt_tm,"@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].begin_date_dq8			= cnvtdatetime(e.beg_effective_dt_tm)
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_date_dq8		= cnvtdatetime(e.disch_dt_tm)
+	encntr_rec->encntrs[encntr_rec->cnt].begin_date_vc			= format(e.beg_effective_dt_tm, "@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_date_vc		= format(e.disch_dt_tm, "@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_death_date	= format(e.disch_dt_tm, "@SHORTDATE")
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_death_time	= format(e.disch_dt_tm, "@TIMENOSECONDS")
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_disp			= uar_get_code_display(e.disch_disposition_cd)
+	encntr_rec->encntrs[encntr_rec->cnt].discharge_disp_cd		= E.disch_disposition_cd 
+	encntr_rec->encntrs[encntr_rec->cnt].admit_source			= UAR_GET_CODE_DISPLAY(E.disch_disposition_cd)
+	;;STEP 2.1 DID THE PATIENT'S INJUURY RESULT IN DEATH - CHECK THE PERSON TABLE FOR DECEASED
+	;;or did the injury occur within 14 days of the encounter
+	if ( p.deceased_dt_tm > 0 or e.disch_disposition_cd = expire_discharge_disp_cd )	
+	;if (p.deceased_dt_tm is not null)
+		encntr_rec->encntrs[encntr_rec->cnt].deceased_person_flag = 1 ;patient included in National Trauma Data Standard
+		encntr_rec->encntrs[encntr_rec->cnt].expiration_qualifier = "Expired"
+		encntr_rec->encntrs[encntr_rec->cnt].include_registry_flag = 1		
+		;IF (P.deceased_dt_tm IS NOT NULL)
+			encntr_rec->encntrs[encntr_rec->cnt].discharge_death_date	= format(p.deceased_dt_tm, "@SHORTDATE")
+			encntr_rec->encntrs[encntr_rec->cnt].discharge_death_time	= format(p.deceased_dt_tm, "@TIMENOSECONDS")	
+		;ENDIF		
+	endif
+	
+	IF (datetimeadd(e.beg_effective_dt_tm,0) >= datetimeadd(cdr.result_dt_tm,-14)) ;patient injury < 14 days before encounter
+		encntr_rec->encntrs[encntr_rec->cnt].include_registry_flag = 1
+		encntr_rec->encntrs[encntr_rec->cnt].injury_qualifier = "INJURY W/I 14 DAYS"
+		if (cdr.result_dt_tm is not null)
+			encntr_rec->encntrs[encntr_rec->cnt].injury_date_time		= format(cdr.result_dt_tm, "@SHORTDATE")	
+			encntr_rec->encntrs[encntr_rec->cnt].injury_date_time_dq8	= cdr.result_dt_tm
+			;encntr_rec->encntrs[encntr_rec->cnt].injury_qualifier 	= format(cdr.result_dt_tm, "@SHORTDATE")	
+		ENDIF
+	ENDIF
+	
+	;2.2.Was the patient transferred from one acute care hospital to another acute care hospital?
+	pos = locateval(num,1,disp_rec->cnt,e.disch_disposition_cd,disp_rec->dispositions[num].code_value)
+	if (pos > 0 )
+		encntr_rec->encntrs[encntr_rec->cnt].transfer_qualifier = uar_get_code_display(e.disch_disposition_cd)
+		encntr_rec->encntrs[encntr_rec->cnt].include_registry_flag = 1
+	endif
+	
+with nocounter, format, separator = " " ,format(DATE, "@SHORTDATETIME"), TIME = 60
+,outerjoin = d1, outerjoin = d2, dontcare = d1, dontcare=d2, dontcare = ce, dontcare = cdr
+
+
+;;step 2.2. Was the patient an in-patient admission and/ or observed?
+select into "nl:"
+	encntrid=encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid = encntr_rec->encntrs[d1.seq].personid 				
+	,fin= encntr_rec->encntrs[d1.seq].fin	
+	,O.catalog_cd
+	,order_status = uar_get_code_display(o.order_status_cd)
+	,o.order_status_cd
+	,o.orig_order_dt_tm
+	,o.order_mnemonic
+	,o.order_detail_display_line
+	,od.oe_field_display_value
+	,od.oe_field_dt_tm_value
+	,od.oe_field_meaning
+	,od.oe_field_value
+	,catalog_cdoe = uar_get_code_display(o.catalog_cd	)
+	,o.catalog_cd
+	,catalog_type = uar_get_code_display(o.catalog_type_cd	)
+	,o.catalog_type_cd
+from 
+	orders			o
+	,order_detail	od
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	;and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join o
+	where o.person_id = encntr_rec->encntrs[d1.seq].personid
+	and o.orig_order_dt_tm >= cnvtdatetime(encntr_rec->encntrs[d1.seq].begin_date_dq8)
+	and o.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and o.catalog_type_cd =  adt_cd;     636727.00 ; Admit/Transfer/Discharge
+	and o.order_mnemonic in ("PSO Admit to Inpatient","PSO Place in Observation")
+JOIN OD
+	WHERE OD.order_id = O.order_id	
+	and (
+		(od.oe_field_meaning = "REQSTARTDTTM" and o.order_mnemonic in ("PSO Place in Observation"))
+		or 
+		(od.oe_field_meaning = "INPTADMDTETME" and o.order_mnemonic in ("PSO Admit to Inpatient"))
+		)
+order by o.encntr_id, o.orig_order_dt_tm	asc	
+head o.encntr_id
+		encntr_rec->encntrs[d1.seq].inpat_obs_qualifier = O.order_mnemonic
+		encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+	
+head o.order_id	 
+;	call echo(build2("new order: ", o.order_mnemonic))
+;	call echo(o.order_id)
+;	call echo("")
+	
+	
+	if (o.order_mnemonic = "PSO Admit to Inpatient")
+		;encntr_rec->encntrs[d1.seq].inpat_admit_dttm_dq8 = cnvtdate(od.oe_field_dt_tm_value)
+		encntr_rec->encntrs[d1.seq].inpat_admit_date	= piece(od.oe_field_display_value," ",1,"")
+		encntr_rec->encntrs[d1.seq].inpat_admit_time 	= piece(od.oe_field_display_value," ",2,"")
+		encntr_rec->encntrs[d1.seq].inpat_admit_time 	= trim(substring(1,5,encntr_rec->encntrs[d1.seq].inpat_admit_time),3);strip sec	
+		encntr_rec->encntrs[d1.seq].inpat_admit_dttm_dq8= cnvtdatetime(od.oe_field_dt_tm_value)		
+		;call echo(build2("set -->inpat_admit_dttm_dq8: ",cnvtdatetime(od.oe_field_dt_tm_value)	))
+		;call echo(od.oe_field_dt_tm_value)
+	ENDIF
+with nocounter, format, separator = " ";\, format(DATE,"@SHORTDATETIME")
+
+
+;3.Did the patient go from ed to home... if so, exclude them. 
+select into "nl:"
+	encntrid				=encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid 					= encntr_rec->encntrs[d1.seq].personid 				
+	,fin					= encntr_rec->encntrs[d1.seq].fin	
+	,diagnosis_qualifier 	= trim(substring(1,20,encntr_rec->encntrs[d1.seq].diagnosis_qualifier),3)
+	,injury_qualifier		= trim(substring(1,20,encntr_rec->encntrs[d1.seq].injury_qualifier),3)
+	,transfer_qualifier		= trim(substring(1,50,encntr_rec->encntrs[d1.seq].transfer_qualifier),3)
+	,admit_qualifier		= trim(substring(1,20,encntr_rec->encntrs[d1.seq].admit_qualifier),3)
+	,inpat_obs_qualifier	= trim(substring(1,50,encntr_rec->encntrs[d1.seq].inpat_obs_qualifier),3)
+	,include_registry_flag	= encntr_rec->encntrs[d1.seq].include_registry_flag
+	,encntr_type 			= uar_get_code_display(elh.encntr_type_cd)
+	,DISCHARGE_DISPOSITION  = encntr_rec->encntrs[D1.seq].discharge_disp	
+	,elh.beg_effective_dt_tm
+	,ELH2.beg_effective_dt_tm
+	,elh.end_effective_dt_tm
+	,UNIT = uar_get_code_display(eLH.loc_nurse_unit_cd)
+	,UNIT2 = uar_get_code_display(eLH2.loc_nurse_unit_cd)
+	,elh.loc_nurse_unit_cd
+	,bed = uar_get_code_display(eLH.loc_bed_cd)
+	,loc = uar_get_code_display(eLH.loc_building_cd)
+	, fac = uar_get_code_display(eLH.loc_facility_cd)
+	,med_service = uar_get_code_display(eLH.med_service_cd)
+	,tx_datetime = uar_get_code_display(eLH.transaction_dt_tm)
+	,tx_reason = uar_get_code_display(eLH.transfer_reason_cd)
+from 
+	(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+	,encntr_loc_hist elh	;patient in ed
+	,encntr_loc_hist elh2   ;patient transferred
+plan d1
+	where 	d1.seq > 0
+	AND encntr_rec->encntrs[D1.seq].include_registry_flag = 1
+	AND encntr_rec->encntrs[D1.seq].discharge_disp_cd = home_discharge_disp_cd
+JOIN ELH
+	WHERE ELH.encntr_id 			= encntr_rec->encntrs[d1.seq].encntrid 
+	and elh.loc_nurse_unit_cd 		= 28170721.00	
+JOIN ELH2
+	WHERE ELH2.encntr_id 			= encntr_rec->encntrs[d1.seq].encntrid 
+;	and elh2.loc_nurse_unit_cd 		!= 28170721.00	
+	and elh2.beg_effective_dt_tm	>= elh.beg_effective_dt_tm
+order by elh.encntr_id, ELH.beg_effective_dt_tm DESC, ELH2.beg_effective_dt_tm DESC
+head elh.encntr_id
+	encntr_rec->encntrs[d1.seq].ed_to_home_disqualifier = uar_get_code_display(eLH2.loc_nurse_unit_cd)
+FOOT ELH.encntr_id
+	if (encntr_rec->encntrs[d1.seq].ed_to_home_disqualifier	= "MRMC ED")
+		encntr_rec->encntrs[d1.seq].include_registry_flag = 0
+	endif
+with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+
+select into "nl:"
+	encntrid				=encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid 					= encntr_rec->encntrs[d1.seq].personid 				
+	,fin					= encntr_rec->encntrs[d1.seq].fin	
+	,admit_source			= trim(substring(1,50,encntr_rec->encntrs[d1.seq].admit_source),3)
+	,ENC_DATE				= encntr_rec->encntrs[D1.seq].begin_date_vc
+	,ARRIVE_DATE			= encntr_rec->encntrs[D1.seq].arrival_date 
+	,disch_date				= encntr_rec->encntrs[d1.seq].discharge_date_vc
+	,diagnosis_qualifier 	= trim(substring(1,20,encntr_rec->encntrs[d1.seq].diagnosis_qualifier),3)
+	,injury_qualifier		= trim(substring(1,20,encntr_rec->encntrs[d1.seq].injury_qualifier),3)
+	,EXPIRATION_qualifier	= trim(substring(1,20,encntr_rec->encntrs[d1.seq].expiration_qualifier),3)
+	,transfer_qualifier		= trim(substring(1,50,encntr_rec->encntrs[d1.seq].transfer_qualifier),3)
+	,admit_qualifier		= trim(substring(1,20,encntr_rec->encntrs[d1.seq].admit_qualifier),3)
+	,inpat_obs_qualifier	= trim(substring(1,50,encntr_rec->encntrs[d1.seq].inpat_obs_qualifier),3)
+	;,ed_2_home_DISqualifier	= trim(substring(1,50,encntr_rec->encntrs[d1.seq].ed_to_home_disqualifier),3)
+	,include_registry_flag	= encntr_rec->encntrs[d1.seq].include_registry_flag
+	,DISCHARGE_DISPOSITION  = encntr_rec->encntrs[d1.seq].discharge_disp
+from 
+	(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+with nocounter, format, separator = " "
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;NOW THAT THE PATIENT QUALIFIES FOR THE REPORT, PULL THE FIELDS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;;patient addresses and patient email
+select into "NL:"
+    a.address_id
+from
+    address a
+    ,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where d1.seq> 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join a
+	where a.parent_entity_id = encntr_rec->encntrs[d1.seq].personid
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd = (home_address_cd)
+      and a.active_ind = 1
+      and a.end_effective_dt_tm >= cnvtdate(12302100)	
+order by
+    a.parent_entity_id      
+detail
+	if(a.street_addr2 != "")
+		encntr_rec->encntrs[d1.seq].address = build2(trim(a.street_addr)," ",trim(a.street_addr2))
+	else
+		encntr_rec->encntrs[d1.seq].address = trim(a.street_addr)
+	endif
+with nocounter,expand=1,time=3900
+
+
+;***********************************************************************************************************************
+;*                                        PATIENT SOCIAL
+;***********************************************************************************************************************
+select into "nl:"
+    pa.person_id
+    ,uar_get_code_display(pa.person_alias_type_cd)
+    ,pa.person_alias_type_cd
+    ,pa.alias
+from
+    person_alias pa
+    ,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where d1.seq > 0    
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join pa
+    where pa.person_id = encntr_rec->encntrs[d1.seq].personid
+      and pa.person_alias_type_cd = ssn_var ; 18.0;ssn
+      and pa.active_ind = 1
+order by
+    pa.person_id 
+detail
+    encntr_rec->encntrs[d1.seq].patient_ssn = format(pa.alias,"###-##-####")
+with nocounter,FORMAT, SEPARATOR = " ",time=3900
+
+
+
+
+;ventilator days
+select into $outdev
+	eid = encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid = encntr_rec->encntrs[d1.seq].personid 				
+	,fin = encntr_rec->encntrs[d1.seq].fin
+	,ce.event_cd	
+	,event_type =uar_get_code_display(ce.event_cd)
+	,ce.result_val
+	,ce.event_tag
+	,ce.event_end_dt_tm
+	,ce.performed_dt_tm
+from 
+	clinical_event ce
+	;,clinical_event ce2
+	;,ce_date_result 	cdr
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join ce
+	where ce.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and ce.event_cd = ventilatoractivity_cd;   16806092.00	;Ventilator Activity
+	and ce.event_tag in ("Ventilator initiate","Ventilator discontinue")	
+ORDER BY CE.encntr_id, CE.event_end_dt_tm	
+head ce.encntr_id
+	vent_days = 0
+	vent_start_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+	vent_end_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+;	call echo(BUILD2("CE.ENCNTR_ID --> VENT START ", format(vent_start_dq8, "@SHORTDATETIME")))
+;	call echo(BUILD2("CE.ENCNTR_ID --> VENT END ", format(vent_END_dq8, "@SHORTDATETIME")))	
+head ce.clinical_event_id
+	;CALL ECHO("new clinical event")
+	;call echo(ce.clinical_event_id)
+	;call echo("")
+	if (ce.event_tag = "Ventilator initiate")
+		vent_start_dq8 = cnvtdatetime(ce.event_end_dt_tm)
+	elseif (ce.event_tag = "Ventilator discontinue")
+		vent_end_dq8 = cnvtdatetime(ce.event_end_dt_tm)
+	endif
+	call echo(ce.event_tag)
+
+	;call echo(BUILD2("VENT START ", format(vent_start_dq8, "@SHORTDATETIME")))
+	;call echo(BUILD2("VENT END ", format(vent_END_dq8, "@SHORTDATETIME")))
+	if (cnvtdatetime(vent_start_dq8) < cnvtdatetime(curdate,curtime3) and cnvtdatetime(vent_end_dq8) < cnvtdatetime(curdate,curtime3))
+		;CALL ECHO("INSIDE THE IF STATEMENT -- BOTH DATES ARE SET")
+		;call echo(build2("THIS # of vent days: ", ROUND(datetimediff(cnvtdatetime(vent_end_dq8),cnvtdatetime(vent_start_dq8)),0)))
+		VENT_DAYS = (VENT_DAYS + ROUND(datetimediff(cnvtdatetime(vent_end_dq8),cnvtdatetime(vent_start_dq8)),0))
+	;	VENT_DAYS = (VENT_DAYS + datetimediff(cnvtdatetime(vent_end_dq8),cnvtdatetime(vent_start_dq8)))
+		
+		;RESET THE DATES FOR LOGIC TEST IN CASE THERE ARE MORE VENT INIT/DISCONTINUES
+		vent_start_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+		vent_end_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions	
+		;call echo(build2("vent days ", vent_days))
+	;ELSE 
+		;CALL ECHO("INSIDE THE ELSE STATEMENT -- BOTH DATES ARE -NOT- SET")
+	endif 
+FOOT CE.encntr_id
+	encntr_rec->encntrs[d1.seq].vent_days = vent_days
+with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+
+
+
+
+;RESPONSE LEVEL
+SELECT INTO $OUTDEV
+	encntr_rec->encntrs[d1.seq].encntrid 				
+	,encntr_rec->encntrs[d1.seq].personid 				
+	,encntr_rec->encntrs[d1.seq].fin
+	,ce.event_cd	
+	,uar_get_code_display(ce.event_cd)
+	,ce.result_val
+	,ce.event_tag
+	,ce.event_end_dt_tm
+	,ce.performed_dt_tm
+from 
+	clinical_event ce
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join ce
+	where ce.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and ce.event_cd =  trauma_activ_lvl_cd;4272602799.00 ; Trauma Team Activation Level	
+ORDER BY CE.encntr_id, CE.event_end_dt_tm	
+head ce.encntr_id
+	encntr_rec->encntrs[d1.seq].response_level = ce.result_val
+with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+
+
+;;orders for stepdown iMC
+SELECT INTO $OUTDEV
+	encntrid=encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid = encntr_rec->encntrs[d1.seq].personid 				
+	,fin= encntr_rec->encntrs[d1.seq].fin	
+	,O.catalog_cd
+	,status = uar_get_code_display(o.order_status_cd)
+	,o.orig_order_dt_tm
+	,o.order_mnemonic
+	,o.order_detail_display_line
+	,od.oe_field_display_value
+	,od.oe_field_dt_tm_value
+	,od.oe_field_meaning
+	,od.oe_field_value
+	,CATALOG_CDOE = uar_get_code_display(o.catalog_cd	)
+	,o.catalog_cd
+	,catalog_type = uar_get_code_display(o.catalog_type_cd	)
+	,o.catalog_type_cd
+from 
+	orders			o
+	,order_detail	od
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join o
+	where o.person_id = encntr_rec->encntrs[d1.seq].personid
+	and o.orig_order_dt_tm >= cnvtdatetime(encntr_rec->encntrs[d1.seq].begin_date_dq8)
+	and o.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and o.catalog_type_cd =  adt_cd;     636727.00 ; Admit/Transfer/Discharge
+	and o.order_mnemonic in ("Change Accommodation","Discharge Patient")
+join od
+	where od.order_id = o.order_id	
+	and od.oe_field_meaning = "REQSTARTDTTM"
+order by o.encntr_id, o.orig_order_dt_tm	asc	
+head o.encntr_id
+	 icu_days 		= 0
+	 imc_days 		= 0
+	 icu_start_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+	 imc_start_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+	 dis_start_dq8 	= cnvtdatetime(curdate+100,curtime3)  ;setting to 100 days later for logic exclusions
+head o.order_id	 
+	;CALL echo(build2("new order: ", o.order_mnemonic))
+	;call echo(o.order_id)
+	;call echo("")
+	if (o.order_mnemonic = "Change Accommodation" and od.oe_field_meaning = "REQSTARTDTTM")	
+		if ( cnvtupper(o.order_detail_display_line) = "*STEPDOWN*")	
+			encntr_rec->encntrs[d1.seq].stepdown_imc_dttm_dq8 = cnvtdatetime(od.oe_field_dt_tm_value)
+		ENDIF
+	elseif (o.order_mnemonic = "Discharge Patient" and od.oe_field_meaning = "REQSTARTDTTM")		
+		;encntr_rec->encntrs[d1.seq].di = cnvtdate(od.oe_field_dt_tm_value)	
+		encntr_rec->encntrs[d1.seq].discharge_order_date	= piece(od.oe_field_display_value," ",1,"");
+		encntr_rec->encntrs[d1.seq].discharge_order_time 	= piece(od.oe_field_display_value," ",2,"")
+		encntr_rec->encntrs[d1.seq].discharge_order_time 	= trim(substring(1,5,encntr_rec->encntrs[d1.seq].discharge_order_time),3);strip sec		
+		encntr_rec->encntrs[d1.seq].discharge_date_dq8		= cnvtdatetime(od.oe_field_dt_tm_value)	
+	;elseif (ce.event_tag = "Ventilator discontinue")
+	;	vent_end_dq8 = cnvtdatetime(ce.event_end_dt_tm)
+	endif
+foot o.encntr_id
+	;call echo(build2("admit date",encntr_rec->encntrs[d1.seq].inpat_admit_dttm_dq8))
+	;call echo(build2("stepdown date",encntr_rec->encntrs[d1.seq].stepdown_imc_dttm_dq8))
+	;call echo(build2("discharge date",encntr_rec->encntrs[d1.seq].discharge_date_dq8))
+	icu_days = (ROUND(datetimediff(cnvtdatetime(encntr_rec->encntrs[d1.seq].stepdown_imc_dttm_dq8)
+									,cnvtdatetime(encntr_rec->encntrs[d1.seq].inpat_admit_dttm_dq8)),0))
+	encntr_rec->encntrs[d1.seq].icu_days = cnvtstring(icu_days)
+	
+	imc_days =  (ROUND(datetimediff(cnvtdatetime(encntr_rec->encntrs[d1.seq].discharge_date_dq8)
+									,cnvtdatetime(encntr_rec->encntrs[d1.seq].stepdown_imc_dttm_dq8)),0))
+	encntr_rec->encntrs[d1.seq].stepdown_imc_days = cnvtstring(imc_days)									
+
+with nocounter, format, separator = " ";\, format(DATE,"@SHORTDATETIME")
+
+
+;blood orders
+SELECT INTO $OUTDEV
+	eid = encntr_rec->encntrs[d1.seq].encntrid 				
+	,pid = encntr_rec->encntrs[d1.seq].personid 				
+	,encntr_rec->encntrs[d1.seq].fin	
+	,O.catalog_cd
+	,od.oe_field_meaning
+	,od.oe_field_value
+	,status = uar_get_code_display(o.order_status_cd)
+	,o.orig_order_dt_tm
+	,o.order_mnemonic
+	,o.order_detail_display_line
+	,CATALOG_CDOE = uar_get_code_display(o.catalog_cd	)
+	,o.catalog_cd
+	,catalog_type = uar_get_code_display(o.catalog_type_cd	)
+	,o.catalog_type_cd			
+from 
+	orders			o
+	,order_detail	od
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join o
+	where o.person_id = encntr_rec->encntrs[d1.seq].personid
+	and o.orig_order_dt_tm >= cnvtdatetime(encntr_rec->encntrs[d1.seq].begin_date_dq8)
+	and o.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	AND O.order_mnemonic = "TRANSFUSE*"
+	AND O.catalog_cd IN 
+	(
+	  transfuse_rbc_cd; 	63291687.00		;TRANSFUSE Red Blood Cells Leukoreduced -
+   		,transfuse_platelet_cd;63291775.00			;TRANSFUSE Platelet Product - NURSING
+   		,transfuse_plasma_cd;63291625.00			;TRANSFUSE Fresh Frozen Plasma - NURSING
+	)
+JOIN OD
+	WHERE OD.order_id = O.order_id	
+	AND OD.oe_field_meaning = "QUANTITY"
+order by o.encntr_id, o.catalog_cd	
+HEAD O.encntr_id
+	rbc_cnt = 0
+	platelet_cnt = 0
+	plasma_cnt = 0
+head o.catalog_cd
+	order_type = ""
+detail		
+	if (o.order_mnemonic = "*Plasma*")
+		plasma_cnt = plasma_cnt + od.oe_field_value
+	elseif (o.order_mnemonic = "*Red Blood Cells*")
+		rbc_cnt = rbc_cnt + od.oe_field_value		
+	elseif (o.order_mnemonic = "*Platelet*")
+		platelet_cnt = platelet_cnt + od.oe_field_value			
+	endif
+foot o.catalog_cd
+	if (o.order_mnemonic = "*Plasma*")
+		encntr_rec->encntrs[d1.seq].plasma 				= cnvtstring(plasma_cnt)
+	elseif (o.order_mnemonic = "*Red Blood Cells*")
+		encntr_rec->encntrs[d1.seq].red_blood_cells 	= cnvtstring(rbc_cnt)		
+	elseif (o.order_mnemonic = "*Platelet*")
+		encntr_rec->encntrs[d1.seq].platelets 			= cnvtstring(platelet_cnt)		
+	endif
+with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME")
+
+
+;Field count 26 is pulling from the ICD-10 coding (Y92.0-Y92.9) - 
+;Field count 27 is pulling from the ICD-10 coding (V00-Y38.9X2S) - Option for multiple codes
+;Field count 28 is pulling from the ICD-10 coding (Y93.0-Y93.9)  - 
+select into $outdev
+	encntr_rec->encntrs[d1.seq].encntrid 				
+	,encntr_rec->encntrs[d1.seq].personid 				
+	,encntr_rec->encntrs[d1.seq].fin
+	,dx_type = uar_get_code_display(d.diag_type_cd)
+	,d.diagnosis_group
+	,d.clinical_diag_priority
+	,d.diagnosis_display
+	,diag_include = n.source_identifier
+	,d.diag_dt_tm
+	,n.source_string
+	,n.source_identifier_keycap
+	,n.source_string_keycap
+from 
+	diagnosis 		d
+	,nomenclature 	n		;is icd10 code for injury included in s00-s99, T07, T12,T79.A1-A79.A9
+	,(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+join d where d.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and d.diag_type_cd = final_dx_type_cd ; 88.00
+	and d.end_effective_dt_tm >= cnvtdate(12302100)
+	and d.active_ind = 1
+Join n 
+	where n.nomenclature_id = d.nomenclature_id
+	and n.source_vocabulary_cd in (select code_value
+                                   From code_value
+                                   Where cdf_meaning = "*ICD10*"
+                                   )
+	AND OPERATOR(N.source_identifier,"REGEXPLIKE","(^Y9[23]\.[0-9])|(^[VWX][0-9]{2}\.)|(^Y[0-3][0-8]\.[0-9])")
+	and n.active_ind = 1
+	and n.end_effective_dt_tm >= cnvtdate(12302100)	
+
+order by d.person_id, d.encntr_id, d.clinical_diag_priority desc;, d2.clinical_diag_priority 
+head d.encntr_id
+	location_code 	= ""
+	mechanism_code 	= ""
+	activity_code	= ""
+detail  ;W11.XXXA
+
+	IF 		(OPERATOR(N.source_identifier, "REGEXPLIKE", "^Y92\.[0-9]") = 1)
+				location_code 	= trim(N.source_identifier,3)
+				;CALL ECHO(BUILD2("MATCH LOCATION_ CODE: ", LOCATION_CODE))
+	ELSEIF 	(OPERATOR(N.source_identifier, "REGEXPLIKE", "^[VWX][0-9]{2}\.") = 1)
+				mechanism_code	 = trim(N.source_identifier,3)
+				;CALL ECHO(BUILD2("MATCH MECHANISM_CODE:",mechanism_code))
+	ELSEIF 	(OPERATOR(N.source_identifier, "REGEXPLIKE", "^Y93\.[0-9]") = 1)
+				activity_code	 = trim(N.source_identifier,3)
+;	ELSE 
+;		CALL ECHO("NO MATCH ON THIS ICD10... THIS SHOULD NOT HAPPEN")	
+	ENDIF
+FOOT d.encntr_id
+	if (substring(1,1,trim(location_code,3)) = "^")
+		strlength = textlen(location_code)-1
+		location_code = substring(2,strlength,location_code)
+	endif	
+	
+	if (substring(1,1,trim(mechanism_code,3)) = "^")
+		strlength = textlen(mechanism_code)-1
+		mechanism_code = substring(2,strlength,mechanism_code)
+	endif	
+	
+	if (substring(1,1,trim(activity_code,3)) = "^")
+		strlength = textlen(activity_code)-1
+		activity_code = substring(2,strlength,activity_code)
+	endif	
+		
+	encntr_rec->encntrs[d1.seq].icd10_location_cd 		= location_code
+	encntr_rec->encntrs[d1.seq].icd10_prim_mechanism 	= mechanism_code
+	encntr_rec->encntrs[d1.seq].icd10_activity_code 	= activity_code
+;;EXCLUDE Y39 IN DETAIL
+with nocounter, format, separator = " "
+
+
+
+
+
+
+
+;call echojson(encntr_rec,$outdev)
+;
+SELECT INTO $OUTDEV
+	;encntr_rec->encntrs[d1.seq].encntrid 				
+	;encntr_rec->encntrs[d1.seq].personid 				
+	MRN 					= encntr_rec->encntrs[d1.seq].mrn
+	,FIN					= encntr_rec->encntrs[d1.seq].fin					
+	,FacilityArrivalDate	= encntr_rec->encntrs[d1.seq].arrival_date 			
+	,FacilityArrivalTime   	= encntr_rec->encntrs[d1.seq].arrival_time 			
+	,PatientNameFirst	 	= encntr_rec->encntrs[d1.seq].patient_name_first		
+	,PatientNameLast		= encntr_rec->encntrs[d1.seq].patient_name_last 		
+	,BirthDate				= encntr_rec->encntrs[d1.seq].dob 					
+	,Race					= encntr_rec->encntrs[d1.seq].race 					
+	,Ethnicity				= encntr_rec->encntrs[d1.seq].ethnicity 				
+	,Gender					= encntr_rec->encntrs[d1.seq].gender 	
+	,PatientAddress			= encntr_rec->encntrs[d1.seq].address	
+	,ssn					= encntr_rec->encntrs[d1.seq].patient_ssn
+	,VENTdAYS				= encntr_rec->encntrs[d1.seq].vent_days 
+	,rbc					= encntr_rec->encntrs[d1.seq].red_blood_cells
+	,RESPONSELEVEL			= encntr_rec->encntrs[d1.seq].response_level 
+	,dischargeDeathDate		= encntr_rec->encntrs[d1.seq].discharge_death_date
+	,dischargeDeathTime		= encntr_rec->encntrs[d1.seq].discharge_death_TIME
+	,DischargeOrderDate		= encntr_rec->encntrs[d1.seq].discharge_order_date
+	,DischargeOrderTime		= encntr_rec->encntrs[d1.seq].discharge_order_time	
+	,InpatientAdmitDate		= encntr_rec->encntrs[d1.seq].inpat_admit_date 	
+	,InpatientAdmitTime		= encntr_rec->encntrs[d1.seq].inpat_admit_time 	
+	,plasma					= encntr_rec->encntrs[d1.seq].plasma
+	,platelet				= encntr_rec->encntrs[d1.seq].platelets
+	,icd10_location_code	= encntr_rec->encntrs[d1.seq].icd10_location_cd
+	,icd10_prim_mechanism	= encntr_rec->encntrs[d1.seq].icd10_prim_mechanism
+	,1cd10_activity_code	= encntr_rec->encntrs[d1.seq].icd10_activity_code
+	,icu_days				= encntr_rec->encntrs[d1.seq].icu_days
+	,stepdown_imc_days		= encntr_rec->encntrs[d1.seq].stepdown_imc_days
+from 
+	(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+	
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+with nocounter, format, separator = " "
+;WITH NOCOUNTER, PCFORMAT ("", ',', 1, 1), FORMAT = STREAM, FORMAT, SKIPREPORT = 1
+
+
+
+select into value(filenamepath) ; $OUTDEV; VALUE(file_output)
+;SELECT INTO $OUTDEV
+	;encntr_rec->encntrs[d1.seq].encntrid 				
+	;encntr_rec->encntrs[d1.seq].personid 				
+	MRN 					= ENCNTR_REC->ENCNTRS[D1.SEQ].MRN
+	,FIN					= ENCNTR_REC->ENCNTRS[D1.SEQ].FIN					
+	,FACILITYARRIVALDATE	= ENCNTR_REC->ENCNTRS[D1.SEQ].ARRIVAL_DATE 			
+	,FACILITYARRIVALTIME   	= ENCNTR_REC->ENCNTRS[D1.SEQ].ARRIVAL_TIME 			
+	,PATIENTNAMEFIRST	 	= TRIM(substring(1,100,ENCNTR_REC->ENCNTRS[D1.SEQ].PATIENT_NAME_FIRST ),3)	
+	,PATIENTNAMELAST		= TRIM(substring(1,100,ENCNTR_REC->ENCNTRS[D1.SEQ].PATIENT_NAME_LAST),3) 		
+	,BIRTHDATE				= ENCNTR_REC->ENCNTRS[D1.SEQ].DOB 					
+	,RACE					= TRIM(substring(1,100,ENCNTR_REC->ENCNTRS[D1.SEQ].RACE),3)
+	,ETHNICITY				= TRIM(substring(1,100,ENCNTR_REC->ENCNTRS[D1.SEQ].ETHNICITY),3) 				
+	,GENDER					= ENCNTR_REC->ENCNTRS[D1.SEQ].GENDER 	
+	,PATIENTADDRESS			= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].ADDRESS),3) 	
+	,SSN					= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].PATIENT_SSN),3) 
+	,VENTDAYS				= TRIM(CNVTSTRING(ENCNTR_REC->ENCNTRS[D1.SEQ].VENT_DAYS),3)
+	,RBC					= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].RED_BLOOD_CELLS),3) 
+	,RESPONSELEVEL			= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].RESPONSE_LEVEL),3)  
+	,DISCHARGEDEATHDATE		= REPLACE(TRIM(ENCNTR_REC->ENCNTRS[D1.SEQ].DISCHARGE_DEATH_DATE,3),"00:00","")
+	,DISCHARGEDEATHTIME		= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].DISCHARGE_DEATH_TIME),3) 
+	,DISCHARGEORDERDATE		= TRIM(substring(1,12,ENCNTR_REC->ENCNTRS[D1.SEQ].DISCHARGE_ORDER_DATE),3) 
+	,DISCHARGEORDERTIME		= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].DISCHARGE_ORDER_TIME	),3) 
+	,INPATIENTADMITDATE		= TRIM(substring(1,12,ENCNTR_REC->ENCNTRS[D1.SEQ].INPAT_ADMIT_DATE),3) 	
+	,INPATIENTADMITTIME		= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].INPAT_ADMIT_TIME),3)  	
+	,PLASMA					= substring(1,10,TRIM(ENCNTR_REC->ENCNTRS[D1.SEQ].PLASMA,3)) 
+	,PLATELET				= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].PLATELETS),3) 
+	,ICD10_LOCATION_CODE	= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].ICD10_LOCATION_CD),3) 
+	,ICD10_PRIM_MECHANISM	= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].ICD10_PRIM_MECHANISM),3) 
+	,1CD10_ACTIVITY_CODE	= TRIM(substring(1,200,ENCNTR_REC->ENCNTRS[D1.SEQ].ICD10_ACTIVITY_CODE),3) 
+	,ICU_DAYS				= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].ICU_DAYS),3) 
+	,STEPDOWN_IMC_DAYS		= TRIM(substring(1,10,ENCNTR_REC->ENCNTRS[D1.SEQ].STEPDOWN_IMC_DAYS),3) 
+	,DX1_QUAL				= encntr_rec->encntrs[d1.seq].diagnosis_qualifier
+	,DX2_QUAL				= encntr_rec->encntrs[d1.seq].diagnosis2_qualifier	
+	,deceased_person_dt 	= encntr_rec->encntrs[d1.seq].deceased_person_dttm
+	,deceased_person_flag 	= encntr_rec->encntrs[d1.seq].deceased_person_flag
+from 
+	(dummyt d1 with seq = value(size(encntr_rec->encntrs,5)))
+plan d1
+	where 	d1.seq > 0
+	and encntr_rec->encntrs[d1.seq].include_registry_flag	= 1
+	head report
+		line0= build(QUOTE_CHAR, 'MedicalRecordNumber', QUOTE_CHAR,','
+		,QUOTE_CHAR, 'PatientAccountNumber',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'FacilityArrivalDate',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'FacilityArrivalTime',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'PatientNameFirst',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'PatientNameLast',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'BirthDate',QUOTE_CHAR,  ','		
+		,QUOTE_CHAR, 'Race',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'Ethnicity',QUOTE_CHAR,  ','				
+		,QUOTE_CHAR, 'Gender',QUOTE_CHAR,  ','	
+		,QUOTE_CHAR, 'PatientAddressStreet Address1',QUOTE_CHAR,  ','		
+		,QUOTE_CHAR, 'SSN',QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'Total Ventilator Days',QUOTE_CHAR,  ','				
+		,QUOTE_CHAR, 'Packed Red Blood Cells',QUOTE_CHAR,  ','		
+		,QUOTE_CHAR, 'Response Level',QUOTE_CHAR,  ','		
+		,QUOTE_CHAR, 'Discharge/Death Date',QUOTE_CHAR,  ','			
+		,QUOTE_CHAR, 'Discharge/Death Time',QUOTE_CHAR,  ','			
+		,QUOTE_CHAR, 'ED Departure/Admitted Date'	,QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'ED Departure/Admitted Time'	,QUOTE_CHAR,  ','				
+		,QUOTE_CHAR, 'Plasma'						,QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'Platelets'					,QUOTE_CHAR,  ','		
+		,QUOTE_CHAR, 'ICD-10 Location Code'			,QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'Primary ICD-10 Mechanism'		,QUOTE_CHAR,  ','				
+		,QUOTE_CHAR, 'Activity Code - ICD10'		,QUOTE_CHAR,  ','
+		,QUOTE_CHAR, 'ICU Days'						,QUOTE_CHAR, ','		
+		,QUOTE_CHAR, 'Stepdown/IMC Days'			,QUOTE_CHAR 
+		)
+		col 0 line0
+		row+1
+	detail	
+	
+		LINE1 = BUILD(QUOTE_CHAR,MRN,QUOTE_CHAR,','
+		   	,QUOTE_CHAR, FIN,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, FACILITYARRIVALDATE,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, FACILITYARRIVALTIME,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, PATIENTNAMEFIRST,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, PATIENTNAMELAST,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, BIRTHDATE,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, RACE,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, ETHNICITY,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, GENDER,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, PATIENTADDRESS, QUOTE_CHAR, ","		
+		   	,QUOTE_CHAR, SSN,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, VENTDAYS,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, RBC,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, RESPONSELEVEL,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, DISCHARGEDEATHDATE,QUOTE_CHAR,","	
+		   	,QUOTE_CHAR, DISCHARGEDEATHTIME,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, INPATIENTADMITDATE,QUOTE_CHAR,","	
+		   	,QUOTE_CHAR, INPATIENTADMITTIME,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, PLASMA,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, PLATELET,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, ICD10_LOCATION_CODE,QUOTE_CHAR,","	
+		   	,QUOTE_CHAR, ICD10_PRIM_MECHANISM,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, 1CD10_ACTIVITY_CODE,QUOTE_CHAR,","
+		   	,QUOTE_CHAR, ICU_DAYS,QUOTE_CHAR,","		   			   			   			   			   			   			   			   	
+		   	,QUOTE_CHAR, STEPDOWN_IMC_DAYS,QUOTE_CHAR
+		   	)
+		    line1 = trim(line1)
+		    col 0 line1
+		    row+1    
+;WITH nocounter,FORMAT, SEPARATOR =  " "
+WITH maxcol=5000,time=10590,maxrow=0,check,format=undefined,noformfeed
+
+declare file_status = vc
+
+if (findfile(value(filenamepath)) )
+	set file_status = build2("FILE WAS CREATED ", TRIM(value(filenamepath),3), " curnode: ", CURNODE," curdomain: ",CURDOMAIN)
+	call echo(file_status)
+else
+	
+	set file_status = build2("FILE WAS NOT CREATED", value(file_output), " curnode: ", CURNODE," curdomain: ",CURDOMAIN)
+	call echo(file_status)
+endif	
+
+
+select into $OUTDEV
+FROM DUAL
+HEAD REPORT
+ROW 0 FILE_STATUS
+WITH NOCOUNTER, MAXCOL = 500
+;;;
+;;;call echojson(encntr_rec,$outdev)
+;;;Unfortunately, not all S and T codes qualify.  I am attaching the inclusion criteria.   
+;;;The superficial codes are excluded (see attached inclusion criteria) and only the S codes (excluding superficial) 
+;;;with a 7th character modifiers A, B or C are included.  
+;;;T07 and T14 should rarely be used (but are included) due to being unspecified codes.  
+;;;Let me know if you have any questions.  
+;;
+;
+;;call echojson(ENCNTR_REC,$outdev)
+;/**************************************************************
+;; DVDev DEFINED SUBROUTINES
+;**************************************************************/
+
+end
+go
