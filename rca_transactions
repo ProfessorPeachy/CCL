@@ -1,0 +1,835 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ 
+Programmer    		  : Amelia Jamison
+ 
+Date Created   		  : 10/24/2022
+Project Name    	  : 
+ 
+Requesting Dept/Owner : 
+Report Title          :  
+Time Frame	          : 
+Type of Patients      :
+Run Frequency		  : 
+Output File Name	  : yymmdd_mrh_rca.txt
+Ops Job Name	      :  -------
+Source Name     	  : cust_script:1_maur_rca_transactions.prg
+Purpose               :
+ 
+/***********************************************************************************************************************
+*                                        MODIFICATION CONTROL LOG
+************************************************************************************************************************
+*
+*     Mod Date     		Programmer             Comment
+*     --- -------- 		-------------------- -----------------------------------
+*     000 12/22/2022 	Amelia Jamison			Intial Build
+	  001 03/15/2022	Amelia Jamison			Modify 
+*	  
+************************************************************************************************************************
+************************************************************************************************************************
+Program Notes:
+ 
+;"/cerner/d_p698/data/batch_files/ccl_extracts/rca/:file_name"
+ 
+Exclusions
+----------
+Exclude Test patients
+
+inclusions
+----------
+Account
+M/R #
+Patient Type (ex. Inpatient, Outpatient, ER, ect.)
+Last Name
+First Name
+Middle Name
+DOB
+Social
+Gender
+Admit
+Discharge
+Charges
+Diagnosis
+Address
+City 
+State
+Zip
+Home Phone
+Work Phone
+ER Contact Phone
+Email Address
+Guarantor Name
+Guarantor Address
+Guarantor City
+Guarantor State
+Guarantor Zip
+Guarantor Phone
+
+
+;use the date the person became a self-pay encounter
+;all encounters marked self pay within the last 7 days
+ 
+**************************************************************************************************************************/
+ 
+drop program 1_amj_rca_transactions go
+create program 1_amj_rca_transactions
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Service Begin Date:" = "CURDATE"
+	, "Service End Date:" = "CURDATE"
+	, "Output Type:" = "F" 
+
+with OUTDEV, START_DATE, END_DATE, TYPE
+ 
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+
+
+
+declare num = i4
+declare cnt = i4
+declare pcn_cnt = i4
+declare num2 = i4
+declare tot_chg = f8
+declare fin_var = f8
+declare mrn_var = f8
+declare ssn_var = f8
+declare home_phone_var = f8
+
+declare emp_phone_var = f8
+declare guar_var = f8
+declare def_guar_var = f8
+
+declare patient_type_var 		= vc with noconstant(""),protect
+declare emergency_contact_cd 	= f8 with constant(uar_get_code_by("DISPLAYKEY",351,"EMERGENCYCONTACT")),protect ;1152
+declare home_adr_var 			= f8 with constant(uar_get_code_by("DISPLAYKEY",212,"HOME")),protect ;1152
+declare email_adr_var 			= f8 with constant(uar_get_code_by("DISPLAYKEY",212,"EMAIL")),protect ;1152
+declare mobile_phone_var 		= f8 with constant(uar_get_code_by("DISPLAYKEY",43,"MOBILE")),protect ;   
+declare self_pay_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",354,"SELFPAY")),protect ;  
+declare recurring_type_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"RECURRING")),protect ;      309314.00	Recurring
+ 
+ 
+
+ 
+set fin_var = uar_get_code_by("DISPLAYKEY",319,"FINNBR")
+set mrn_var = uar_get_code_by("DISPLAYKEY",263,"MRN")
+set ssn_var = uar_get_code_by("DISPLAYKEY",263,"SSN")
+declare mrn_cd						= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;2.0
+declare fin_cd						= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+
+set home_phone_var 	= uar_get_code_by("DISPLAYKEY",43,"HOME")
+set work_phone_var 	= uar_get_code_by("DISPLAYKEY",43,"BUSINESS")
+set guar_var 		= uar_get_code_by("MEANING", 351, "GUARANTOR")
+set def_guar_var 	= uar_get_code_by("MEANING", 351, "DEFGUAR")
+
+ 
+if(validate(request->batch_selection))
+    set opsFlag = 1
+else
+    set opsFlag = 0
+endif
+ 
+set rca_file = build("/cerner/d_p698/data/batch_files/ccl_extracts/rca/test_MRH_rca.txt")
+ 
+ 
+declare date_parser_str = vc with noconstant(" ")
+declare date_parser_str2 = vc with noconstant(" ")
+
+
+
+
+/*************************************************************************
+*      CHECK TO SEE IF RUNNING FROM OPERATIONS      *
+*************************************************************************/
+declare ops_variable = vc
+declare bdate = vc
+declare eDate = vc
+ 
+ 
+ 
+ 
+/*************************************************************************
+*      CHECK TO SEE IF RUNNING FROM OPERATIONS      *
+*************************************************************************/
+SET OPS_VARIABLE = "N"
+
+;	where (e.disch_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+  ;  or e.updt_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate))
+ 
+IF (VALIDATE(REQUEST->BATCH_SELECTION) = 1) ;run for 7 days ago
+	set bdate   = format(datetimefind(cnvtlookbehind("7,D"),"D","B","B"),"dd-mmm-yyyy hh:mm;;d")
+	set eDate	= format(datetimefind(cnvtlookbehind("3,D"),"D","E","E"),"dd-mmm-yyyy hh:mm;;d")
+	SET OPS_VARIABLE = "Y"
+	CALL ECHO("OPS")
+	
+ELSE ;run for date entered at prompt and run manually
+  SET bdate = build2($START_DATE, " 00:00:00")
+  set eDate = build2($END_DATE, " 23:59:59")
+
+
+  SET OPS_VARIABLE = "N"
+  CALL ECHO("NOT OPS")
+ENDIF
+ 
+ 
+set date_parser_str = BUILD2(' (e.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate
+						,'") or e.updt_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '"))')
+
+set date_parser_str2 = BUILD2(' (pe.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate
+						,'") or pe.updt_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '"))')
+
+ 
+  
+call echo(date_parser_str)
+call echo(date_parser_str2)
+ 
+ 
+; (e.disch_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '") or e.updt_dt_tm between cnvtdatetime("', bdate, '") and cnvtdatetime("', edate, '"))
+ 
+ 
+IF ($TYPE = "F")
+	
+	declare rundate 		= vc with constant(format(curdate,'yymmdd;;d')), protect
+	;declare filepath		= vc with constant("/cerner/d_p698/data/batch_files/ccl_extracts/probatefinders/"), protect
+	declare filepath		= vc with constant("/cerner/d_p698/data/batch_files/ccl_extracts/rca/"), protect
+	declare filename		= vc with constant(build2(rundate,"_mrh_rca.txt")), protect
+	declare filenamepath	= vc with noconstant(build2(filepath,filename))	, protect
+	declare OUTPUT			= c200 with noconstant(""), protect
+	
+	
+	;set up filename to logical output
+	set OUTPUT = TRIM(FILENAME,3)	
+	call echo(build2("Filenamepath   : " ,filenamepath))
+	set filenamepath = trim(filenamepath,3)
+	set logical OUTPUT VALUE(filenamepath)
+	set OUTPUT = trim(logical("OUTPUT"),3)
+	 
+	call echo(build2("FILE NAME: ", value(logical("OUTPUT")) ))	
+	CALL ECHO("SENDING DATA TO FILE")
+	
+	;remove the old file if it exists
+	if (findfile(value(OUTPUT)) )
+		call echo("Query Not Skipped. 	Found and old version of the file, removing the file")
+		SET STAT = REMOVE(value(OUTPUT))
+		call echo(build2("removed the old version of the file"))
+	else
+		call echo("No old version of file found, did not have to remove the file")
+	endif	
+	
+ELSE 
+	set OUTPUT = $OUTDEV
+	CALL ECHO("SENDING DATA TO SCREEN")
+ENDIF 
+ 
+/**************************************************************
+; Record Structure
+**************************************************************/
+free record enc
+record enc
+( 1 cnt = i4
+ 1 qual[*]
+ 	2 eid = f8
+ 	2 pft_eid = f8
+ 	2 pid = f8 	
+ 	2 patctrlnum = f8
+ 	2 encntr_id = f8
+ 	2 entity_id = f8
+ 	2 entity_name = vc
+ 	2 fin = vc
+ 	2 fin_formatted = vc
+ 	2 fin_class_cd = f8
+ 	2 fin_class_name = vc
+ 	2 financial_class_cd = f8 ;
+ 	2 financial_class_name = vc
+ 	2 mrn = vc
+ 	2 pat_type = vc
+ 	2 fname = vc
+ 	2 lname = vc
+ 	2 mname = vc
+ 	2 dob = vc
+ 	2 ssn = vc
+ 	2 sex = vc
+ 	2 admit_dt = c10
+ 	2 disch_dt = c10
+ 	2 tot_charges = f8
+ 	2 charge_balance = f8
+ 	2 pdx = vc
+ 	2 sec_dx = vc
+ 	2 disc_dx = vc 	
+	2 tot_chg = f8
+
+ 	2 pat_addr1 = vc
+ 	2 pat_addr2 = vc
+ 	2 pat_city = vc
+ 	2 pat_st = vc
+ 	2 pat_zip = vc
+ 	2 pat_phone = vc
+ 	2 pat_home_phone = vc
+ 	2 pat_work_phone = vc
+ 	2 pat_emergency_phone = vc 	
+ 	2 pat_email_address = vc 	 
+ 	2 pat_emergency_contact = vc	
+	2 guar_name = vc
+	2 guar_addr1 = vc
+	2 guar_addr2 = vc
+	2 guar_city = vc
+	2 guar_st = vc
+	2 guar_zip = vc
+	2 guar_phone = vc
+	2 total_charges = f8
+	2 billing_entity	= vc ;001
+ 	2 pcn_cnt = i4
+ 	2 pcn_qual[*]
+ 		3 pcn_cnt2 = i4
+ 		3 patctrlnum = vc
+ 		3 claimstatus = vc
+ 		3 tot_chg = f8
+)
+ 
+/**************************************************************
+; Encounter Info
+**************************************************************/
+ 
+SELECT INTO $outdev; "nl:"
+	pe.encntr_id
+	;, pe.person_id
+	;,fin = ea.alias
+	,fin_raw = pe.pft_encntr_alias
+ 	,fin1= 	BUILD2(trim(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+           					,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+           					,pe.pft_encntr_alias),cnvtstring(pe.recur_seq)))," ","") ))	;FORMATTED FIN
+           					
+           					
+ 	,fin2 				= 	replace(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+           ,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+           ,pe.pft_encntr_alias),cnvtstring(pe.recur_seq))),"_","-")," ","")
+           
+; 	,fin3				= 	substring(1,20,evaluate(pe.recur_ind,0
+;										,cnvtalias(ea.alias.ea.alias_pool_cd)
+;									,build(cnvtalias(ea.alias,ea.alias_pool_cd),"-",pe.recur_seq)))	
+	,fin3 = 	BUILD2(trim(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+           					,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+           					,pe.pft_encntr_alias),cnvtstring(pe.recur_seq)))," ","") ))	;formated fin
+    ,encntr_type = uar_get_code_display(pe.encntr_type_cd)
+    ,pe.recur_seq
+    ,pe.recur_ind
+;	,e.disch_dt_tm
+	,pe.disch_dt_tm
+;	,e.arrive_dt_tm
+	,pe.beg_effective_dt_tm
+	,pe.active_status_dt_tm
+	,pe.svc_beg_dt_tm
+	,pe.svc_end_dt_tm
+	,pe.updt_dt_tm
+	,be.be_name
+	,pe.fin_class_cd
+FROM
+	pft_encntr pe	
+	,encounter e
+	,encntr_plan_reltn epr
+	,health_plan hp		
+	,billing_entity be
+plan pe
+	WHERE parser(date_parser_str2)
+	;code set 71
+	and pe.encntr_type_cd not in (    4189852.00	;PREREG
+  , 40161279.00	;PRERECURRING
+ ,2552817273.00	;PRECLIENT
+     ,309313.00	;PREADMIT
+   ,   2552817269.00	;CLIENT
+  ,  3012539.00	;PHONEMESSAGE
+ ,3068258685.00	;TELEMEDICINE
+ ,2554078677.00	;EMS
+	)
+	and pe.pft_encntr_alias in
+	
+	(
+"203457682*"
+,"203457682*"
+;,"203570274"
+;,"203583291"
+;,"203585869"
+;,"203589051"
+;,"203591653"
+;,"203592651"
+;,"203593400"
+,"203554093*"
+,"203554093*"
+;,"203593968"
+	
+	
+	
+	)
+	;where (e.disch_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+   ; or e.updt_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate))
+	;and e.financial_class_cd = self_pay_cd
+	and	 pe.active_ind = 1
+;	and e.person_id =    15226127.00	
+join e
+	where e.encntr_id = pe.encntr_id
+	and parser(date_parser_str)
+	and e.active_ind = 1
+join epr
+	where epr.encntr_id = pe.encntr_id
+	and epr.active_ind = 1
+join hp
+	where hp.health_plan_id = epr.health_plan_id
+	;and hp.plan_name_key in ("UNINSUREDSELFPAY","FQHCAPPROVED","FQHCPENDINGASSISTANCE")
+	;	and hp.plan_name in ("Uninsured Self Pay","FQHC Approved","FQHC Pending Assistance")
+	and hp.active_ind = 1
+join be
+  where be.billing_entity_id = pe.billing_entity_id
+    and be.active_ind = 1
+    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    ;and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER','WAYNEMEDICALCENTER')	
+;with nocounter, format, separator = " "
+
+head report 
+ 	cnt = 0
+	stat = alterlist(enc->qual,100)
+ 
+head pe.pft_encntr_id
+	 cnt = cnt +1
+ 
+ 	if(mod(cnt,100)=1 and cnt !=1)
+		stat = alterlist(enc->qual,cnt+99)
+	endif
+	
+	
+;	if (pe.encntr_type_cd recurring_type_cd)
+	
+		enc->qual[cnt].fin 	= BUILD2(trim(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+           					,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+           					,pe.pft_encntr_alias),cnvtstring(pe.recur_seq)))," ","") ))	;FORMATTED FIN
+	
+;	endif
+ 
+ 	enc->qual[cnt].eid 				= Pe.encntr_id
+ 	enc->qual[cnt].pft_eid			= pe.pft_encntr_id
+ 	enc->qual[cnt].pid 				= e.person_id
+; 	enc->qual[cnt].fin 				= 	BUILD2(trim(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+;           					,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+;           					,pe.pft_encntr_alias),cnvtstring(pe.recur_seq)))," ","") ))	;FORMATTED FIN
+;           					
+;           					
+; 	enc->qual[cnt].fin 				= 	 = replace(replace(evaluate(pe.recur_seq,0,pe.pft_encntr_alias
+;           ,concat(substring(0,findstring("-",pe.pft_encntr_alias)
+;           ,pe.pft_encntr_alias),cnvtstring(pe.recur_seq))),"_","-")," ","")
+;           
+; 	enc->qual[cnt].fin 				= 	substring(1,20,evaluate(pe.recur_ind,0
+;										,cnvtalias(ea.alias.ea.alias_pool_cd)
+;									,build(cnvtalias(ea.alias,ea.alias_pool_cd),"-",pe.recur_seq)))
+           
+           					
+ 	enc->qual[cnt].fin_class_cd 	= e.financial_class_cd
+ 	
+ 	enc->qual[cnt].fin_class_name 	= uar_get_code_display(e.financial_class_cd)
+ 	enc->qual[cnt].admit_dt 		= format(e.reg_dt_tm,'MM/DD/YYYY;;q')
+ 	enc->qual[cnt].disch_dt 		= format(e.disch_dt_tm,'MM/DD/YYYY;;q') 		
+ 	enc->qual[cnt].pat_type 		= uar_get_code_display(e.encntr_type_cd)
+ 	enc->qual[cnt].entity_id 		= e.loc_facility_cd
+ 	enc->qual[cnt].entity_name 		= uar_get_code_display(e.loc_facility_cd) 	
+ 	enc->qual[cnt].billing_entity	= be.be_name
+foot report pe.pft_encntr_id
+	if(cnt>0)
+		stat = alterlist(enc->qual,cnt)
+		enc->cnt = cnt
+	endif
+WITH nocounter,time=60
+
+call echojson(enc,$OUTDEV)
+
+;call echorecord(enc)
+/**************************************************************
+ Patient Info
+**************************************************************/
+  /*
+select into $outdev; "nl:"
+	p.name_first_key
+	, p.name_middle_key
+	, p.name_last_key
+	, p.birth_dt_tm
+	, p_sex_disp = uar_get_code_display(p.sex_cd)
+	;, pa.alias
+	, ph.phone_num_key
+	, ph2.phone_num_key
+	, texlen = textlen(trim(pa2.alias,3))
+	,pa2.alias
+	,formatssn= cnvtalias(pa2.alias,pa2.alias_pool_cd,3) 
+	,social = 		if (textlen(trim(pa2.alias,3)) = 9 ) 
+						format(cnvtstring(pa2.alias),"###-##-####")
+					elseif (textlen(trim(pa2.alias,3)) = 8 ) 
+						build2("0",format(cnvtstring(pa2.alias),"###-##-####"))
+	endif	
+ 
+from
+	encounter e1
+	, person   p
+	;, person_alias   pa
+	, person_alias   pa2
+	, phone   ph
+	, phone   ph2
+	,(dummyt d1 with seq = value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0	
+join e1 
+	where e1.encntr_id = enc->qual[d1.seq].eid
+;e1 where expand(num,1,size(enc->qual,5),e1.encntr_id,enc->qual[num].eid)
+join p
+	where p.person_id =  e1.person_id 
+	and p.active_ind = 1
+	and p.name_last_key != "ZZ*" and p.name_last_key != "XXX*"
+join pa2
+	where outerjoin(p.person_id) = pa2.person_id
+	and pa2.active_ind = outerjoin(1)
+	and pa2.alias_pool_cd = outerjoin(ssn_var)
+join ph
+	where outerjoin(p.person_id) = ph.parent_entity_id
+	and ph.active_ind = outerjoin(1)
+	and ph.phone_type_cd = outerjoin(home_phone_var)
+join ph2
+	where outerjoin(p.person_id) = ph2.parent_entity_id
+	and ph2.active_ind = outerjoin(1)
+	and ph2.phone_type_cd = outerjoin(work_phone_var) 
+;detail
+;	enc->qual[d1.seq].fname 			= trim(p.name_first)
+;	enc->qual[d1.seq].lname 			= trim(p.name_last)
+;	enc->qual[d1.seq].mname 			= trim(p.name_middle)
+;	enc->qual[d1.seq].dob 				= format(p.birth_dt_tm,'MM/DD/YYYY;;q')
+;	if (pa2.alias > " ")
+;		if (textlen(trim(pa2.alias,3)) = 9 ) 
+;			enc->qual[d1.seq].ssn 				= format(cnvtstring(pa2.alias),"###-##-####")
+;	elseif (textlen(trim(pa2.alias,3)) = 8 ) 
+;			enc->qual[d1.seq].ssn 				= build2("0",format(cnvtstring(pa2.alias),"###-##-####"))
+;	endif
+;		
+;		
+;	endif
+;	enc->qual[d1.seq].sex 				= uar_get_code_display(p.sex_cd)
+;	enc->qual[d1.seq].pat_home_phone	= cnvtstring(ph.phone_num_key)
+;	enc->qual[d1.seq].pat_work_phone   = cnvtstring(ph2.phone_num_key)
+with nocounter,format, separator = " "
+
+/*
+
+select into "nl:"
+	ea.alias
+from
+	encntr_alias ea
+	,(dummyt d1 with seq = value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join ea
+	where ea.encntr_id = enc->qual[d1.seq].eid
+	and ea.encntr_alias_type_cd = mrn_cd
+detail
+	enc->qual[d1.seq].mrn	= cnvtstring(ea.alias)
+with nocounter
+
+
+
+select into  "nl:"
+	p.name_first_key
+	, p.name_middle_key
+	, p.name_last_key
+	, p.birth_dt_tm
+	, a.street_addr
+	, a.street_addr2
+	, a.city
+	, a_state_disp = uar_get_code_display(a.state_cd)
+	, a.zipcode
+	,a.address_type_cd
+	,uar_get_code_display(a.address_type_cd)
+from
+	encounter e1
+	,person   p
+	,address   a
+	,(dummyt d1 with seq = value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join e1 where e1.encntr_id = enc->qual[d1.seq].eid
+;where expand(num,1,size(enc->qual,5),e1.encntr_id,enc->qual[num].eid)
+join p
+	where e1.person_id = p.person_id
+	and p.active_ind = 1
+	and p.name_last_key != "ZZ*" and p.name_last_key != "XXX*"
+join a
+	where  a.parent_entity_id = p.person_id
+	and a.active_ind = 1
+	and a.address_type_cd in (home_adr_var, email_adr_var)
+;head e1.encntr_id
+;	pos = locateval(num,1,size(enc->qual,5),e1.encntr_id,enc->qual[num].eid)
+;
+detail
+	if (a.address_type_cd  = home_adr_var)
+	enc->qual[d1.seq].pat_addr1 	= concat(trim(a.street_addr), " ", trim(a.street_addr2))
+	enc->qual[d1.seq].pat_city 	= trim(a.city)
+	enc->qual[d1.seq].pat_st 		= trim(uar_get_code_display(a.state_cd))
+	enc->qual[d1.seq].pat_zip 		= a.zipcode	
+	elseif (a.address_type_cd  = email_adr_var)
+		enc->qual[d1.seq].pat_email_address = trim(a.street_addr,3)
+	
+	endif
+with nocounter, format, separator = " "
+
+; call echorecord(enc)
+/**************************************************************
+; Guarantor Info & Employment
+**************************************************************/
+ /*
+select into "nl:"
+	p1.name_full_formatted
+	, p1.birth_dt_tm
+	, a1.street_addr
+	, a1.street_addr2
+	, a1.city
+	, a_state_disp = uar_get_code_display(a1.state_cd)
+	, a1.zipcode
+	, ph1.phone_num_key
+	, relation_disp = uar_get_code_display(epr.related_person_reltn_cd)
+;	, enc->qual[d1.seq].eid
+;	, enc->qual[d1.seq].pft_eid
+from
+	  encounter e2
+	, encntr_person_reltn   epr
+	, person   p1
+	, address   a1
+	, phone   ph1
+	, (dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join e2
+	where e2.encntr_id = enc->qual[d1.seq].eid
+	and e2.active_ind = 1 
+join epr
+	where epr.encntr_id = e2.encntr_id
+	and epr.person_reltn_type_cd = def_guar_var
+join p1
+	where epr.related_person_id = p1.person_id
+	and p1.active_ind = 1
+	and p1.name_last_key != "ZZ*" and p1.name_last_key != "XXX*"
+join a1
+	where outerjoin(p1.person_id) = a1.parent_entity_id
+	and a1.active_ind = outerjoin(1)
+	and a1.address_type_cd = outerjoin(home_adr_var);756.00
+join ph1
+	where outerjoin(p1.person_id) = ph1.parent_entity_id
+	and ph1.active_ind = outerjoin(1)
+	and ph1.phone_type_cd = outerjoin(home_phone_var);170.00; 
+	and ph1.parent_entity_name = outerjoin("PERSON")
+detail
+ 	enc->qual[d1.seq].guar_name = p1.name_full_formatted
+	enc->qual[d1.seq].guar_addr1 = concat(trim(a1.street_addr), " ", trim(a1.street_addr2))
+	enc->qual[d1.seq].guar_city = a1.city
+	enc->qual[d1.seq].guar_st = uar_get_code_display(a1.state_cd)
+	enc->qual[d1.seq].guar_zip = a1.zipcode
+	enc->qual[d1.seq].guar_phone = ph1.phone_num
+with nocounter
+
+;
+;/**************************************************************
+;;Emergency Contact Phone-
+;**************************************************************/
+/*
+select into "nl:"
+	epr.beg_effective_dt_tm
+	,p1.name_full_formatted
+	, p1.birth_dt_tm
+	;, pa1.alias
+	, relation_disp = uar_get_code_display(epr.related_person_reltn_cd)
+	, relation_type_disp = uar_get_code_display(epr.person_reltn_type_cd)
+	,ph1.phone_num
+	,e2.encntr_id
+	,phone_type = uar_get_code_display(ph1.phone_type_cd)
+	,PH1.phone_type_seq
+	, enc->qual[d1.seq].eid
+	, enc->qual[d1.seq].pft_eid	
+from
+	  encounter e2
+	, encntr_person_reltn   epr
+	, person   p1 
+	, phone ph1
+	, (dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join e2
+	where e2.encntr_id = enc->qual[d1.seq].eid
+	and e2.active_ind = 1 
+join epr
+	where epr.encntr_id = e2.encntr_id
+	and epr.person_reltn_type_cd = emergency_contact_cd
+	and epr.active_ind = 1
+join p1
+	where epr.related_person_id = p1.person_id
+	and p1.active_ind = 1
+	and p1.name_last_key != "ZZ*" and p1.name_last_key != "XXX*"
+join ph1
+	where ph1.parent_entity_id = p1.person_id
+	and ph1.parent_entity_name = "PERSON"
+	AND PH1.phone_type_seq = 1
+	and ph1.active_ind = 1
+	and ph1.phone_type_cd in (home_phone_var,mobile_phone_var );170.00; 
+detail
+ 	enc->qual[d1.seq].pat_emergency_phone = ph1.phone_num
+with nocounter
+
+
+;/**************************************************************
+;;Diagnosis Primary
+;**************************************************************/
+/*
+select into "nl:"
+	d.encntr_id
+	,D.active_status_dt_tm
+	,D.beg_effective_dt_tm
+	,D.diag_dt_tm
+	,D.updt_dt_tm
+	,d_diag_type_disp = uar_get_code_display(d.diag_type_cd)
+	,d.clinical_diag_priority
+	,n.source_identifier
+	,n.source_string
+	, enc->qual[d1.seq].eid
+	,pft_eid =  enc->qual[d1.seq].pft_eid		
+from
+	 diagnosis   d
+	,nomenclature   n
+	,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join d
+	where d.encntr_id = enc->qual[d1.seq].eid	
+	and d.active_ind = 1
+	and d.clinical_diag_priority in (0,1)
+join n where d.nomenclature_id = n.nomenclature_id
+	and n.active_ind = 1
+order by pft_eid, d.clinical_diag_priority asc, D.updt_dt_tm DESC 
+head pft_eid ;THEY ONLY WANT ONE DIAGNOSIS THIS GETS MOST RECENTLY UPDATED ONE
+ 	enc->qual[d1.seq].pdx = n.source_identifier
+with nocounter
+
+;call echojson(enc,$outdev)
+;
+;
+;/**************************************************************
+;; Account Balances (Chgs, Pymt, Adj)
+;**************************************************************/
+/*
+ select distinct into "nl:"
+	pe.pft_encntr_alias
+	, eid = enc->qual[d1.seq].eid
+	, pe.charge_balance
+	, pe.chrg_bal_dr_cr_flag
+	, pe.adjustment_balance
+	, pe.adj_bal_dr_cr_flag
+	, pe.applied_payment_balance
+	, pe.balance
+	, pe.pat_bal_fwd
+	,pe.pft_encntr_id
+	,pe.encntr_id
+	
+from
+	pft_encntr   pe
+	,benefit_order bo
+    ,bo_hp_reltn bhr
+    ,billing_entity be
+	,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	 where d1.seq > 0
+join pe where pe.encntr_id = enc->qual[d1.seq].eid
+	and pe.active_ind = 1
+;	and pe.pft_encntr_id in (298659087.00,319012369.00,  500811059.00	)
+join bo where bo.pft_encntr_id = pe.pft_encntr_id
+	and bo.active_ind = 1
+join bhr where bhr.benefit_order_id = bo.benefit_order_id
+	and bhr.active_ind = 1
+join be
+  where be.billing_entity_id = pe.billing_entity_id
+    and be.active_ind = 1
+    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+   ; and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER','WAYNEMEDICALCENTER')	
+order by pe.pft_encntr_id	
+head pe.pft_encntr_id
+	tot_chg = 0
+detail
+	enc->qual[d1.seq].charge_balance 	= pe.charge_balance + tot_chg
+	tot_chg = enc->qual[d1.seq].charge_balance
+with nocounter, format, separator = " "
+
+
+;
+;;call echorecord(enc)
+;;call echojson(enc,$outdev)
+;
+;/**************************************************************
+;;Write Output
+;**************************************************************/
+;
+/*
+select into value(OUTPUT)
+	Account = trim(substring(1,30,enc->qual[d1.seq].fin),3)
+	, MRN = enc->qual[d1.seq].mrn
+	, PatientType = substring(1,30,enc->qual[d1.seq].pat_type)
+	, PatLName = substring(1,50,enc->qual[d1.seq].lname)
+	, PatFName = substring(1,50,enc->qual[d1.seq].fname)
+	, PatMI = substring(1,50,enc->qual[d1.seq].mname)
+	, PatDOB = trim(substring(1,20,enc->qual[d1.seq].dob),3)
+	, PatSSN = trim(substring(1,20,enc->qual[d1.seq].ssn),3)
+	, PatGen = enc->qual[d1.seq].sex
+	, AdmitDate = trim(substring(1,10,enc->qual[d1.seq].admit_dt),3)
+	, DischargeDate = trim(substring(1,10,enc->qual[d1.seq].disch_dt),3)	
+	, TtlChgs = format(enc->qual[d1.seq].charge_balance,"###########.##;l")	
+	;, TtlChgs = format(enc->qual[d1.seq].pcn_qual[d2.seq].tot_chg,"###########.##;l")
+	, PrimDxCode = trim(substring(1,50,enc->qual[d1.seq].pdx),3)
+	, PatAdd1 = substring(1,50,enc->qual[d1.seq].pat_addr1)
+	, PatCity = substring(1,50,enc->qual[d1.seq].pat_city)
+	, PatSt = substring(1,50,enc->qual[d1.seq].pat_st)
+	, PatZip = substring(1,5,enc->qual[d1.seq].pat_zip)
+	, HomePhone = substring(1,20,enc->qual[d1.seq].pat_home_phone)
+	, WorkPhone = substring(1,20,enc->qual[d1.seq].pat_work_phone)
+	, ERContactPhone = substring(1,20,enc->qual[d1.seq].pat_emergency_phone)
+	, PatEmailAddress = substring(1,50,enc->qual[d1.seq].pat_email_address)
+	, GuarName = substring(1,50,enc->qual[d1.seq].guar_name)
+	, GuarAdd1 = substring(1,50,enc->qual[d1.seq].guar_addr1)
+	, GuarCity = substring(1,50,enc->qual[d1.seq].guar_city)
+	, GuarSt = substring(1,20,enc->qual[d1.seq].guar_st)
+	, GuarZip = substring(1,5,enc->qual[d1.seq].guar_zip)
+	, GuarPhone = substring(1,20,enc->qual[d1.seq].guar_phone)
+	, Facility = substring(1,100,enc->qual[d1.seq].entity_name)
+	, BillingEntity = substring(1,100,enc->qual[d1.seq].billing_entity)
+from
+    (dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+;with nocounter, format, separator = " "
+with nocounter, pcformat ("", '|', 1, 1), format = stream, format, skipreport = 1,time=3900
+
+;with nocounter,maxcol=5000,format=variable,separator="|",time=3900,outerjoin = d1
+
+
+IF ($TYPE = "F") 
+	declare file_status = vc
+	
+	if (findfile(value(OUTPUT)) )
+		set file_status = build2("FILE WAS CREATED: ", TRIM(value(OUTPUT),3), " curnode: ", CURNODE," curdomain: ",CURDOMAIN)
+		call echo(filestatus)
+	else
+		
+		set file_status = build2("ERROR: FILE WAS NOT CREATED: ", value(OUTPUT), " curnode: ", CURNODE," curdomain: ",CURDOMAIN)
+		call echo(filestatus)
+	endif	
+	
+	
+	select into $OUTDEV
+	FROM DUAL
+	HEAD REPORT
+	ROW 0 FILE_STATUS
+	WITH NOCOUNTER, MAXCOL = 500
+ENDIF
+
+ */
+end
+go
+ 
