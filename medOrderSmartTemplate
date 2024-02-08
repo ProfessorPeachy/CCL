@@ -1,0 +1,429 @@
+  drop program _med_order_smart_temp:dba go
+create program _med_order_smart_temp:dba
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+ 
+with OUTDEV
+ 
+
+ 
+/*The embedded RTF commands at top of document */
+;set rhead1 = "{\rtf1\ansi \deff0{\fonttbl{\f0\fswiss Arial;}}{\colortbl ;\red0\green0\blue0;\red255\green255\blue255;}";\deftab720"
+;set rhead2 = concat("\pard\tx1400\tx3700\tx4700\tx6000\tx7200\tx8200\tx9200\tx11000")
+ 
+set rhead1 = "{\rtf1\ansi\deff0{\fonttbl{\f0\fswiss Arial;}}{\colortbl ;\red0\green0\blue0;}{\*\generator Msftedit 5.41.21.2510;}"
+set rhead2 = "\viewkind4\uc1\pard\tx1400\tx3700\tx4700\tx6000\tx7200\tx8200\tx9200\tx11000"
+ 
+ 
+/*The embedded RTF commands at top of document for a 1st line reqular */
+SET RH2r = "\plain \f0 \fs18 \cb2 \pard\sl0 "
+/*The embedded RTF commands at top of document for a 1st line bold */
+SET RH2b = "\plain \f0 \fs24 \b \cb2 \pard\sl0 "
+/*The embedded RTF commands at top of document for a 1st line bold-underlined */
+SET RH2bu = "\plain \f0 \fs18 \b \ul \cb2 \pard\sl0 "
+/*The embedded RTF commands at top of document for a 1st line underlined */
+SET RH2u = "\plain \f0 \fs18 \u \cb2 \pard\sl0 "
+/*The embedded RTF commands at top of document for a 1st line italized */
+SET RH2i = "\plain \f0 \fs18 \i \cb2 \pard\sl0 "
+/*The end of line embedded RTF command */
+set Reol = "\par "
+/*The tab embedded RTF command */
+set Rtab = "\tab "
+/*the embedded RTF commands to end the document*/
+set rtfeof = "}"
+ 
+/*the embedded RTF commands for normal word(s) in white */
+set wrw = " \plain \fs14 \cb2 \cf2 "
+/*the embedded RTF commands for underlined word(s) */
+set wu = " \plain \fs14 \ul \cb2 "
+/*the embedded RTF commands for italics word(s) */
+set wi = " \plain \fs14 \i \cb2 "
+/*the embedded RTF commands for bold-italics word(s) */
+set wbi = " \plain \fs14 \b \i \cb2 "
+/*the embedded RTF commands for bold-underline-italics word(s) */
+set wiu = " \plain \fs14 \i \ul \cb2 "
+/*the embedded RTF commands for italics word(s) */
+set wbiu = " \plain \fs14 \b \ul \i \cb2 "
+/*the embedded RTF commands for bold word(s) */
+;set wb = " \plain \fs14 \b \cb2 \cf1 "
+/*the embedded RTF commands for normal word(s) */
+;set wr = " \plain \fs14 \cb2 \cf1 "
+/*the embedded RTF commands for bold-underline word(s) */
+;set wbu = " \plain \fs14 \b \ul \cb2 "
+ 
+set wb = "\cf1\lang9\b\f0\fs32 "
+set wr = "\cf1\ulnone\b0 "
+set wbu = "\cf0\ul "
+ 
+ 
+set lidx = 0
+free set drec
+  record drec (
+  1 line_cnt = i4
+  1 display_line = vc
+  1 line_qual[*]
+    2 disp_line = vc)
+ 
+free set list
+  record list (
+  1 person_id = f8
+  1 encntr_id = f8
+  1 orders[*]
+    2 order_id = f8
+  1 tot_cnt = i2
+  1 cat[5]
+    2 meds_type = c20
+    2 order_cnt = i2
+    2 orders [*]
+      3 order_id = f8
+      3 mnemonic = c200
+      3 display_line = c100
+    )
+ 
+set active_cd = uar_get_code_by("MEANING", 6004, "ORDERED")
+set o_cnt = 0
+ 
+select into "nl:"
+from encounter e
+plan e
+where e.encntr_id = request->visit[1].encntr_id
+;where e.encntr_id = 106137679.00 ;  106143677.00 ;106542248.00 ; 106141680.00 ; ;106143677.00 ;  106137679.00
+  and e.active_ind = 1
+head report
+  list->person_id = e.person_id
+  list->encntr_id = e.encntr_id
+with nocounter
+;stop-here
+ 
+set lidx = lidx + 1
+set stat = alterlist(drec->line_qual, lidx)
+set drec->line_qual[lidx].disp_line = concat(rhead1, rhead2, wb, "Active Inpatient Medications", reol, reol)
+ 
+;ingredient orders
+select into "nl:"
+  meds_flag = if (o.prn_ind = 1)
+               	3 ; PRN
+              elseif (o.iv_ind = 1)
+                4 ; Continuous Infusion
+              elseif (o.freq_type_flag != 5)
+               	1 ; Scheduled
+              elseif (o.freq_type_flag  = 5)
+ 			    2 ; Unscheduled
+              else
+                5 ; Other
+              endif
+from orders o, code_value cv, order_catalog_synonym ocs, order_ingredient oi
+plan cv
+where cv.code_set = 200
+  and cv.code_value != 17214262.0
+  and cv.code_value != 24854583.0
+  and cv.code_value != 2554460739.0
+  and cv.code_value != 2555550245.0
+  and cv.code_value != 2555830785.0
+  and cv.code_value != 2557702919.0
+  and cv.code_value != 2560311081.0
+  and cv.code_value != 2560311091.0
+  and cv.code_value != 2560311403.0
+  and cv.code_value != 2560311411.0
+  and cv.code_value != 3094000889.0
+  and cv.code_value != 3233976349.0
+  and cv.active_ind = 1
+  and (
+  cv.display_key = "*COUMADIN*"
+  or
+  cv.display_key = "WARFARIN*"
+  or
+  cv.display_key = "JANTOVEN*"
+  or
+  cv.display_key = "ANTIEMBO*"
+  or
+  cv.display_key = "ANTITHROMBOSIS*"
+  or
+  cv.display_key = "THROMBOSIS*"
+  or
+  cv.display_key = "ELASTICSUPPORT*"
+  or
+  cv.display_key = "GRADUATEDCOMPRESSION*"
+  or
+  cv.display_key = "SURGICALHOSE*"
+  or
+  cv.display_key = "WHITEHOSE*"
+  or
+  cv.display_key = "ARIXTRA"
+  or
+  cv.display_key = "FONDAPARINUX*"
+  or
+  cv.display_key = "APIXABAN*"
+  or
+  cv.display_key = "EDOXABAN*"
+  or
+  cv.display_key = "ELIQUIS*"
+  or
+  cv.display_key = "RIVAROXABAN*"
+  or
+  cv.display_key = "SAVAYSA*"
+  or
+  cv.display_key = "XARELTO*"
+  or
+  cv.display_key = "HEP"
+  or
+  cv.display_key = "HEPARIN*"
+  or
+  cv.display_key = "INNOHEP*"
+  or
+  cv.display_key = "LOVEN*"
+  or
+  cv.display_key = "TINZ*"
+  or
+  cv.display_key = "DALTEPARIN*"
+  or
+  cv.display_key = "ENOXA*"
+  or
+  cv.display_key = "FRAGMIN*"
+  )
+join ocs
+where ocs.catalog_cd = cv.code_value
+  and ocs.active_ind = 1
+  and ocs.mnemonic_key_cap != "ZZ*"
+join o
+where o.encntr_id = list->encntr_id
+  and o.person_id = list->person_id
+  and o.order_status_cd = active_cd
+  and o.template_order_flag in (1,0)
+  and o.orig_ord_as_flag in (1,0)
+  and o.active_ind = 1
+join oi
+where oi.order_id = o.order_id
+  and oi.catalog_cd = ocs.catalog_cd
+  and oi.catalog_type_cd = ocs.catalog_type_cd
+  and oi.synonym_id = ocs.synonym_id
+order meds_flag, ocs.mnemonic, o.order_id
+head meds_flag
+  if (meds_flag = 1)
+    list->cat[meds_flag].meds_type = "Scheduled"
+  elseif (meds_flag = 2)
+    list->cat[meds_flag].meds_type = "Unscheduled"
+  elseif (meds_flag = 3)
+    list->cat[meds_flag].meds_type = "PRN"
+  elseif (meds_flag = 4)
+    list->cat[meds_flag].meds_type = "Continuous Infusion"
+  else
+    list->cat[meds_flag].meds_type = "Other"
+  endif
+head ocs.mnemonic
+  do_nothing = 0
+head o.order_id
+  o_cnt = o_cnt + 1
+  stat = alterlist(list->orders, o_cnt)
+  list->orders[o_cnt].order_id = o.order_id
+ 
+  list->cat[meds_flag].order_cnt = list->cat[meds_flag].order_cnt + 1
+  stat = alterlist(list->cat[meds_flag].orders, list->cat[meds_flag].order_cnt)
+  list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].order_id = o.order_id
+  list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].mnemonic = if (o.hna_order_mnemonic = o.ordered_as_mnemonic) ;mnemonic
+     																	   o.hna_order_mnemonic
+     																	 else
+     																	   concat(trim(o.hna_order_mnemonic),
+     																	          " (",
+     																	          trim(o.ordered_as_mnemonic),
+     																	          ")")
+     																	 endif
+  list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].display_line = o.simplified_display_line
+with nocounter
+ 
+ 
+;without ingredient orders
+select into "nl:"
+  meds_flag = if (o.prn_ind = 1)
+               	3 ; PRN
+              elseif (o.iv_ind = 1)
+                4 ; Continuous Infusion
+              elseif (o.freq_type_flag != 5)
+               	1 ; Scheduled
+              elseif (o.freq_type_flag  = 5)
+ 			    2 ; Unscheduled
+              else
+                5 ; Other
+              endif
+from orders o, code_value cv, order_catalog_synonym ocs
+plan cv
+where cv.code_set = 200
+  and cv.code_value != 17214262.0
+  and cv.code_value != 24854583.0
+  and cv.code_value != 2554460739.0
+  and cv.code_value != 2555550245.0
+  and cv.code_value != 2555830785.0
+  and cv.code_value != 2557702919.0
+  and cv.code_value != 2560311081.0
+  and cv.code_value != 2560311091.0
+  and cv.code_value != 2560311403.0
+  and cv.code_value != 2560311411.0
+  and cv.code_value != 3094000889.0
+  and cv.code_value != 3233976349.0
+  and cv.active_ind = 1
+  and (
+  cv.display_key = "*COUMADIN*"
+  or
+  cv.display_key = "WARFARIN*"
+  or
+  cv.display_key = "JANTOVEN*"
+  or
+  cv.display_key = "ANTIEMBO*"
+  or
+  cv.display_key = "ANTITHROMBOSIS*"
+  or
+  cv.display_key = "THROMBOSIS*"
+  or
+  cv.display_key = "ELASTICSUPPORT*"
+  or
+  cv.display_key = "GRADUATEDCOMPRESSION*"
+  or
+  cv.display_key = "SURGICALHOSE*"
+  or
+  cv.display_key = "WHITEHOSE*"
+  or
+  cv.display_key = "ARIXTRA"
+  or
+  cv.display_key = "FONDAPARINUX*"
+  or
+  cv.display_key = "APIXABAN*"
+  or
+  cv.display_key = "EDOXABAN*"
+  or
+  cv.display_key = "ELIQUIS*"
+  or
+  cv.display_key = "RIVAROXABAN*"
+  or
+  cv.display_key = "SAVAYSA*"
+  or
+  cv.display_key = "XARELTO*"
+  or
+  cv.display_key = "HEP"
+  or
+  cv.display_key = "HEPARIN*"
+  or
+  cv.display_key = "INNOHEP*"
+  or
+  cv.display_key = "LOVEN*"
+  or
+  cv.display_key = "TINZ*"
+  or
+  cv.display_key = "DALTEPARIN*"
+  or
+  cv.display_key = "ENOXA*"
+  or
+  cv.display_key = "FRAGMIN*"
+  )
+join ocs
+where ocs.catalog_cd = cv.code_value
+  and ocs.active_ind = 1
+  and ocs.mnemonic_key_cap != "ZZ*"
+join o
+where o.encntr_id = list->encntr_id
+  and o.person_id = list->person_id
+  and o.order_status_cd = active_cd
+  and o.catalog_cd = ocs.catalog_cd
+  and o.catalog_type_cd = ocs.catalog_type_cd
+  and o.synonym_id = ocs.synonym_id
+  and o.template_order_flag in (1,0)
+  and o.orig_ord_as_flag in (1,0)
+  and o.active_ind = 1
+order meds_flag, ocs.mnemonic, o.order_id
+head meds_flag
+  if (meds_flag = 1)
+    list->cat[meds_flag].meds_type = "Scheduled"
+  elseif (meds_flag = 2)
+    list->cat[meds_flag].meds_type = "Unscheduled"
+  elseif (meds_flag = 3)
+    list->cat[meds_flag].meds_type = "PRN"
+  elseif (meds_flag = 4)
+    list->cat[meds_flag].meds_type = "Continuous Infusion"
+  else
+    list->cat[meds_flag].meds_type = "Other"
+  endif
+head ocs.mnemonic
+  do_nothing = 0
+head o.order_id
+  exist_ind = 0
+  for (ii = 1 to o_cnt)
+    if (list->orders[ii].order_id = o.order_id)
+      exist_ind = 1
+    endif
+    if (exist_ind = 1)
+      ii = o_cnt + 1
+    endif
+  endfor
+  if (exist_ind = 0)
+    list->cat[meds_flag].order_cnt = list->cat[meds_flag].order_cnt + 1
+    stat = alterlist(list->cat[meds_flag].orders, list->cat[meds_flag].order_cnt)
+    list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].order_id = o.order_id
+    list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].mnemonic = if (o.hna_order_mnemonic = o.ordered_as_mnemonic)
+     																	     o.hna_order_mnemonic
+     																	   else
+     																	     concat(trim(o.hna_order_mnemonic),
+     																	            " (",
+     																	            trim(o.ordered_as_mnemonic),
+     																	            ")")
+     																	   endif
+    list->cat[meds_flag].orders[list->cat[meds_flag].order_cnt].display_line = o.simplified_display_line
+  endif
+with nocounter
+ 
+for (ii = 1 to 5)
+  set list->tot_cnt = list->tot_cnt + list->cat[ii].order_cnt
+endfor
+ 
+if (list->tot_cnt > 0)
+  select into "nl:"
+  from dummyt d
+  head report
+    lidx = lidx + 1
+    stat = alterlist(drec->line_qual, lidx)
+    drec->line_qual[lidx].disp_line = concat(wbu, "Active (", trim(cnvtstring(list->tot_cnt)), ") Medications", reol)
+    for (ii = 1 to 5)
+      if (list->cat[ii].order_cnt > 0)
+        lidx = lidx + 1
+        stat = alterlist(drec->line_qual, lidx)
+        drec->line_qual[lidx].disp_line =
+          concat(wr, trim(list->cat[ii].meds_type), " (", trim(cnvtstring(list->cat[ii].order_cnt)), ")", reol)
+        for (jj = 1 to list->cat[ii].order_cnt)
+          lidx = lidx + 1
+          stat = alterlist(drec->line_qual, lidx)
+          drec->line_qual[lidx].disp_line = concat(wb, trim(list->cat[ii].orders[jj].mnemonic),
+                                                   wr, " (", trim(list->cat[ii].orders[jj].display_line), ")", reol)
+        endfor
+      endif
+    endfor
+  with nocounter, maxcol = 5000, skipreport = 0
+else
+  set lidx = lidx + 1
+  set stat = alterlist(drec->line_qual, lidx)
+  set drec->line_qual[lidx].disp_line = concat(wr, "No orders found!", reol, reol)
+endif
+ 
+;call echorecord(drec)
+ 
+set lidx = lidx + 1
+set stat = alterlist(drec->line_qual, lidx)
+set drec->line_qual[lidx].disp_line = rtfeof
+ 
+;stop-here
+/*
+select into $1
+    ln = trim(drec->line_qual[d.seq].disp_line)
+from (dummyt d with seq = value(lidx))
+order seq
+detail
+  col 0, drec->line_qual[d.seq].disp_line
+  row + 1
+with counter, maxcol = 400, format, separator = " ", skipreport = 1
+/*/
+for (z = 1 to lidx)
+  set reply->text = concat(reply->text, drec->line_qual[z].disp_line)
+endfor
+;*/
+ 
+ 
+end
+go
