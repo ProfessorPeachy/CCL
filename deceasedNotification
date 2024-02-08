@@ -1,0 +1,74 @@
+drop program 1_maur_deceased_notification go
+create program 1_maur_deceased_notification
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"     ;* Enter or select the printer or file name to send this report to.
+	, "Event Update Date Begin:" = "CURDATE"
+	, "Event Update Date End:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+
+
+/**************************************************************
+; EMAILED EVERY DAY TO USERS
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+declare date_time_of_death_cd = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",72,"DATETIMEOFDEATH"))
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+select into $outdev
+	fin 						= trim(substring(1,20,fin.alias),3)
+	,patient_name 				= trim(substring(1,100,p.name_full_formatted),3)
+	,discharge_date_time 		= trim(format(e.disch_dt_tm,"@SHORTDATETIME"),3)
+	,deceased_date_time 	= trim(format(cdr.result_dt_tm,"@SHORTDATETIME"),3)
+from 
+  	clinical_event 	ce
+ 	,ce_date_result cdr
+ 	,encounter 		e
+ 	,person 		p
+ 	,encntr_alias 	mrn
+	,encntr_alias 	fin
+plan ce
+	where ce.event_cd 				=  date_time_of_death_cd 				;718579.00
+	and CE.event_end_dt_tm between cnvtdatetime(curdate-3,curtime3) and cnvtdatetime(curdate,curtime3)
+	and ce.result_status_cd 		in (34,35,25) 							;Authenticated Modified
+	and ce.valid_until_dt_tm		> cnvtdatetime(curdate,curtime3)
+join cdr
+	where cdr.event_id 				= ce.event_id
+	and cdr.valid_until_dt_tm 		> cnvtdatetime(curdate,curtime3)
+join e
+	where e.encntr_id 				= ce.encntr_id
+	and e.active_ind 				= 1
+	and e.end_effective_dt_tm		>= cnvtdatetime(curdate,curtime3)
+join p
+	where p.person_id 				= ce.person_id
+	and p.active_ind 				= 1
+	and p.end_effective_dt_tm		>= cnvtdatetime(curdate,curtime3)
+join mrn
+	where mrn.encntr_id 			= ce.encntr_id 	 
+	and mrn.encntr_alias_type_cd 	= 1079
+	and mrn.active_ind 				= 1
+	and mrn.end_effective_dt_tm		>= cnvtdatetime(curdate,curtime3)
+join fin
+	where fin.encntr_id 			= ce.encntr_id
+	and fin.encntr_alias_type_cd 	= 1077
+	and fin.active_ind 				= 1
+	and fin.end_effective_dt_tm		>= cnvtdatetime(curdate,curtime3)
+order by ce.event_end_dt_tm desc
+with nocounter, format, separator = " ", format(date,"@SHORTDATETIME"), time = 30
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
