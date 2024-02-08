@@ -1,0 +1,591 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ 
+Programmer    		  : Nicole Anglin
+ 
+Date Created   		  : 01/24/2023
+Project Name    	  :  (Ticket: 458242)
+ 
+Requesting Dept/Owner : Lillian Stack
+Report Title          : 
+Time Frame	          :
+Type of Patients      :
+Run Frequency		  :
+Output File Name	  :
+Explorer Menu Name    :
+Ops Job Name	      :
+Source Name     	  : cust_script:XXXXXXX.prg
+Purpose               :
+ 
+ 
+/***********************************************************************************************************************
+*                                        MODIFICATION CONTROL LOG
+************************************************************************************************************************
+*                                                                                                                      *
+*     Mod  Date      Programmer             Comment                                                                    *
+*     --- -------- -------------------- -----------------------------------                                            *
+*     000 01/24/23   Nicole Anglin       Initial Release                                                               *
+*                                                                                                                      *
+*	   				                                                                                                   *
+*												                                                                       *
+*     									                                                                               *
+************************************************************************************************************************
+*/
+drop program 1_maur_labs_prev_day go
+create program 1_maur_labs_prev_day
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Lab Order Start Date:" = "CURDATE"
+	, "Lab Order End Date:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+ 
+ 
+/***********************************************************************************************************************
+*                                        VARIABLE DECLARES
+***********************************************************************************************************************/
+declare num = i4
+ 
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+;
+;set rundate = format(curdate,'yyyymmdd;;d')
+;set craneware_outfile = build(concat("/cerner/d_P698/data/batch_files/ccl_extracts/craneware/craneware_",rundate),".txt") 
+/***********************************************************************************************************************
+*                                        RECORD STRUCTURE
+***********************************************************************************************************************/
+free record rec
+record rec
+(1 cnt                              = i4
+ 1 qual[*]
+    2 facility                      = vc
+;    2 facilityNPI                   = vc
+    2 eid                           = f8
+    2 pid                           = f8
+;    2 DateOfService                 = vc
+    2 PatientName                   = vc
+    2 PatientAdmitDate              = vc
+;    2 PatientDispenseDate           = vc
+    2 MedRecNbr                     = vc
+    2 FinNbr                        = vc
+    2 PatientGender                 = vc
+    2 PatientDateOfBirth            = vc
+    2 PatientStreetAddr1            = vc
+    2 PatientStreetAddr2            = vc
+    2 PatientCity                   = vc
+    2 PatientState                  = vc
+    2 PatientZipCode                = vc
+    2 PatientPrimaryIns             = vc
+    2 PatientPrimaryInsGrpNo        = vc
+    2 PatientPrimarySubscribeMemberNo    = vc
+    2 PatientPrimaryInsAddr1        = vc
+    2 PatientPrimaryInsAddr2       = vc
+    2 PatientPrimaryInsCity         = vc
+    2 PatientPrimaryInsState        = vc
+    2 PatientPrimaryInsZip          = vc
+    2 PatientSecondIns             = vc
+    2 PatientSecondInsGrpNo        = vc
+    2 PatientSecondSubscribeMemberNo = vc
+    2 PatientSecondInsAddr1        = vc
+    2 PatientSecondInsAddr2       = vc
+    2 PatientSecondInsCity         = vc
+    2 PatientSecondInsState        = vc
+    2 PatientSecondInsZip          = vc
+    2 PatientThirdIns             = vc
+    2 PatientThirdInsGrpNo        = vc
+    2 PatientThirdSubscribeMemberNo = vc
+    2 PatientThirdInsAddr1        = vc
+    2 PatientThirdInsAddr2       = vc
+    2 PatientThirdInsCity         = vc
+    2 PatientThirdInsState        = vc
+    2 PatientThirdInsZip          = vc
+    2 admitting_dx                	= vc
+    2 admitting_dx_desc      	= vc    
+;    2 PatientRelationship           = vc
+    2 ocnt                          = i4
+    2 oqual[*]
+        3 OrderID                   = f8
+        3 OrderDate                 = vc
+        3 OrderName                 = vc
+        3 OrderPhysician            = vc
+        3 CATALOG_CD				= F8
+        3 order_diagnosis			= vc
+        3 order_cpt					= vc
+        3 cpt						= vc
+;        3 OrderVerifiedDateTime     = vc
+;        3 OrderResult               = vc
+    2 ccnt                          = i4
+    2 cqual[*]
+        3 CPTCode                   = vc
+        3 CPTDescription            = vc
+        3 CPTDiagnosis				= vc
+    2 icnt                          = i4
+    2 iqual[*]
+        3 ICD10Code                 = vc
+        3 ICD10CodeDescription      = vc
+        
+ 
+)
+ 
+;***********************************************************************************************************************
+;*                                        PATIENT POPULATION
+;***********************************************************************************************************************
+
+;select e.beg_effective_dt_tm, e.disch_dt_tm, e.reg_dt_tm, * from 
+;encntr_alias ea
+;,encounter e
+;plan ea
+;where ea.alias = "203046453"
+;join e
+;where e.encntr_id = ea.encntr_id
+
+
+DECLARE admitting_dx_type_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",17,"ADMITTING")), protect
+DECLARE orderdiag 						= f8 WITH protect, constant(uar_get_code_by("MEANING",23549,"ORDERDIAG"))
+
+
+select into $outdev;"NL:"
+    o.order_id
+    ,o.ordered_as_mnemonic
+    ,o.hna_order_mnemonic
+    ,p.name_full_formatted
+    ,FIN = ea.alias
+    ,oa.action_type_cd
+from
+    orders              o
+    ,order_action       oa
+    ,prsnl              pr
+    ,person             p
+    ,encounter          e
+    ,encntr_alias       ea
+    ,encntr_alias       ea2
+    ,encntr_plan_reltn       epr
+    ,encntr_person_reltn    ep
+    ,health_plan            hp
+    ,address                a
+plan o
+ ;   where o.orig_order_dt_tm between cnvtdatetime(cnvtdate(01232023),0)
+                            ;     and cnvtdatetime(cnvtdate(01232023),235959)
+;    and o.encntr_id =   107355388.00                             
+    where o.orig_order_dt_tm between cnvtdatetime(BDATE) and cnvtdatetime(EDATE)                             
+      and o.catalog_type_cd = 2513.00;laboratory
+      and o.order_status_cd in (2543.00;completed
+                                ,2550.00;ordered
+                                ,2548.00;in process
+                                )
+                              ; AND O.encntr_id = 108625294 
+                          ;    AND O.encntr_id =     107515819.00
+join oa
+    where oa.order_id = o.order_id
+      and oa.action_type_cd = 2534.00;ordering
+join pr
+   where pr.person_id = oa.action_personnel_id
+     and pr.active_ind = 1
+join p
+    where p.person_id = o.person_id
+      and p.active_ind = 1
+join e
+    where e.encntr_id = o.encntr_id
+      and e.loc_facility_cd in (21250403.00;MRMC
+                                 )
+      and e.disch_dt_tm is not null
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.encntr_alias_type_cd =1077 ;fin
+     ; and ea.alias = "203046453"          
+join ea2
+    where ea2.encntr_id = e.encntr_id
+      and ea2.encntr_alias_type_cd = 1079 ;mrn                             
+join epr
+    where epr.encntr_id = e.encntr_id
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.priority_seq =1
+join ep
+    where ep.encntr_id = epr.encntr_id
+      and ep.related_person_id = epr.person_id
+      and ep.person_reltn_type_cd in (1150.0;default guarantor
+                                      ,1158.0;insured
+                                      )
+      and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+      and hp.plan_type_cd in (681687.00;commercial
+                             )
+      and hp.active_ind = 1
+      and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join a
+    where a.parent_entity_id = outerjoin(hp.health_plan_id)
+      and a.parent_entity_name = outerjoin("HEALTH_PLAN")
+      
+order by
+    e.encntr_id
+    ,o.order_id
+    ,o.updt_dt_tm
+    
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+    ocnt = 0
+    cnt = cnt + 1
+     if(mod(cnt,100)=1)
+        stat = alterlist(rec->qual,cnt+99)
+     endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = p.person_id
+    rec->qual[cnt].PatientName = p.name_full_formatted
+    rec->qual[cnt].PatientGender = substring(1,1,uar_get_code_display(p.sex_cd))
+    rec->qual[cnt].facility = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].PatientAdmitDate = format(e.reg_dt_tm,"MM/dd/yyyy;;d")
+    rec->qual[cnt].PatientDateOfBirth = format(p.birth_dt_tm,"MM/dd/yyyy")   
+
+
+head o.order_id
+    ocnt = ocnt + 1
+    rec->qual[cnt].ocnt = ocnt 
+    
+    stat = alterlist(rec->qual[cnt].oqual,ocnt)
+
+    rec->qual[cnt].oqual[ocnt].OrderID = o.order_id
+    rec->qual[cnt].oqual[ocnt].OrderName = o.order_mnemonic
+    rec->qual[cnt].oqual[ocnt].OrderDate = format(o.orig_order_dt_tm,"MM/dd/yyyy")
+    rec->qual[cnt].oqual[ocnt].CATALOG_CD	= O.catalog_cd
+    rec->qual[cnt].oqual[ocnt].OrderPhysician = pr.name_full_formatted
+   
+detail
+   ; if(ea.encntr_alias_type_cd = 1077.0)
+  	rec->qual[cnt].FinNbr = ea.alias
+   ; elseif(ea.encntr_alias_type_cd = 1079.0)
+     rec->qual[cnt].MedRecNbr= ea2.alias
+   ; endif
+
+    case(epr.priority_seq)
+        of 1:
+            rec->qual[cnt].PatientPrimaryIns = hp.plan_name
+            rec->qual[cnt].PatientPrimaryInsGrpNo = epr.group_nbr
+            rec->qual[cnt].PatientPrimarySubscribeMemberNo = epr.member_nbr
+            rec->qual[cnt].PatientPrimaryInsAddr1 = a.street_addr
+            rec->qual[cnt].PatientPrimaryInsAddr2 = a.street_addr2
+            rec->qual[cnt].PatientPrimaryInsCity = a.city
+            rec->qual[cnt].PatientPrimaryInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[cnt].PatientPrimaryInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[cnt].PatientPrimaryInsZip = a.zipcode
+            endif
+        of 2:
+            rec->qual[cnt].PatientSecondIns = hp.plan_name
+            rec->qual[cnt].PatientSecondInsGrpNo = epr.group_nbr
+            rec->qual[cnt].PatientSecondSubscribeMemberNo = epr.member_nbr
+            rec->qual[cnt].PatientSecondInsAddr1 = a.street_addr
+            rec->qual[cnt].PatientSecondInsAddr2 = a.street_addr2
+            rec->qual[cnt].PatientSecondInsCity = a.city
+            rec->qual[cnt].PatientSecondInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[cnt].PatientSecondInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[cnt].PatientSecondInsZip = a.zipcode
+            endif        
+        of 3:
+            rec->qual[cnt].PatientThirdIns = hp.plan_name
+            rec->qual[cnt].PatientThirdInsGrpNo = epr.group_nbr
+            rec->qual[cnt].PatientThirdSubscribeMemberNo = epr.member_nbr
+            rec->qual[cnt].PatientThirdInsAddr1 = a.street_addr
+            rec->qual[cnt].PatientThirdInsAddr2 = a.street_addr2
+            rec->qual[cnt].PatientThirdInsCity = a.city
+            rec->qual[cnt].PatientThirdInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[cnt].PatientThirdInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[cnt].PatientThirdInsZip = a.zipcode
+            endif
+    endcase        
+foot report
+    if(cnt > 0)
+        stat = alterlist(rec->qual,cnt)
+        rec->cnt = cnt
+    endif
+ 
+with nocounter,time=3900, FORMAT, SEPARATOR = " "
+ 
+declare this_diagnosis = vc 
+ ;ordering diagnosis
+SELECT DISTINCT INTO $OUTDEV
+	eid =rec->qual[d1.seq].eid
+	,dx = n.source_identifier
+FROM 
+
+	diagnosis dg
+	,nomenclature n
+	,(dummyt d1 with seq = value(size(rec->qual,5)))
+plan d1
+    where d1.seq > 0
+join dg 
+	where dg.encntr_id = rec->qual[d1.seq].eid
+	;and dg.diag_type_cd in (admitting_dx_type_cd)  ; 88.00
+	and dg.end_effective_dt_tm >= cnvtdate(12302100)
+	and dg.active_ind = 1
+Join n 
+	where n.nomenclature_id = dg.nomenclature_id
+	and N.source_vocabulary_cd = 19350056.00 ;ICD-10-CM	         19350056.00                   
+	and n.active_ind = 1
+	and n.end_effective_dt_tm >= cnvtdate(12302100)
+ORDER BY eid, dg.diag_priority
+head eid
+	null
+head dx
+	null
+detail
+	rec->qual[d1.seq].admitting_dx = build2(rec->qual[d1.seq].admitting_dx, ", ", dx)
+foot dx
+	if (substring(1,1,rec->qual[d1.seq].admitting_dx) = ",")
+		rec->qual[d1.seq].admitting_dx = trim(replace(rec->qual[d1.seq].admitting_dx,",","",1),3)
+	endif
+with nocounter,time=3900, FORMAT, SEPARATOR = " ",time = 30
+
+
+select into $outdev; "nl:"
+   eid = rec->qual[d1.seq].eid
+   ,patient_name = rec->qual[d1.seq].patientname 
+   ,cpt = trim(substring(1,10,bim.key6),3)  
+   ,orderid = rec->qual[d1.seq].oqual[d2.seq].orderid
+   ,catalogcd = rec->qual[d1.seq].oqual[d2.seq].catalog_cd
+   ,blank_cpt = rec->qual[d1.seq].oqual[d2.seq].cpt
+from
+    (dummyt d1 with seq = value(size(rec->qual,5)))
+    ,(dummyt d2 with seq=1)
+	,bill_item			bi
+	,bill_item_modifier bim    
+plan d1
+    where d1.seq > 0
+      and maxrec(d2,size(rec->qual[d1.seq].oqual,5))
+join d2 
+ ;where rec->qual[d1.seq].oqual[d2.seq].OrderID = 1381606031.00
+join bi
+	where bi.ext_parent_reference_id 	= rec->qual[d1.seq].oqual[d2.seq].CATALOG_CD
+	;and bi.ext_child_entity_name = "NOMENCLATURE"
+join bim
+	where bim.bill_item_id = bi.bill_item_id		
+	and bim.key1_id = 615214;  .and bim.key1_id in (615214.0;cpt
+	and bim.end_effective_dt_tm > sysdate
+	and bim.active_ind = 1
+order by eid,orderid;, ner.parent_entity_id
+head eid
+	null
+head orderid
+	cpt_string = ""
+detail
+	rec->qual[d1.seq].oqual[d2.seq].cpt = build2(rec->qual[d1.seq].oqual[d2.seq].cpt, ", ", cpt)
+foot orderid
+	if (substring(1,1,rec->qual[d1.seq].oqual[d2.seq].cpt) = ",")
+		rec->qual[d1.seq].oqual[d2.seq].cpt = trim(replace(rec->qual[d1.seq].oqual[d2.seq].cpt,",","",1),3)
+	endif
+with nocounter, format, separator = " "
+
+
+;call echojson(rec,$outdev)
+;***********************************************************************************************************************
+;*                                        PATIENT ADDRESS
+;***********************************************************************************************************************
+
+
+select into "NL:"
+    a.parent_entity_id
+from
+    address     a
+plan a
+    where expand(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+      and a.parent_entity_name = "PERSON"
+      and a.active_ind = 1
+      and a.address_type_cd = 756.00;home
+order by
+    a.parent_entity_id
+
+
+head a.parent_entity_id
+    pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+detail    
+    rec->qual[pos].PatientStreetAddr1 = a.street_addr
+    rec->qual[pos].PatientStreetAddr2 = a.street_addr2
+    rec->qual[pos].PatientCity = a.city
+    rec->qual[pos].PatientState = uar_get_code_display(a.state_cd)
+    
+    if(size(trim(a.zipcode),1)  = 9)
+        rec->qual[pos].PatientZipCode = format(a.zipcode,"#####-####")
+    else
+        rec->qual[pos].PatientZipCode = a.zipcode
+    endif
+    
+with nocounter,expand=1,time=3900
+;***********************************************************************************************************************
+;*                                       CPT INFORMATION
+;***********************************************************************************************************************
+;select into "NL:"
+;    c.encntr_id
+;from
+;    charge      c
+;    ,charge_mod cm
+;plan c
+;    where expand(num,1,size(rec->qual,5),c.encntr_id,rec->qual[num].eid)
+;      and c.process_flg = 100
+;      and c.item_extended_price > 0.0
+;      and c.active_ind = 1
+;      and c.charge_type_cd != 3491.00;no charge
+;join cm
+;    where cm.charge_item_id = c.charge_item_id
+;      and cm.field1_id = 615214.00
+;      and cm.charge_mod_type_cd = 3459.00
+;      and cm.active_ind = 1
+;order by
+;    c.encntr_id
+;;    ,cm.charge_item_id
+;    ,cm.field6
+;
+;head c.encntr_id
+;    pcnt = 0
+;    pos = locateval(num,1,size(rec->qual,5),c.encntr_id,rec->qual[num].eid)
+;    
+;head cm.field6;cm.charge_item_id
+;    pcnt = pcnt + 1
+;    
+;    rec->qual[pos].ccnt = pcnt
+;    
+;    stat = alterlist(rec->qual[pos].cqual,pcnt)
+;    
+;    rec->qual[pos].cqual[pcnt].CPTCode = cm.field6
+;    rec->qual[pos].cqual[pcnt].CPTDescription = cm.field7
+;
+;with nocounter,expand=1,time=3900
+
+
+;;***********************************************************************************************************************
+;*                                       ICD10 INFORMATION
+;;***********************************************************************************************************************
+
+;
+
+/***********************************************************************************************************************
+*                                       INSURANCE INFORMATION
+***********************************************************************************************************************/
+select into "NL:"
+    uar_get_code_display(ep.related_person_reltn_cd)
+from
+    encntr_plan_reltn       epr
+    ,encntr_person_reltn    ep
+    ,health_plan            hp
+    ,address                a
+plan epr
+    where expand(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.priority_seq =1
+join ep
+    where ep.encntr_id = epr.encntr_id
+      and ep.related_person_id = epr.person_id
+      and ep.person_reltn_type_cd in (1150.0;default guarantor
+                                      ,1158.0;insured
+                                      )
+      and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+      and hp.plan_type_cd in (681687.00;commercial
+                             )
+      and hp.active_ind = 1
+      and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join a
+    where a.parent_entity_id = outerjoin(hp.health_plan_id)
+      and a.parent_entity_name = outerjoin("HEALTH_PLAN")
+order by
+    epr.encntr_id
+
+head epr.encntr_id
+    pos = locateval(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+
+    
+detail
+    case(epr.priority_seq)
+        of 1:
+            rec->qual[pos].PatientPrimaryIns = hp.plan_name
+            rec->qual[pos].PatientPrimaryInsGrpNo = epr.group_nbr
+            rec->qual[pos].PatientPrimaryInsAddr1 = a.street_addr
+            rec->qual[pos].PatientPrimaryInsAddr2 = a.street_addr2
+            rec->qual[pos].PatientPrimaryInsCity = a.city
+            rec->qual[pos].PatientPrimaryInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[pos].PatientPrimaryInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[pos].PatientPrimaryInsZip = a.zipcode
+            endif
+        of 2:
+            rec->qual[pos].PatientSecondIns = hp.plan_name
+            rec->qual[pos].PatientSecondInsGrpNo = epr.group_nbr
+            rec->qual[pos].PatientSecondInsAddr1 = a.street_addr
+            rec->qual[pos].PatientSecondInsAddr2 = a.street_addr2
+            rec->qual[pos].PatientSecondInsCity = a.city
+            rec->qual[pos].PatientSecondInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[pos].PatientSecondInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[pos].PatientSecondInsZip = a.zipcode
+            endif        
+        of 3:
+            rec->qual[pos].PatientThirdIns = hp.plan_name
+            rec->qual[pos].PatientThirdInsGrpNo = epr.group_nbr
+            rec->qual[pos].PatientThirdInsAddr1 = a.street_addr
+            rec->qual[pos].PatientThirdInsAddr2 = a.street_addr2
+            rec->qual[pos].PatientThirdInsCity = a.city
+            rec->qual[pos].PatientThirdInsState = uar_get_code_display(a.state_cd)
+            if(size(trim(a.zipcode),1)=9)
+                rec->qual[pos].PatientThirdInsZip = format(a.zipcode,"#####-####")
+            else
+                rec->qual[pos].PatientThirdInsZip = a.zipcode
+            endif
+    endcase
+
+with nocounter,expand=1,time=3900
+
+;call echorecord(rec)
+;;***********************************************************************************************************************
+;;*                                        OUTPUT
+;;**********************************************************************************************************************
+
+select into $outdev
+    facility = trim(substring(1,60,rec->qual[d1.seq].facility))
+    ,LabDate = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].OrderDate))
+    ,FIN = trim(substring(1,80,rec->qual[d1.seq].FinNbr))
+    ,MRN = trim(substring(1,60,rec->qual[d1.seq].MedRecNbr))
+    ,NAME  = trim(substring(1,120,rec->qual[d1.seq].PatientName))
+    ,DOB = trim(substring(1,60,rec->qual[d1.seq].PatientDateOfBirth))
+    ,Gender = trim(substring(1,60,rec->qual[d1.seq].PatientGender))
+    ,Address = trim(substring(1,220,rec->qual[d1.seq].PatientStreetAddr1))
+    ,City = trim(substring(1,60,rec->qual[d1.seq].PatientCity))
+    ,State = trim(substring(1,40,rec->qual[d1.seq].PatientState))
+    ,Zipcode = trim(substring(1,40,rec->qual[d1.seq].PatientZipCode))
+    ,PrimaryHP = trim(substring(1,220,rec->qual[d1.seq].PatientPrimaryIns))
+    ,PrimaryHPSubscriberNbr = trim(substring(1,60,rec->qual[d1.seq].PatientPrimarySubscribeMemberNo))
+    ,OrderingPhysician = trim(substring(1,120,rec->qual[d1.seq].oqual[d2.seq].OrderPhysician))
+;    ,CPTCodes = trim(substring(1,20,rec->qual[d1.seq].cqual[d3.seq].CPTCode))
+    ,orderid = rec->qual[d1.seq].oqual[d2.seq].OrderID
+    ,CPT_CODES = trim(substring(1,100,rec->qual[d1.seq].oqual[d2.seq].cpt),3)
+    ,DIAGNOSIS_ALL = trim(substring(1,100,rec->qual[d1.seq].admitting_dx),3)
+from
+    (dummyt d1 with seq = value(size(rec->qual,5)))
+    ,(dummyt d2 with seq=1)
+plan d1
+    where d1.seq > 0
+      and maxrec(d2,size(rec->qual[d1.seq].oqual,5))
+join d2 
+order by
+    LabDate
+    ,FIN
+with time=3900,format,separator="",nocounter
+
+
+
+end
+go
