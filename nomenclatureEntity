@@ -1,0 +1,64 @@
+  SELECT 
+   conceptcki = substring(1,30,n.concept_cki)
+   ,p.parent_entity_id
+   ,reltn_type  = uar_get_code_display(ner.reltn_type_cd)
+   ,ner.*
+   ,n.*
+   
+   FROM 
+   procedure p,
+    nomenclature n,
+    nomen_entity_reltn ner
+;    diagnosis d,
+;    svccat_clinsvc_reltn scr,
+;    service_category_hist sch,
+;    vocab_related_code vrc,
+;    proc_modifier pm,
+;    nomenclature mn
+   PLAN p
+    WHERE p.encntr_id=107515819.00
+     AND p.active_ind=1
+     AND p.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+     AND p.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+    JOIN n
+    WHERE n.nomenclature_id=p.nomenclature_id
+;     AND expand(idx,1,size(request->proc_source_vocabs,5),n.source_vocabulary_cd,request->
+;     proc_source_vocabs[idx].source_vocab_cd
+
+     AND n.active_ind=1
+     AND n.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+     AND n.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+    JOIN ner
+    WHERE ner.child_entity_name="PROCEDURE"
+     AND ner.child_entity_id=p.procedure_id
+     AND ner.encntr_id=p.encntr_id
+     AND ner.parent_entity_name="DIAGNOSIS"
+  ;   AND ner.reltn_type_cd=diag_proc_reltn_cd
+     AND ner.active_ind=1
+     AND ner.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+     AND ner.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3))
+;    JOIN (d
+;    WHERE d.diagnosis_id=ner.parent_entity_id)
+;    JOIN (scr
+;    WHERE scr.clinical_service_cd=d.clinical_service_cd
+;     AND scr.active_ind=1)
+;    JOIN (sch
+;    WHERE sch.encntr_id=outerjoin(107515819.00)
+;     AND sch.service_category_cd=outerjoin(scr.service_category_cd)
+;     AND sch.active_ind=outerjoin(1))
+;    JOIN (vrc
+;    WHERE vrc.related_identifier=outerjoin(n.source_identifier)
+;     AND vrc.related_vocab_cd=outerjoin(n.source_vocabulary_cd)
+;   ;  AND vrc.beg_effective_dt_tm <= outerjoin(cnvtdatetime(admit_dt_tm))
+;   ;  AND vrc.end_effective_dt_tm >= outerjoin(cnvtdatetime(admit_dt_tm))
+;   )
+;    JOIN (pm
+;    WHERE pm.parent_entity_id=outerjoin(p.procedure_id)
+;     AND pm.parent_entity_name=outerjoin("PROCEDURE")
+;     AND pm.active_ind=outerjoin(1))
+;    JOIN (mn
+;    WHERE mn.nomenclature_id=outerjoin(pm.nomenclature_id)
+;     AND mn.active_ind=outerjoin(1)
+;     AND mn.beg_effective_dt_tm <= outerjoin(cnvtdatetime(mq_compare_dt_tm))
+;     AND mn.end_effective_dt_tm >= outerjoin(cnvtdatetime(mq_compare_dt_tm)))
+   ORDER BY sch.svc_cat_hist_id, p.proc_priority DESC, p.procedure_id
