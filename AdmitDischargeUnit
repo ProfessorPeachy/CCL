@@ -1,0 +1,402 @@
+drop program 1_amj_admit_disch_nur_station go
+create program 1_amj_admit_disch_nur_station
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"               ;* Enter or select the printer or file name to send this report to.
+	, "Billing Entity:" = VALUE("-99.99             ")   ;* Please select your desired billing entity filter(s).
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE"
+	, "Facility" = 0
+	, "Admitting Nurse Unit" = 0
+	, "Discharge Nurse Unit" = 0 
+
+with OUTDEV, BENTITY, START_DATE, END_DATE, FACILITY, NURSE_UNIT_ADMIT, 
+	NURSE_UNIT_DISCH
+
+
+;Another note, these would all be inpatient, observation, or outpatient in a bed account types. 
+ 
+;I have attached a file with the information needed from two different existing Discern reports:
+;  -Maur Direct Admit Report  - the two columns in attached file highlighted in yellow are from this report
+;  -Maur Outpatient in a Bed – all columns except the two in yellow in the attached file are from this report
+ 
+;The criteria to select the data we'd like to receive would be the following dropdown boxes:
+
+; Billing Entity:  MRMC, MMC or WMC
+
+
+;SELECT * FROM 
+;CCL_PROMPT_DEFINITIONS C
+;WHERE C.prompt_name = "*UNIT*"
+;WITH NOCOUNTER, FORMAT, SEPARATOR = " ", MAXREC = 100, TIME = 10
+;
+
+declare num = i4
+declare cnt = i4
+declare pos = i4
+ 
+declare fin_cd 					= f8 with constant(uar_get_code_by("DISPLAY",263,"FIN")), protect
+declare med_service_parser_str 	= vc with noconstant(" 1 = 1"), protect ;used to flex on the med service
+declare sleep_studies_cd 		= f8 with constant(uar_get_code_by("DISPLAYKEY",34,"SLEEPSTUDIES")), protect ;33536619.00
+declare labor_and_delivery_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",34,"LABORANDDELIVERY")), protect ;2556211775.00 
+
+;inpatient, observation, or outpatient in a bed account types
+declare inpatient_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"INPATIENT")), protect ;     309308.00
+declare outpatient_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"OUTPATIENT")), protect ;     309309.00
+declare outpatient_in_a_bed_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"OUTPATIENTINABED")), protect ;19962820
+ 
+ 
+
+CALL ECHO(BUILD2("FAC: ", $facILITY))
+
+free record rec
+record rec
+(1 cnt = i4
+ 1 qual[*]
+    2 eid = f8
+ 	2 pid = f8
+ 	2 finnbr = vc
+ 	2 mrn = vc
+ 	2 facility = vc
+ 	2 admit_nurse_unit = vc
+ 	2 disch_nurse_unit = vc
+ 	2 enc_type_class = vc
+    2 enc_type = vc
+	2 patient_name = vc
+	2 admit_dt_tm = vc
+	2 discharge_dt_tm = vc
+	2 opbed_dt_tm = vc
+	2 obs_dt_tm = vc
+	2 fin_class = vc
+	2 primary_insurance = vc
+	2 icd10_primary_diagnosis = vc
+	2 icd10_primary_code = vc
+	2 medical_service = vc
+	2 discharge_location = vc
+	2 discharge_disp		= vc
+	2 Attending_md = vc
+	2 insur1_name = vc
+	2 admit_source = vc
+	2 admit_type = vc
+	2 admit_mode = vc
+	2 total_adjustments = f8
+	2 total_payments = f8
+	2 total_charges = f8
+	2 current_balance = f8
+	2 total_refund = f8
+	2 payment_minus_refunds = f8
+;	2 payment_refund = f8
+	2 tier_group = vc
+	2 er_admit = vc
+	2 bill_status = vc
+	2 medical_service_category = vc
+	2 bill_num = vc
+	2 total_hours = f8
+	2 opbed_hours = f8
+	2 cnt2 = i4
+ 	2 refund_qual[*]
+	)
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+select distinct into $outdev; "nl:"
+	nu_admit_prompt			= uar_get_code_display($NURSE_UNIT_ADMIT)
+	,nu_disch_prompt		= uar_get_code_display($NURSE_UNIT_DISCH)
+	,facility 				= uar_get_code_display(e.loc_facility_cd)
+	,e.encntr_id
+	,fin = ea.alias
+	,patient_type		 	= uar_get_code_display(e.encntr_type_class_cd)
+	,account_type			= uar_get_code_display(e.encntr_type_cd)
+	,admit_source 			= uar_get_code_display(e.admit_src_cd)
+	,admit_type 			= uar_get_code_display(e.admit_type_cd)
+	,admit_nurse_unit 		= uar_get_code_display(pt.o_loc_nurse_unit_cd) ;admit nurse unit
+	,discharge_nurse_unit	= uar_get_code_display(e.loc_nurse_unit_cd)
+	,pt.o_assign_to_loc_dt_tm
+	,pt.n_assign_to_loc_dt_tm
+	,enc_discharge			= e.disch_dt_tm
+
+	,enc_type 				= uar_get_code_display(e.encntr_type_cd)
+	, enc_type_class 		= uar_get_code_display(e.encntr_type_class_cd)
+	, fin_class 			= uar_get_code_display(e.financial_class_cd)
+	, medical_service 		= uar_get_code_display(e.med_service_cd)
+	, p.name_full_formatted
+	, discharge_location 	= uar_get_code_display(e.loc_nurse_unit_cd)
+	, admit_mode 			= uar_get_code_display(e.admit_mode_cd)
+	, tier_group 			= uar_get_code_display(c.tier_group_cd)
+	, total_hours 			= datetimediff(e.disch_dt_tm,e.reg_dt_tm,3)
+	;,technical_tier 		= uar_get_code_display(c.tier_group_cd)
+from
+	 encounter   e
+	,pm_transaction 	pt
+	,encntr_alias   ea	;fin
+	,encntr_alias   ea2	 ;mrn
+	,person   p
+	,charge   c
+plan e
+	where e.loc_facility_cd = $FACILITY ; 21250403.00
+	and e.disch_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	and e.LOC_NURSE_UNIT_CD = $NURSE_UNIT_DISCH
+	and e.active_ind = 1
+	and e.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+	and e.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+;	and e.encntr_id =   109654210.00
+;	AND E.encntr_id =   109574933.00
+;AND E.encntr_id =   109654210.00
+;and e.disch_dt_tm between cnvtdatetime(cnvtdate(01092019),0) and cnvtdatetime(cnvtdate(12282020),2359)
+	and e.encntr_type_cd in (inpatient_cd, outpatient_cd, outpatient_in_a_bed_cd) ;  19962820.00 ; outpatinet in a bed 
+join pt 
+	where pt.N_encntr_id = e.encntr_id
+	and pt.o_loc_nurse_unit_cd = $NURSE_UNIT_ADMIT
+join ea 
+	where ea.encntr_id = e.encntr_id
+	and ea.encntr_alias_type_cd = 1077.0
+	and ea.active_ind = 1
+join ea2 
+	where ea2.encntr_id = e.encntr_id
+	and ea2.encntr_alias_type_cd = 1079.0 
+	and ea2.active_ind = 1
+join c 
+	where c.encntr_id = e.encntr_id
+	and c.tier_group_cd = 3536622.00 ;Technical Tier
+ 
+join p 
+	where p.person_id = e.person_id
+	and cnvtupper(p.name_full_formatted) != "*CERNER*"
+	and p.active_ind =1
+ 
+ORDER BY 	e.encntr_id, pt.o_assign_to_loc_dt_tm desc, pt.n_assign_to_loc_dt_tm desc
+ 
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+ cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid 					= e.encntr_id
+    rec->qual[cnt].pid 					= e.person_id
+    rec->qual[cnt].finnbr 				= ea.alias
+    rec->qual[cnt].mrn 					= ea2.alias
+    rec->qual[cnt].admit_dt_tm 			= format(e.REG_DT_TM,"MM/dd/yyyy HH:mm;;d")
+	rec->qual[cnt].discharge_dt_tm 		= format(e.DISCH_DT_TM,"MM/dd/yyyy HH:mm;;d")
+	rec->qual[cnt].discharge_disp		= uar_get_code_display(e.disch_disposition_cd)
+	rec->qual[cnt].admit_nurse_unit		= discharge_nurse_unit
+	rec->qual[cnt].disch_nurse_unit		= admit_nurse_unit
+	rec->qual[cnt].facility 			= facility
+	rec->qual[cnt].enc_type_class 		= enc_type_class
+	rec->qual[cnt].fin_class 			= fin_class
+ 	rec->qual[cnt].enc_type 			= enc_type
+ 	rec->qual[cnt].medical_service 		= medical_service
+ 	rec->qual[cnt].discharge_location 	= discharge_location
+ 	rec->qual[cnt].patient_name 		= p.name_full_formatted
+ 	rec->qual[cnt].admit_source 		= admit_source
+ 	rec->qual[cnt].admit_type 			= admit_type
+ 	rec->qual[cnt].tier_group 			= tier_group
+ 	rec->qual[cnt].total_hours 			= total_hours
+ 	rec->qual[cnt].er_admit 			= "FALSE"
+foot report
+	if(cnt>0)
+	stat = alterlist(rec->qual,cnt)
+	rec->cnt = cnt
+endif
+ 
+ 
+WITH nocounter,format,separator = " ", time=60, MAXREC=1000, FORMAT(DATE,"@SHORTDATETIME")
+
+
+;PRIMARY INSURANCE
+select into "nl:"
+	insur1_name 		= h.plan_name
+	,insur1_policy_num 	= ep.subs_member_nbr
+	,insur1_seq 		= ep.priority_seq 
+from
+	encounter   		e
+	,encntr_plan_reltn  ep
+	,health_plan   		h
+plan e
+	where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ep 
+	where  ep.encntr_id = e.encntr_id
+	and ep.active_ind = 1
+	and ep.priority_seq = 1
+	and ep.end_effective_dt_tm >= cnvtdate(12302100)
+join h 
+	where ep.health_plan_id = h.health_plan_id
+	and h.active_ind = 1
+order by e.encntr_id
+head e.encntr_id
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+;detail
+	rec->qual[pos].insur1_name = h.plan_name
+with nocounter,expand=1,time=3600
+;
+
+;*************************************************************************************
+;         ICD 10 Diagnosis
+;*************************************************************************************
+select into "nl:"
+	n.source_identifier
+	,n.source_string
+from
+	diagnosis d
+	,nomenclature n
+	,encounter   e
+plan e
+	where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join d 
+	where d.encntr_id 			= e.encntr_id
+	and d.diag_type_cd 			=  87.00
+	and d.end_effective_dt_tm 	>= cnvtdate(12302100)
+	and d.active_ind 			= 1
+join n 
+	where n.nomenclature_id = d.nomenclature_id
+	and n.source_vocabulary_cd in (select code_value
+                                                 from code_value
+                                               where cdf_meaning = "*ICD10*"
+                                  )
+    and n.active_ind = 1
+	and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+	e.encntr_id
+head e.encntr_id
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+detail 
+    rec->qual[pos].icd10_primary_diagnosis 	= n.source_string
+	rec->qual[pos].icd10_primary_code 		= n.source_identifier
+with nocounter,expand=1,time=3600
+
+
+;*************************************************************************************
+;         Attending MD
+;*************************************************************************************
+select into "nl:"
+	attending_md = pr.name_full_formatted
+from
+	encounter   e
+	,prsnl   pr
+	,encntr_prsnl_reltn   ep
+plan e
+	where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+join ep 
+	where ep.encntr_id 			= e.encntr_id
+	and ep.encntr_prsnl_r_cd 	=  1119.00 ; attending physician
+	and ep.end_effective_dt_tm 	>= cnvtdate(12312100)
+join pr 
+	where pr.person_id 			= ep.prsnl_person_id
+	and pr.active_ind 			= 1
+	and pr.physician_ind 		= 1
+order by e.encntr_id, e.beg_effective_dt_tm asc
+head e.encntr_id
+	pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+detail
+	rec->qual[pos].attending_md = attending_md
+with nocounter,expand=1,time=3600
+ 
+ 
+;*************************************************************************************
+;	Claim Status / Bill Status
+;*************************************************************************************
+select into "nl:"
+	pft_fin 			= pe.pft_encntr_alias
+	,bill_status 		= uar_get_code_display(br.bill_status_cd)
+from
+	pft_encntr   		pe
+	,benefit_order   	bo
+	,bo_hp_reltn   		bhp
+	,bill_reltn   		bre
+	,bill_rec   		br
+plan pe
+	where expand(num,1,size(rec->qual,5),pe.encntr_id,rec->qual[num].eid)
+join bo 
+	where pe.pft_encntr_id = bo.pft_encntr_id
+join bhp 
+	where bo.benefit_order_id = bhp.benefit_order_id
+join bre 
+	where bhp.bo_hp_reltn_id = bre.parent_entity_id
+join br 
+	where bre.corsp_activity_id = br.corsp_activity_id
+order by pe.encntr_id
+head pe.encntr_id
+	pos = locateval(num,1,size(rec->qual,5),pe.encntr_id,rec->qual[num].eid)
+detail 
+    rec->qual[pos].bill_status = bill_status
+with nocounter,expand=1,time=3600 
+
+;*************************************************************************************
+;	Claim status and patient balance
+;*************************************************************************************
+select into "nl:"
+	pft_fin 		= pe.pft_encntr_alias
+	,pe_balance 	= evaluate(pe.dr_cr_flag,2,pe.balance*-1,pe.balance)
+	,bill_status 	= uar_get_code_display(pe.bill_status_cd)
+from
+	pft_encntr   pe 
+plan pe
+	where expand(num,1,size(rec->qual,5),pe.encntr_id,rec->qual[num].eid)
+order by pe.encntr_id
+head pe.encntr_id
+	pos = locateval(num,1,size(rec->qual,5),pe.encntr_id,rec->qual[num].eid)
+detail
+    rec->qual[pos].total_adjustments = pe.adjustment_balance
+    rec->qual[pos].total_payments = pe.applied_payment_balance
+    rec->qual[pos].total_charges = pe.charge_balance
+    rec->qual[pos].current_balance= pe_balance
+    rec->qual[pos].payment_minus_refunds = pe.applied_payment_balance
+with nocounter,expand=1,time=3600
+
+select into $outdev
+	facility_name 				= trim(substring(1,100,rec->qual[d1.seq].facility))
+	,eid 						= rec->qual[d1.seq].eid
+	,nu_admit_prompt			= uar_get_code_display($NURSE_UNIT_ADMIT)
+	,nu_disch_prompt			= uar_get_code_display($NURSE_UNIT_DISCH)	
+	,patient_type 				= trim(substring(1,60,rec->qual[d1.seq].enc_type_class))
+	,account_type 				= trim(substring(1,20,rec->qual[d1.seq].enc_type))
+	,mrn 						= trim(substring(1,20,rec->qual[d1.seq].mrn))
+	,fin 						= trim(substring(1,20,rec->qual[d1.seq].finnbr))
+	,Patient_Name 				= trim(substring(1,100,rec->qual[d1.seq].patient_name))
+	,admit_source				= trim(substring(1,100,rec->qual[d1.seq].admit_source))
+	,admit_type					= trim(substring(1,100,rec->qual[d1.seq].admit_type))
+	,admit_nurse_unit			= trim(substring(1,100,rec->qual[d1.seq].admit_nurse_unit ))
+	,admit_dt_tm 				= trim(substring(1,20,rec->qual[d1.seq].admit_dt_tm))
+	,discharge_location			= trim(substring(1,100,rec->qual[d1.seq].disch_nurse_unit))
+	,discharge_dt_tm 			= trim(substring(1,20,rec->qual[d1.seq].discharge_dt_tm))
+	,total_hours 				= rec->qual[d1.seq].total_hours
+	,discharge_disposition 		= trim(substring(1,100,rec->qual[d1.seq].discharge_disp))
+	,financial_class 			= trim(substring(1,20,rec->qual[d1.seq].fin_class))
+	,primary_insurance 			= trim(substring(1,120,rec->qual[d1.seq].insur1_name))
+	,bill_status 				= trim(substring(1,100,rec->qual[d1.seq].bill_status))
+	,tier_group 				= trim(substring(1,100,rec->qual[d1.seq].tier_group))
+	,primary_diagnosis_code 	= trim(substring(1,100,rec->qual[d1.seq].icd10_primary_code))
+	,icd10_primary_diagnosis 	= trim(substring(1,200,rec->qual[d1.seq].icd10_primary_diagnosis))
+	,abstract_service 			= trim(substring(1,30,rec->qual[d1.seq].medical_service))
+	,attending_md 				= trim(substring(1,100,rec->qual[d1.seq].Attending_md))
+	,total_charges 				= trim(substring(1,40,format(rec->qual[d1.seq].total_charges, "###########.##;l")))
+	,total_adjustments 			= trim(substring(1,40,format(rec->qual[d1.seq].total_adjustments, "###########.##;l")))
+	,total_payments 			= trim(substring(1,40,format(rec->qual[d1.seq].total_payments, "###########.##;l")))
+ 	,ar_balance 				= trim(substring(1,40,format(rec->qual[d1.seq].current_balance, "###########.##;l")))
+from
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+    where d1.seq > 0
+order by 	patient_name
+WITH nocounter,separator="",format,time=3600
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
