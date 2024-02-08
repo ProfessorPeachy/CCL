@@ -1,0 +1,384 @@
+drop program MAUR_TN_RAD_TAT_ED_COMPTOMO go
+create program MAUR_TN_RAD_TAT_ED_COMPTOMO
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Beginning Date" = ""
+	, "Select Ending Date  Time" = ""
+	, "Select Facility" = 0
+ 
+with OUTDEV, BEG_DT, END_DT, FAC
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+
+;SELECT
+;	CV1.CODE_VALUE
+;	,CV1.DISPLAY
+;	,CV1.CDF_MEANING
+;	,CV1.DESCRIPTION
+;	,CV1.DISPLAY_KEY
+;	,CV1.CKI
+;	,CV1.DEFINITION
+; FROM CODE_VALUE CV1
+;
+;WHERE CV1.CODE_SET =  4000360 AND CV1.ACTIVE_IND = 1
+;WITH  FORMAT, TIME = 60
+ 
+DECLARE ecg_doc_type	= F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY",4000360,"ECG"))
+DECLARE dicom_doc_type	= F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY",4000360,"DICOM"))
+declare in_process_status_cd 		= f8 with constant(UAR_GET_CODE_BY ("MEANING" , 6004 , "INPROCESS" ))  ;003
+;declare INPROCESS    	= f8 with constant(uar_get_code_by("MEANING",6004,"INPROCESS"))
+ 
+free record rec
+record rec
+	(1 cnt = i4
+	1 qual[*]
+		2 eid = f8
+ 		2 pid = f8
+  		2 patient_name = vc
+  		2 fin = vc
+  		2 birth_dt_tm = vc
+  		2 order_id 		= f8
+  		2 orig_order_dt_tm = vc
+  		2 priority = vc
+  		2 request_time = dq8
+  		2 inprocess_time = dq8
+  		2 elapsed_time = vc
+  		2 dta = vc
+ 
+  	)
+ 
+ 
+SELECT EA.alias, EA.encntr_id, E.person_id,* FROM ENCNTR_ALIAS EA
+,ENCOUNTER E
+,ORDERS O
+,ORDER_CATALOG OC
+PLAN EA
+WHERE EA.alias =  "202423815"
+JOIN E
+
+WHERE E.encntr_id = EA.encntr_id
+JOIN O
+WHERE O.person_id = E.person_id
+AND O.encntr_id = E.encntr_id
+JOIN OC
+WHERE OC.catalog_cd = O.catalog_cd
+AND OC.activity_subtype_cd = 633747
+
+;     633747.00	Computed Tomography	CT	Computerized Tomography	COMPUTEDTOMOGRAPHY	CKI.CODEVALUE!1301605	RADIOLOGY	
+;SELECT * FROM
+;ORDER_CATALOG OC
+;,ORDERS O
+;PLAN OC
+;WHERE OC.activity_subtype_cd = 633747
+;JOIn o
+;where o.catalog_cd = oc.catalog_cd
+;and o.encntr_id =   105888372.00
+;with nocounter, format, separator = " "
+
+
+
+;"Reason for Exam/Signs and Symptoms" and 
+;"Priority
+select INTO $OUTDEV
+NAME						= p.name_full_formatted
+,fin 						=  ea.alias
+
+;,ACTIVITY_TYPE				= uar_get_code_display(OC.activity_type_cd)
+;,ACTIVITY_SUBTYPE			= uar_get_code_display(OC.activity_subtype_cd)
+;;,ACTIVITY_SUBTYPE2			= uar_get_code_dESCRIPTION(OC.activity_subtype_cd)
+,EXAM						= O.order_mnemonic
+,ACCESSION					= CNVTACC(a.accession)
+,orad.reason_for_exam
+,priority 					= uar_get_code_display(orad.priority_cd)
+,ed_arrival 				= e.arrive_dt_tm
+,ORDER_DATE_TIME 			= o.orig_order_dt_tm
+,EXAM_BEGIN_DATE_TIME 		= ORAD.start_dt_tm
+,EXAM_COMPLETE_DATE_TIME	= ORAD.complete_dt_tm
+,REPORT_FINAL_DATE_TIME		= RR.final_dt_tm
+;,ARRIVE_TO_FINAL_MIN		= cnvtmin(rr.final_dt_tm) - cnvtmin(e.arrive_dt_tm) ;)DATETIMEDIFF(RR.final_dt_tm,e.arrive_dt_tm,4)/60
+,ARRIVE_TO_FINAL_HRS		= (cnvtmin(rr.final_dt_tm) - cnvtmin(e.arrive_dt_tm))/60 ;)DATETIMEDIFF(RR.final_dt_tm,e.arrive_dt_tm,4)/60
+;,ARRIVE_TO_FINAL_integer	= DATETIMEDIFF(RR.final_dt_tm,e.arrive_dt_tm,4)/60
+;,BEGIN_TO_COMPLETE_min		= (cnvtmin(ORAD.complete_dt_tm) - cnvtmin(orad.start_dt_tm))/60;
+,BEGIN_TO_COMPLETE_min		= (cnvtmin(ORAD.complete_dt_tm) - cnvtmin(orad.start_dt_tm));
+,order_TO_COMPLETE_min		= (cnvtmin(ORAD.complete_dt_tm) - cnvtmin(o.orig_order_dt_tm));
+;,ORDER_TO_COMPLETE_int		= DATETIMEDIFF(ORAD.complete_dt_tm,o.orig_order_dt_tm,4)
+;,ORDER_TO_FINAL_HRS			= (cnvtmin(RR.final_dt_tm) - cnvtmin(O.orig_order_dt_tm))/60;DATETIMEDIFF(rr.final_dt_tm,o.orig_order_dt_tm,4)/60
+,ORDER_TO_FINAL_MIN			= cnvtmin(RR.final_dt_tm) - cnvtmin(O.orig_order_dt_tm)
+;,EXAM_COMPLETE_HOUR			= hour(orad.complete_dt_tm)
+
+;,order_status 				= uar_get_code_display(o.order_status_cd)
+;,o.order_status_cd
+;,service_resource = uar_get_code_display(re.service_resource_cd)
+;,catalog = uar_get_code_display(o.catalog_cd)
+;,catalog_type = uar_get_code_display(o.catalog_type_cd), o.catalog_type_cd
+;,o.product_id
+;,ORAD.request_dt_tm
+
+
+
+;,EDW_GET_RESOURCE_GROUP_TEXT(RAD_EXAM.SERVICE_RESOURCE_CD,2, 'DESC')
+
+
+;,exam_begin
+;,exam_complete
+;,report_final
+;,begin_complete
+;,Order_ExamComp
+;,Order_final 
+;,Exam_Complete_Hour 
+;,ed_arrival_final
+, encounter_type = uar_get_code_display(e.encntr_type_cd)
+,o.order_mnemonic
+from
+	encounter 				e
+	,person					p
+	,encntr_alias			ea
+	,ORDERS					o
+	,ORDER_CATALOG			oc
+	,ACCESSION_ORDER_R		ao
+	,ACCESSION				a
+	,ORDER_RADIOLOGY		orad
+	,RAD_REPORT				rr
+	,rad_exam				re
+	,CODE_VALUE  			CV_ORD_STATUS
+;	,CLINICAL_EVENT			ce
+;	,CE_EVENT_PRSNL			CEP
+;,CODE_VALUE  CV_FACILITY
+;
+plan orad
+	;WHERE ORAD.encntr_id 	= 105888372
+	where orad.complete_dt_tm between cnvtdatetime($BEG_DT) and cnvtdatetime($END_DT)
+	;and orad.encntr_id = 105888372
+join e
+	where e.encntr_id 		= orad.encntr_id
+	and e.loc_facility_cd 	= $FAC
+	and e.encntr_type_cd 	=      309310.00	;Emergency	
+	and e.active_ind 		= 1	
+;	where e.encntr_id = 105888372
+join o
+	where o.order_id 		= orad.order_id
+	AND o.encntr_id 		= e.encntr_id
+	and o.person_id 		= E.person_id
+	and o.catalog_type_cd 	=         2517.00; Radiology
+	;and o.product_id > 0
+	and o.active_ind = 1	
+join oc
+	where oc.catalog_cd 	= o.catalog_cd
+;	and oc.catalog_type_cd = o.catalog_type_cd
+	and oc.activity_subtype_cd =  633747.00
+	AND OC.PRIMARY_MNEMONIC  NOT IN  ( 'MRI Breast w/o Contrast Left w/CAD'
+	,'MRI Breast w/ + w/o Contrast Left w/CAD'
+	,'MRI Breast w/ + w/o Contrast Right w/CAD'
+	,'MRI Breast w/ Contrast Right w/CAD'
+	,'MRI Breast w/o Contrast Right w/CAD'
+	,'MRI Breast w/ Contrast Left w/CAD'
+	,'MRI Breast Biopsy w/ MRI Guide Left'
+	,'MRI Breast Biopsy w/ MRI Guide Right'
+	,'MRI Breast w/o Contrast Bilateral w/CAD'
+	,'MRI Breast w/ + w/o Contrast Bilateral w/CAD'
+	,'MRI Breast w/ Contrast Bilateral  w/CAD'
+	,'MRI Pelvis w/ + w/o Contrast'
+	,'MRI Pelvis w/ Contrast'
+	,'MRI Pelvis w/o Contrast'  )
+join p
+	where p.person_id = e.person_id
+	and p.active_ind = 1
+join ea
+	where ea.encntr_id = e.encntr_id
+	and ea.encntr_alias_type_cd = 1077	
+	and ea.active_ind = 1
+	and ea.end_effective_dt_tm > sysdate
+;join o
+;	where o.encntr_id = e.encntr_id
+;	and o.person_id = p.person_id
+;	and o.catalog_type_cd =         2517.00; Radiology
+;	;and o.product_id > 0
+;	and o.active_ind = 1
+join ao
+	where ao.order_id = o.order_id
+join a
+	where a.accession_id = ao.accession_id
+;join orad
+;	where orad.order_id = o.order_id
+;	orad.complete_dt_tm
+join re
+	where re.order_id = O.order_id	
+join rr
+	where rr.order_id 	= O.order_id
+join CV_ORD_STATUS
+	where CV_ORD_STATUS.code_value = o.ORDER_STATUS_CD
+	and CV_ORD_STATUS.CODE_SET=6004 
+	AND CV_ORD_STATUS.ACTIVE_IND =1
+	and CV_ORD_STATUS.DISPLAY  =  'Completed'
+;join ce
+;	where ce.encntr_id = e.encntr_id
+;	and ce.person_id = e.person_id
+;JOIN CEP
+;	WHERE CEP.event_id = CE.event_id
+;AND  ( CLINICAL_EVENT.EVENT_ID=CE_EVENT_PRSNL.EVENT_ID  )
+;AND  ( CLINICAL_EVENT.ENCNTR_ID=ENCOUNTER.ENCNTR_ID and CLINICAL_EVENT.PERSON_ID=ENCOUNTER.PERSON_ID  )
+;AND  ( CLINICAL_EVENT.EVENT_ID=CE_EVENT_PRSNL.EVENT_ID  )
+with nocounter, format, separator = " ", time = 10, FORMAT(DATE, "@SHORTDATETIME")
+;SELECT INTO $outdev
+;CVSTEP.*
+;;cvp.cv_proc_id
+;;, cvstep.cv_proc_id
+;;,cvp.order_id
+;;,o.order_id
+;;,UAR_GET_CODE_DISPLAY(OA.action_type_cd)
+;;,OA.action_type_cd
+;;,UAR_GET_CODE_DISPLAY(OA.order_status_cd)
+;;,OA.order_status_cd
+;;;,oros.order_id
+;;,cvp.encntr_id
+;;,cvp.accession
+;;,uar_get_code_display(cvstep.cv_doc_type_cd)
+;;fin_number = cnvtalias(ea.alias, ea.alias_pool_cd)
+;;,P.NAME_FULL_FORMATTED
+;;,P.ABS_BIRTH_DT_TM
+;;,o.order_id
+;;;, dta = uar_get_code_display(cvstep.task_assay_cd)
+;;,o.orig_order_dt_tm
+;;,priority = od.oe_field_display_value
+;;;,PVD.NAME_FULL_FORMATTED
+;;;	, cvstep.PERF_START_DT_TM
+;;;	, cvstep.PERF_STOP_DT_TM
+;;;		, Elapsed_Time = FORMAT(DATETIMEDIFF(cvstep.PERF_STOP_DT_TM, cvstep.PERF_START_DT_TM), "DD days HH:MM:SS;;Z")
+;;,performing_provider = PVD.NAME_FULL_FORMATTED
+;;,request_time	= cvp.request_dt_tm
+;;,inprocess_time = oa.action_dt_tm
+;;,elapsed_time = FORMAT(DATETIMEDIFF(oa.action_dt_tm, cvp.request_dt_tm), "DD days HH:MM:SS;;Z")
+;;,e_loc_facility_disp = UAR_GET_CODE_DISPLAY(E.LOC_FACILITY_CD)
+;; 
+;;;, dta2 = uar_get_code_display(cvstep2.task_assay_cd)
+;;;,cvp.cv_proc_id
+;;;	, Elapsed_Time = FORMAT(DATETIMEDIFF(cvstep.PERF_STOP_DT_TM, cvstep.PERF_START_DT_TM), "DD days HH:MM:SS;;Z")
+;;;;	,oros.exam_complete_dt_tm
+;;;;	,oros.request_dt_tm
+;;;	,oros.order_id
+;;;	,oros.order_dt_tm
+;;;	,oros.request_dt_tm
+;;;	,oros.start_dt_tm
+;;;	,oros.exam_complete_dt_tm
+;;;	,oros.dictate_dt_tm
+;;;	,oros.transcribe_dt_tm
+;;;	,oros.final_dt_tm
+;;;;	,od.action_sequence
+;;;
+;;;	;, o_activity_type_disp = uar_get_code_display(o.activity_type_cd)
+;;;	;, o_catalog_type_disp = uar_get_code_display(o.catalog_type_cd)
+;;;	;, o_order_status_disp = uar_get_code_display(o.order_status_cd)
+;; 
+;;;	;, uar_get_code_display(od.OE_FIELD_ID)
+;;;	;, priority = od.oe_field_display_value
+;;;	;, uar_get_code_display(ea.alias_pool_cd)
+;;;	, cvstep2.PERF_PROVIDER_ID
+;;	,ACQUISITION_START 		= cvstep.PERF_START_DT_TM
+;;	,ACQUISITION_STOP  		= cvstep.PERF_STOP_DT_TM
+;;	,INTERPRETATION_START 	= cvstep2.PERF_START_DT_TM
+;;	,INTERPRETATION_STOP 	= cvstep2.PERF_STOP_DT_TM	
+;;;	;, cvstep.*
+;;;	;, cvp.*
+;;;	;, P.PERSON_ID
+;; 
+;;;	;, E_LOCATION_DISP = UAR_GET_CODE_DISPLAY(E.LOCATION_CD)
+;;;	, E_LOC_FACILITY_DISP = UAR_GET_CODE_DISPLAY(E.LOC_FACILITY_CD)
+;;;	,oros.*
+; 
+;FROM
+;	cv_step   			cvstep	 ;ecg acquisition
+;	,cv_proc   		cvp
+;	,orders   			o
+;;	,order_detail   	od
+;;	,encntr_alias   	ea
+;;	,person   			p
+;;	,encounter   		e
+;;	,order_action 		oa
+;;	,dummyt				d1
+;;	,cv_step   			cvstep2  ;ecg interpretation
+;;	;,dummyt 			d2
+;;	,person   			pvd
+; 
+;plan  cvstep
+;	;WHERE CVSTEP.cv_doc_type_cd = dicom_doc_type
+;join  cvp
+;	where cvp.cv_proc_id = cvstep.cv_proc_id
+; 
+;join o
+;	where o.order_id=cvp.order_id
+;	AND O.encntr_id =   105888372.00
+;	AND O.person_id =    13313907.00
+;;and o.orig_order_dt_tm  >= cnvtdatetime( cnvtdate( 02282019 ), 000000 ) /*Begin Date-ddmmyyy hhmmss */
+;;and o.orig_order_dt_tm  <= cnvtdatetime( cnvtdate( 02282019 ), 235900 )/*End Date-ddmmyyy hhmmss */
+;;AND (o.orig_order_dt_tm BETWEEN CNVTDATETIME(CNVTDATE( $START_DATE ), 0) AND CNVTDATETIME(CNVTDATE( $END_DATE ))
+;;	and (o.orig_order_dt_tm between cnvtdatetime($BEG_DT) and cnvtdatetime($END_DT))
+;	;AND O.encntr_id =    106777285.00
+;;join e
+;;	where e.encntr_id = o.encntr_id
+;;	;and e.loc_facility_cd = $FAC
+;;join od
+;;	where od.order_id= o.order_id
+;;	and od.oe_field_id =value(uar_get_code_by("DISPLAYKEY",16449,"PRIORITY"))
+;;join oa
+;;	where oa.order_id = o.order_id
+;;	and oa.order_status_cd in (in_process_status_cd)
+;; 
+;;join ea
+;;	where ea.encntr_id = cvp.encntr_id
+;;	and ea.encntr_alias_type_cd = 1077
+;;	and ea.active_ind = 1
+;;	and ea.beg_effective_dt_tm < cnvtdatetime(curdate,curtime3)
+;;	and ea.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+;;join p
+;;	where o.person_id = p.person_id
+;;;join d1
+;;join cvstep2
+;;	where cvstep2.cv_proc_id = cvp.cv_proc_id
+;;	and CVSTEP2.cv_doc_type_cd = dicom_doc_type
+;;	and cvstep.cv_doc_type_cd = ecg_doc_type
+;;;join cvstep3
+;;;	where cvstep3.cv_proc_id = cvp.cv_proc_id
+;;;	and CVSTEP.cv_doc_type_cd = dicom_doc_type
+;;join d1
+;;join pvd
+;;	where pvd.person_id = cvstep.perf_provider_id
+;;order by p.name_full_formatted,p.person_id, e.encntr_id,request_time, inprocess_time asc;, dta
+;;group by
+;;cvp.cv_proc_id
+;;,fin_number
+;;,P.NAME_FULL_FORMATTED
+;;,P.ABS_BIRTH_DT_TM
+;;,o.orig_order_dt_tm
+;;,priority
+;;,performing_provider
+;;,INPROCESS_TIME
+;;,dta
+; 
+;WITH COUNTER, FORMAT, SEPARATOR = " ", FORMAT(DATE, "DD-MMM-YYYY HH:MM;;D")
+;,outerjoin = d1, dontcare = d1, TIME = 30
+ 
+ 
+ 
+ 
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 
