@@ -1,0 +1,30 @@
+SELECT N.source_identifier, N.source_identifier_keycap
+, VOCCODE = UAR_GET_CODE_DISPLAY(N.source_vocabulary_cd)
+,N.source_vocabulary_cd
+, UAR_GET_CODE_DISPLAY(N.principle_type_cd), * FROM NOMENCLATURE N
+WHERE N.source_vocabulary_cd = 19350056.00 ;ICD-10-CM	         19350056.00
+AND n.source_identifier = "T7*A*"
+;AND  OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\....A)")   
+AND OPERATOR(N.source_identifier,"REGEXPLIKE", "(S\d\d\....A)|(S\d\d\....B)|(S\d\d\....C)|(T07)|(T14)|(T79\.A\d.A)")
+
+
+;AND N.principle_type_cd NOT IN ( 1252.00)          
+;where OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\.....A)|(S\d\d\.....B*)|(S\d\d\.....C*)|(T07)|(T14)|(T79\.A\d...A)")
+;where n.source_vocabulary_cd in (647081.00   , 2976507.00)
+;AND  OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\.....A)")                                                                 
+;AND OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\.....A)|(S\d\d\.....B*)|(S\d\d\.....C*)|(T07)|(T14)|(T79\.A\d...A)")
+WITH TIME = 30, MAXREC = 1000
+
+
+SELECT N.source_identifier, N.source_identifier_keycap
+, VOCCODE = UAR_GET_CODE_DISPLAY(N.source_vocabulary_cd)
+,N.source_vocabulary_cd
+, UAR_GET_CODE_DISPLAY(N.principle_type_cd), * FROM NOMENCLATURE N
+WHERE N.source_vocabulary_cd = 19350056.00 ;ICD-10-CM	         19350056.00
+;AND n.source_identifier = "T7*A*"
+;AND  OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\....A)")   
+;AND OPERATOR(N.source_identifier,"REGEXPLIKE", "^(S00*)|^(S10*)|^(S20*)")
+;AND OPERATOR(N.source_identifier,"REGEXPLIKE", "^(S00*)")
+;AND OPERATOR(N.source_identifier,"REGEXPLIKE", "^(S.0*)")
+AND OPERATOR(N.source_identifier,"REGEXPLIKE", "^(S\d0)")
+WITH TIME = 30, MAXREC = 10000
