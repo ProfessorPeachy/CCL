@@ -1,0 +1,18 @@
+select 
+	pr.name_full_formatted, pgr.person_id, pgr.active_ind
+	, pgr.beg_effective_dt_tm, pgr.end_effective_dt_tm, pg.prsnl_group_name
+	,pgr.updt_dt_tm
+	,pr.beg_effective_dt_tm, pr.end_effective_dt_tm
+	,pg.beg_effective_dt_tm, pg.end_effective_dt_tm
+from 
+	prsnl pr
+	,prsnl_group_reltn pgr
+	,prsnl_group pg
+plan pr
+where pr.name_last_key = "*ZZZ*"
+and pr.active_ind = 1
+join pgr
+where pgr.person_id = pr.person_id
+join pg
+where pg.prsnl_group_id = pgr.prsnl_group_id
+AND PG.prsnl_group_name = "Hospitalist*"
