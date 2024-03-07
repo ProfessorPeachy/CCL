@@ -1,0 +1,113 @@
+declare business_address_cd	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'BUSINESS'))
+declare business_phone_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'BUSINESS'))
+declare business_fax_cd		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'FAXBUSINESS'))
+declare npi_cd				= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'NATIONALPROVIDERIDENTIFIER')); 4038127.00
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+select into $OUTDEV
+	 physician_name 	= trim(substring(1,100,pr.name_full_formatted),3)
+	,npi				= pa.alias
+	,cerner_prsnl_id 	= pr.person_id
+	,address 			= trim(a.street_addr,3)
+	,address2 			= trim(a.street_addr2,3)
+	,city 				= trim(a.city,3)
+	,state 				= trim(uar_get_code_display(a.state_cd),3)
+	,zip				= trim(a.zipcode,3)
+	,phone 				= trim(substring(1,20,ph.phone_num),3)
+	,fax 				= trim(substring(1,20,ph2.phone_num),3)
+	,primary_specialty	= UAR_GET_CODE_DISPLAY(psr.specialty_cd)
+;	,psr.*
+;,username			= pr.username
+from 
+	 prsnl 					pr
+	,prsnl_alias 			pa	;NPI
+	,address 				a	;business address
+	,phone 					ph	;business phone
+	,phone 					ph2	;business fax
+	,prsnl_specialty_reltn 	psr
+	,dummyt 				d1	;outerjoin dummy table 1
+	,dummyt 				d2	;outerjoin dummy table 2
+	,dummyt 				d3	;outerjoin dummy table 3
+	,dummyt 				d4	;outerjoin dummy table 4
+	,dummyt 				d5	;outerjoin dummy table 5
+plan pr
+	;where pr.physician_ind = 1
+	where pr.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and pr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+	and pr.active_ind = 1
+	and pr.physician_ind = 1
+	;and pr.person_id =        13443403.00;13092881.00;
+join d1		
+join pa
+	where pa.person_id = pr.person_id
+	and pa.prsnl_alias_type_cd =  npi_cd  ;	
+	and pa.active_ind = 1
+join d2
+join a
+	where a.parent_entity_id = pr.person_id
+	and a.address_type_cd = business_address_cd
+	and a.parent_entity_name = 'PERSON'
+	and a.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and a.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+	and a.active_ind = 1
+	and a.address_type_seq = (
+		select min(address_type_seq)
+		from 
+			address 
+		where address.parent_entity_id = a.parent_entity_id
+		and address.address_type_cd = business_address_cd
+		and address.parent_entity_name = 'PERSON'
+		and address.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+		and address.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+		and address.active_ind = 1
+	)
+join d3
+join ph
+	where ph.parent_entity_id = pr.person_id
+	and ph.phone_type_cd = business_phone_cd
+	and ph.parent_entity_name = "PERSON"
+	and ph.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and ph.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+	and ph.active_ind = 1
+	and ph.phone_type_seq = (
+		select min(phone_type_seq)
+		from 
+			phone 
+		where phone.parent_entity_id = ph.parent_entity_id
+		and phone.phone_type_cd = business_phone_cd
+		and phone.parent_entity_name = 'PERSON'
+		and phone.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+		and phone.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+		and phone.active_ind = 1
+	)
+join d4
+join ph2
+	where ph2.parent_entity_id = pr.person_id
+	and ph2.phone_type_cd = business_fax_cd
+	and ph2.parent_entity_name = "PERSON"
+	and ph2.active_ind = 1	
+	and ph2.phone_type_seq = (
+		select min(phone_type_seq)
+		from 
+			phone 
+		where phone.parent_entity_id = ph2.parent_entity_id
+		and phone.phone_type_cd = business_fax_cd
+		and phone.parent_entity_name = 'PERSON'
+		and phone.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+		and phone.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+		and phone.active_ind = 1
+	)	
+join d5
+join psr
+	WHERE psr.prsnl_id = pr.person_id	
+	and psr.primary_ind = 1
+	and psr.active_ind = 1
+order by pr.name_full_formatted	
+with nocounter, format, separator = " "
+,outerjoin = d1, dontcare = d1
+,outerjoin = d2, dontcare = d2
+,outerjoin = d3, dontcare = d3
+,outerjoin = d4, dontcare = d4
+,outerjoin = d5, dontcare = d5
+
