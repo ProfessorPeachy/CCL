@@ -1,0 +1,76 @@
+declare ordering_provider = vc with protect, noconstant('')
+declare ordering_provider_position = vc with protect, noconstant('')
+declare order_prsnl_id = f8 with protect, noconstant(0)
+
+
+select distinct cpt = bim1.key6
+, bim1.key7
+,bim1.key1_id ;
+,o.order_mnemonic
+,o.
+;,CPT = BIM1.key1
+;,SA.encntr_id
+from 
+	sch_appt sa, 
+	sch_event_attach sea, 
+	orders o,
+	bill_item bi, 
+	bill_item_modifier bim1
+;	code_value cv1,
+;	bill_item_modifier bim2, 
+;	code_value cv2
+plan sa
+	WHERE SA.beg_dt_tm BETWEEN CNVTDATETIME(CURDATE-1,CURTIME3) AND CNVTDATETIME(CURDATE,CURTIME3)
+	AND SA.end_dt_tm <= CNVTDATETIME(CURDATE,CURTIME3)
+	AND SA.resource_cd > 0
+	AND SA.person_id > 0
+join sea
+	where sea.sch_event_id = sa.sch_event_id
+join o
+	where o.order_id = sea.order_id
+join bi
+	where bi.ext_parent_reference_id = o.catalog_cd
+	and bi.active_ind = 1
+join bim1
+	where bim1.bill_item_id = bi.bill_item_id
+	AND BIM1.key1_id = 615214;  .and bim.key1_id in (615214.0;cpt
+	and bim1.key6 = "10022"  ;cpt code
+;	and bim1.bill_item_type_cd = 3459
+;	and bim1.end_effective_dt_tm > sysdate
+;	and bim1.key3_entity_name = "NOMENCLATURE"
+;join cv1
+;	where cv1.code_value = outerjoin(bim1.key1_id)
+;	and cv1.cdf_meaning = outerjoin("CPT4")
+;join bim2 
+;	where bim2.bill_item_id = outerjoin(bim1.key1_id)
+;	and bim2.active_ind = outerjoin(1)
+;join cv2 
+;	where cv2.code_value = outerjoin(bim2.key1_id)
+;	and cv2.cdf_meaning = outerjoin("CPT4")
+with uar_code(D), maxrec=100, format(date, ";;q"),MAXREC=1000
+
+
+;ordering provider / primary personnel?
+select into "nl:" ;$outdev
+     pid 				= encntr_rec->encounters[d1.seq].person_id
+	,eid 				= encntr_rec->encounters[d1.seq].encntr_id
+	,order_id			= encntr_rec->encounters[d1.seq].orders[d2.seq].order_id
+	,order_prsnl		= encntr_rec->encounters[d1.seq].orders[d2.seq].order_prsnl_id
+	,pr.person_id
+	,ordering_provider	= pr.name_full_formatted
+	,position 			= uar_get_code_display(pr.position_cd)
+from
+	prsnl pr
+	,(dummyt d1 with seq=(encntr_rec->cnt))
+	,( dummyt  d2 with seq = 1 )
+plan d1
+	where maxrec(d2,size(encntr_rec->encounters[d1.seq].orders,5) )
+join d2
+join pr
+	where pr.person_id 		= encntr_rec->encounters[d1.seq].orders[d2.seq].ordering_provider_id
+	and pr.active_ind		= 1
+order by eid, order_id
+detail
+	encntr_rec->encounters[d1.seq].orders[d2.seq].ordering_provider 			= trim(pr.name_full_formatted,3)
+	encntr_rec->encounters[d1.seq].orders[d2.seq].ordering_provider_position	= trim(uar_get_code_display(pr.position_cd),3)
+with nocounter, format, separator = " "
