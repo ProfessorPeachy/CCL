@@ -1,0 +1,244 @@
+  drop program 1_amj_HCI_PAT_NEWBORN_MM:DBA  go
+create program 1_amj_HCI_PAT_NEWBORN_MM:DBA
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+with OUTDEV
+ 
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare borninsidethehospital_var = f8
+	with Constant(uar_get_code_by("DISPLAYKEY",2,"BORNINSIDETHEHOSPITAL")),protect	;006
+declare transferfromahospital_var = f8
+	with Constant(uar_get_code_by("DISPLAYKEY",2,"TRANSFERFROMAHOSPITAL")),protect	;006
+declare birthweightnb_var = f8 with constant(uar_get_code_by("DISPLAYKEY",72,"BIRTHWEIGHTNB")), protect	;007
+ 
+declare icd9_cd = f8 with public, constant(uar_get_code_by("DISPLAYKEY",400,"ICD9CM"))
+declare icd10_cd = f8 with public, constant(uar_get_code_by("DISPLAYKEY",400,"ICD10CM"))
+declare birthweigth_cd = f8 with public, constant(uar_get_code_by("DISPLAY",72,"Birth Weight"))
+declare birthweigth2_cd = f8 with public, constant(uar_get_code_by("DISPLAY",72,"Birth Weight:"))
+declare delivery_type_cd = f8 with public, constant(uar_get_code_by("DISPLAY",72,"Delivery Type Birth"))
+declare delivery_type2_cd = f8 with public, constant(uar_get_code_by("DISPLAY",72,"Delivery Type, Birth"))
+declare apgar1_cd = f8 with public, constant(uar_get_code_by("DISPLAYKEY",72,"APGAR1MINUTEBYHISTORY"))
+declare apgar2_cd = f8 with public, constant(uar_get_code_by("DISPLAYKEY",72,"APGAR5MINUTEBYHISTORY"))
+declare ssn_cd = f8 with public, constant(uar_get_code_by("MEANING",4,"SSN"))
+declare MRN_cd = f8 with public, constant(uar_get_code_by("MEANING",319,"MRN"))
+declare FIN_cd = f8 with public, constant(uar_get_code_by("MEANING",319,"FIN NBR"))
+ 
+free set data
+  record data(
+  1 qual[*]
+	02 providerid = vc
+	02 patientid = vc
+	02 client_key = vc
+	02 NewbornMotherFlag = c1
+	02 BirthLocation = vc
+	02 BirthStatus = vc
+	02 Stillborn = c1
+	02 CSection = c1
+	02 APGAR1 = vc
+	02 APGAR2 = vc
+	02 MotherPatientID = vc
+	02 MotherDischargeDate = vc
+	02 MotherAdmitDate = vc
+	02 MotherName =	vc
+	02 MotherSSN = vc
+	02 NewbornWeight = vc
+	02 MotherMedicalRecord = vc
+	)
+ 
+set field_sep = '|'
+free set frec
+  record frec(
+      1 file_desc = i4
+      1 file_offset = i4
+      1 file_dir = i4
+      1 file_name = vc
+      1 file_buf = vc)
+     ;open a file
+ 
+set frec->file_name =  $outdev
+set frec->file_buf = "w"   ;case sensitive must be lowercase
+set stat = cclio("OPEN",FREC)
+ 
+select into "nl:"
+  pft_encntr = enc->qual[d.seq].pe_encntr_id,	;003
+  providerid =substring(1,20,enc->qual[d.seq].provider)
+, patientid = substring(1,20,trim(enc->qual[d.seq].PatientId))
+, client_key = substring(1,20,trim(enc->qual[d.seq].ClientKey))
+, NewbornMotherFlag = "0"
+, BirthLocation = " "   ; do not populate
+, Stillborn = " "		; do not populate
+, MotherPatientID = mfin.alias
+, MotherDischargeDate = concat(format(em.disch_dt_tm,"mm/dd/yyyy;;d")," ",format(em.disch_dt_tm,"hh:mm;;s"))
+, MotherAdmitDate = concat(format(em.reg_dt_tm,"mm/dd/yyyy;;d")," ",format(em.reg_dt_tm,"hh:mm;;s"))
+, MotherName =	pm.name_full_formatted
+, MotherSSN = m_ssn.alias
+, MotherMedicalRecord = m_mrn.alias
+from encounter e
+   , person	p
+   , dummyt d5
+   , encntr_person_reltn epr
+   , encounter em
+   , person pm
+   , person_alias m_ssn
+   , encntr_alias m_mrn
+   , encntr_alias mfin
+   , dummyt d1
+   , clinical_event ce
+   , (dummyt d with seq = size(enc->qual,5))
+plan d
+where enc->qual[d.seq].qual_ind = 1
+join e
+where e.encntr_id = enc->qual[d.seq].encntr_id
+  and e.admit_src_cd in ( borninsidethehospital_var, transferfromahospital_var )
+join p
+where p.person_id = e.person_id
+join d5
+where datetimediff(e.reg_dt_tm, p.birth_dt_tm, 1) <= 1
+join epr
+where epr.encntr_id = e.encntr_id
+  and epr.person_reltn_cd = value(uar_get_code_by("MEANING",40,"MOTHER"))
+  and epr.default_reltn_ind = 1
+join em
+where em.person_id = epr.related_person_id
+  and em.reg_dt_tm <= e.reg_dt_tm
+  and em.disch_dt_tm > e.reg_dt_tm
+join pm
+where pm.person_id = em.person_id
+join m_ssn
+where m_ssn.person_id = outerjoin(pm.person_id)
+  and m_ssn.person_alias_type_cd = outerjoin(ssn_cd)
+  and m_ssn.active_ind = outerjoin(1)
+join m_mrn
+where m_mrn.encntr_id = outerjoin(em.encntr_id)
+  and m_mrn.encntr_alias_type_cd = outerjoin(mrn_cd)
+  and m_mrn.active_ind = outerjoin(1)
+join mfin
+where mfin.encntr_id = outerjoin(em.encntr_id)
+  and mfin.encntr_alias_type_cd = outerjoin(fin_cd)
+  and mfin.active_ind = outerjoin(1)
+join d1
+join ce
+where ce.encntr_id = e.encntr_id
+  and ce.person_id = e.person_id
+  and ce.event_cd in (delivery_type_cd,
+ 					  delivery_type2_cd,
+	  				  apgar1_cd,
+	  				  apgar2_cd,
+	  				  birthweigth_cd,
+	  				  birthweigth2_cd,
+					  birthweightnb_var
+	  				  )
+  and ce.valid_until_dt_tm > sysdate
+  and not ce.result_status_cd in (31,33)
+order pft_encntr
+ 
+head report
+	n_cnt = 0
+head pft_encntr
+  n_cnt = n_cnt + 1
+  stat = alterlist(data->qual,n_cnt)
+  data->qual[n_cnt].providerid =substring(1,20,enc->qual[d.seq].provider)
+  data->qual[n_cnt].patientid = substring(1,20,trim(enc->qual[d.seq].PatientId))
+  data->qual[n_cnt].client_key = substring(1,20,trim(enc->qual[d.seq].ClientKey))
+  data->qual[n_cnt].NewbornMotherFlag = "0"
+  data->qual[n_cnt].BirthLocation = " "   ; do not populate
+  data->qual[n_cnt].MotherPatientID = mfin.alias
+  data->qual[n_cnt].MotherDischargeDate = ; em.disch_dt_tm
+						concat(format(em.disch_dt_tm,"mm/dd/yyyy;;d")," ",format(em.disch_dt_tm,"hh:mm;;s"))
+  data->qual[n_cnt].MotherAdmitDate = ; em.reg_dt_tm
+						concat(format(em.reg_dt_tm,"mm/dd/yyyy;;d")," ",format(em.reg_dt_tm,"hh:mm;;s"))
+  data->qual[n_cnt].MotherName =	pm.name_full_formatted
+  data->qual[n_cnt].MotherSSN = m_ssn.alias
+  data->qual[n_cnt].MotherMedicalRecord = m_mrn.alias
+detail
+  if (ce.event_cd in (delivery_type_cd,delivery_type2_cd))
+    data->qual[n_cnt].BirthStatus = ce.result_val
+ 	if (ce.result_val = "C-Section*" )  ;pel
+	  data->qual[n_cnt].CSection = "1"
+	else
+	  data->qual[n_cnt].CSection = "0"
+	endif
+  elseif (ce.event_cd = apgar1_cd)
+  	data->qual[n_cnt].apgar1 = ce.result_val
+  elseif (ce.event_cd = apgar2_cd)
+    data->qual[n_cnt].apgar2 = ce.result_val
+  elseif ( ce.event_cd in ( birthweigth_cd, birthweigth2_cd, birthweightnb_var ) )	;007
+    data->qual[n_cnt].NewbornWeight = ce.result_val
+  endif
+with outerjoin = d1
+ 
+ 
+select into "nl:"
+from (dummyt d with seq =  size(data->qual,5))
+head report
+  cnt = 0
+  frec->file_buf = build("ProviderId",FIELD_SEP,
+						 "PatientId",FIELD_SEP,
+		 				 "ClientKey",FIELD_SEP,
+						 "NewbornMotherFlag",FIELD_SEP,
+						 "BirthLocation",FIELD_SEP,
+						 "BirthStatus",FIELD_SEP,
+						 "Stillborn",FIELD_SEP,
+						 "CSection",FIELD_SEP,
+						 "APGAR1",FIELD_SEP,
+						 "APGAR2",FIELD_SEP,
+						 "MotherPatientID",FIELD_SEP,
+						 "MotherDischargeDate",FIELD_SEP,
+						 "MotherAdmitDate",FIELD_SEP,
+						 "MotherName",FIELD_SEP,
+						 "MotherSSN",FIELD_SEP,
+						 "NewbornWeight",FIELD_SEP,
+						 "MotherMedicalRecord",FIELD_SEP,
+	     				 char(13),char(10))
+  stat = cclio("WRITE",FREC)
+detail
+  frec->file_buf = build(trim(DATA->QUAL[D.seq].ProviderId,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].PatientId,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].Client_Key ,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].NewbornMotherFlag,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].BirthLocation,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].BirthStatus,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].Stillborn,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].CSection,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].APGAR1,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].APGAR2,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherPatientID,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherDischargeDate,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherAdmitDate,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherName,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherSSN,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].NewbornWeight,3),FIELD_SEP,
+						 trim(DATA->QUAL[D.seq].MotherMedicalRecord,3),FIELD_SEP,
+     					 char(13),char(10))
+  stat = cclio("WRITE",FREC)
+with nocounter, noheading
+ 
+;close the file
+set stat = cclio("CLOSE",FREC)
+ 
+declare record_cnt = i4
+set record_cnt = size(data->qual,5)
+ 
+/*
+select into value(enc->control_rpt)
+  file_name = "PatientNewborn",
+  rec_cnt = substring(1,10,cnvtstring(record_cnt)),
+  enc_cnt = substring(1,10,cnvtstring(record_cnt)),
+  dt = substring(1,17,format(sysdate,"mm/dd/yy hh:mm;;d"))
+from dummyt d
+detail
+  col 0 file_name
+  col 28 rec_cnt
+  col 42 enc_cnt
+  col 56 dt
+  row + 1
+with append
+*/
+;stop-here
+ 
+end
+go
