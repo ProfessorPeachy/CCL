@@ -1,0 +1,168 @@
+;CODE SET 72
+select cv.code_value
+, cv.display
+,cv.cdf_meaning
+, cv.description
+,cv.display_key
+,cv.cki
+from code_value cv
+where cv.code_set = 72
+and cv.active_ind = 1"
+
+;CODE SET 71
+select cv.*
+from code_value cv
+	where cv.code_set = 71
+	and cv.begin_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+	and cv.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+	and cv.active_ind = 1"
+
+;CODE SET 34
+select  cv.*
+from code_value cv
+	where cv.code_set = 34
+	and cv.begin_effective_dt_tm <= cnvtdatetime(curdate,curtime)
+	and cv.end_effective_dt_tm > cnvtdatetime(curdate,curtime)
+	and cv.active_ind = 1"
+
+
+;LOCATIONS
+select 
+	facility_desc	= uar_get_code_description(nu.loc_facility_cd) 
+	,facility_disp	= uar_get_code_display(nu.loc_facility_cd) 
+	,facility_cv	= nu.loc_facility_cd 
+	,bldg_desc		= uar_get_code_description(nu.loc_building_cd) 
+	,bldg_disp		= uar_get_code_display(nu.loc_building_cd) 
+	,bldg_cv		= nu.loc_building_cd
+	,nurse_unit_type= uar_get_code_display(l.location_type_cd) 
+	,nurse_unit_desc= uar_get_code_description(nu.location_cd) 
+	,nurse_unit_disp= uar_get_code_display(nu.location_cd) 
+	,nurse_unit_cv	= nu.location_cd 
+	,room_desc		= uar_get_code_description(r.location_cd) 
+	,room_disp		= uar_get_code_display(r.location_cd) 
+	,room_cv		= r.location_cd 
+	,bed_desc		= uar_get_code_description(b.location_cd) 
+	,bed_disp		= uar_get_code_display(b.location_cd) 
+	,bed_cv			= b.location_cd 
+from 
+	nurse_unit nu
+	,room r
+	,bed b
+	,location l
+plan nu 
+	where nu.active_ind=1 
+	and nu.loc_facility_cd in (select code_value from code_value 
+							   where code_set=220 and active_ind=1
+							  )  
+							  ; and cnvtupper(display) in());if needing specific facilities 
+join r 
+	where outerjoin(nu.location_cd)=r.loc_nurse_unit_cd 
+	and r.active_ind=outerjoin(1) 
+join b 
+	where outerjoin(r.location_cd)=b.loc_room_cd 
+	and b.active_ind=outerjoin(1) 
+join l 
+	where nu.location_cd=l.location_cd 
+order by facility_disp, bldg_disp, nurse_unit_disp, room_disp, bed_disp"
+
+;FACILITY OUTBOUND AND INBOUND
+select 
+	facility_desc					= uar_get_code_description(nu.loc_facility_cd) 
+	,facility_disp					= uar_get_code_display(nu.loc_facility_cd) 
+	,facility_cv					= nu.loc_facility_cd
+	,facility_outbound				= co1.alias
+	,facility_outbound_cont_source	= uar_get_code_display(co1.contributor_source_cd) 
+	,facility_inbound				= ca1.alias 
+	,facility_inbound_cont_source	= uar_get_code_display(ca1.contributor_source_cd) 
+	,bldg_desc						= uar_get_code_description(nu.loc_building_cd) 
+	,bldg_disp						= uar_get_code_display(nu.loc_building_cd) 
+	,bldg_cv						= nu.loc_building_cd 
+	,nurse_unit_type				= uar_get_code_display(l.location_type_cd) 
+	,nurse_unit_desc				= uar_get_code_description(nu.location_cd) 
+	,nurse_unit_disp				= uar_get_code_display(nu.location_cd) 
+	,nurse_unit_cv					= nu.location_cd 
+	,room_desc						= uar_get_code_description(r.location_cd) 
+	,room_disp						= uar_get_code_display(r.location_cd) 
+	,room_cv						= r.location_cd
+	,bed_desc						= uar_get_code_description(b.location_cd) 
+	,bed_disp						= uar_get_code_display(b.location_cd) 
+	,bed_cv							= b.location_cd 
+from 
+	nurse_unit nu 
+	,room r 
+	,bed b 
+	,location l
+	,code_value_outbound co1
+	,code_value_alias ca1
+plan nu 
+	where nu.active_ind=1 
+	and nu.loc_facility_cd in(	select code_value from code_value 
+								where code_set=220 and active_ind=1); and cnvtupper(display) in());if needing specific facilities 
+join r 
+	where outerjoin(nu.location_cd)	= r.loc_nurse_unit_cd 
+	and r.active_ind				= outerjoin(1) 
+join b 
+	where outerjoin(r.location_cd)	= b.loc_room_cd 
+	and b.active_ind				= outerjoin(1) 
+join l 
+	where nu.location_cd			= l.location_cd 
+join co1 
+	where co1.code_value			= outerjoin(nu.loc_facility_cd) 
+	and co1.code_set				= outerjoin(220) 
+	;and co1.contributor_source_cd=outerjoin();if needing specific contributor source 
+join ca1 
+	where ca1.code_value			= outerjoin(nu.loc_facility_cd) 
+	and ca1.code_set				= outerjoin(220) 
+	;and ca1.contributor_source_cd=outerjoin();if needing specific contributor source 
+order by facility_disp, bldg_disp, nurse_unit_disp, room_disp, bed_disp"
+
+;BUILDING OUTBOUND AND INBOUND
+select 
+	facility_desc				=uar_get_code_description(nu.loc_facility_cd) 
+	,facility_disp				=uar_get_code_display(nu.loc_facility_cd) 
+	,facility_cv				=nu.loc_facility_cd
+	,bldg_desc					=uar_get_code_description(nu.loc_building_cd) 
+	,bldg_disp					=uar_get_code_display(nu.loc_building_cd) 
+	,bldg_cv					=nu.loc_building_cd
+	,bldg_outbound				=co2.alias
+	,bldg_outbound_cont_source	=uar_get_code_display(co2.contributor_source_cd) 
+	,bldg_inbound				=ca2.alias 
+	,bldg_inbound_cont_source	=uar_get_code_display(ca2.contributor_source_cd) 
+	,nurse_unit_type			=uar_get_code_display(l.location_type_cd) 
+	,nurse_unit_desc			=uar_get_code_description(nu.location_cd) 
+	,nurse_unit_disp			=uar_get_code_display(nu.location_cd) 
+	,nurse_unit_cv				=nu.location_cd
+	,room_desc					=uar_get_code_description(r.location_cd) 
+	,room_disp					=uar_get_code_display(r.location_cd) 
+	,room_cv					=r.location_cd
+	,bed_desc					=uar_get_code_description(b.location_cd) 
+	,bed_disp					=uar_get_code_display(b.location_cd) 
+	,bed_cv						=b.location_cd 
+from 
+	nurse_unit nu 
+	,room r
+	,bed b 
+	,location l
+	,code_value_outbound co2
+	,code_value_alias ca2
+plan nu 
+	where nu.active_ind=1 
+	and nu.loc_facility_cd in(select code_value from code_value 
+								where code_set=220 and active_ind=1); and cnvtupper(display) in());if needing specific facilities 
+join r 
+	where outerjoin(nu.location_cd)=r.loc_nurse_unit_cd 
+	and r.active_ind=outerjoin(1) 
+join b 
+	where outerjoin(r.location_cd)=b.loc_room_cd 
+	and b.active_ind=outerjoin(1) 
+join l 
+	where nu.location_cd=l.location_cd 
+join co2 
+	where co2.code_value=outerjoin(nu.loc_building_cd) 
+	and co2.code_set=outerjoin(220) 
+	;and co2.contributor_source_cd=outerjoin();if needing specific contributor source 
+join ca2 
+	where ca2.code_value=outerjoin(nu.loc_facility_cd) 
+	and ca2.code_set=outerjoin(220) 
+	;and ca2.contributor_source_cd=outerjoin();if needing specific contributor source 
+order by facility_disp, bldg_disp, nurse_unit_disp, room_disp, bed_disp"
