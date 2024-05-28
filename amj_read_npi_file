@@ -1,0 +1,144 @@
+drop program amj_read_npi_file go
+create program amj_read_npi_file
+ 
+ 
+prompt
+    "Output to File/Printer/MINE" = "MINE"                           ;* Enter or select the printer or file name to send this repo
+	, "File Input Name" = "ccluserdir:amj_npi_file_input_test.txt"
+ 
+with OUTDEV, filename
+ 
+declare fieldstr = vc
+declare npistr = vc
+declare fieldLen = i4
+declare num = i4
+declare i = i4
+declare j = i4
+DECLARE LASTPOS = I4
+declare fieldIndex = i4
+declare pcnt = i4
+declare loopEnum = i4
+set loopEnum = 10
+ 
+free record phys_Rec
+record phys_rec
+(
+	1 cnt				= i4
+	1 phys[*]
+		2 npi			= vc
+		2 name			= vc
+		2 fieldCode		= vc
+)
+ 
+ 
+IF ( ( FINDFILE ( TRIM ( $FILENAME , 3 ))=1 ) )
+ 
+SELECT  INTO  $OUTDEV
+FROM (
+ DUMMYT
+)
+ 
+DETAIL
+ COL 0 ,
+"File was found : " ,
+ $FILENAME
+ WITH  NOCOUNTER
+ENDIF
+ 
+IF ( ( FINDFILE ( TRIM ( $FILENAME , 3 ))=1 ) )
+FREE DEFINE RTL2
+SET  LOGICAL  CCLFILEIN  VALUE ( $FILENAME )
+DEFINE  RTL2 "CCLFILEIN"
+SELECT  INTO  $OUTDEV
+R2.LINE
+FROM (
+ RTL2T  R2
+)
+ 
+DETAIL
+ 
+fieldstr = trim(piece(trim(r2.line), "|", 1, "Not Found"))
+fieldstr = replace(fieldStr," ", "~",0)
+npistr   = trim(piece(trim(r2.line), "|", 2, "Not Found"))
+fieldLen = size(trim(fieldstr))
+fieldIndex = 1
+ 
+;call print(fieldLen)
+;lastPos = 1
+ 
+for (i = 1 to 10) ; )loopEnum); fieldLen)
+	;field = piece(fieldstr, " ", 1 "Not Found"
+	;if (field = "Not Found")
+	call echo(trim(fieldStr,3))
+	row+1
+	call print(build2("num: ",  num , " lastpos: ", lastPos, " fieldLen: ", fieldLen))
+	row+1
+	;pos = locateval(num,1,fieldLen,"~", fieldStr)
+	pos = findstring("~",trim(fieldStr,3))
+	field = substring(1,pos-1,trim(fieldStr,3))
+	call echo(build2("checking to see if field: " , field, " matches 60"))
+ 
+	if ( field = "60" )
+		call echo(build2("FOUND AT POS... GET NPI HERE ", fieldIndex))
+ 
+		npi = trim(piece(npiStr, " ", fieldIndex, "Not Found"),3)
+ 		CALL ECHO(FIELD)
+ 		call echo(build2("npiStr: ", npiStr, " npi ", npi))
+		i = fieldLen
+		call echo(build2("i: ", i))
+		row+1
+		pcnt=pcnt+1
+		stat = alterlist(phys_rec->phys, pcnt)
+		phys_rec->phys[pcnt].fieldCode 	= trim(field,3)
+		phys_rec->phys[pcnt].npi		= trim(npi,3)
+ 
+	else
+		call ECHO("CREATE NEW FIELD")
+;		row+1
+;
+		fieldStr = trim(substring(pos+1,fieldLen,fieldStr),3)
+		fieldLen = size(fieldStr)
+		CALL ECHO(BUILD2("POS+1: ", POS+1, "     FIELDLEN: ", FIELDLEN, "    FIELDSTR: ", FIELDSTR))
+		CALL ECHO(FIELDSTR)
+	endif
+ 
+	call echo(build2("FIELDLEN----------> ", fieldLen))
+	fieldIndex = fieldIndex + 1
+;
+;	if (i>1000 or fieldLen > 1000)
+;		i = fieldLen ;break out of loop for long execution
+;	endif
+ 
+ 
+endfor
+ 
+ ;CALL PRINT ( TRIM ( SUBSTRING (1 , 2000 , R2.LINE))),
+ROW +1
+ 
+WITH  MAXROW =1 , MAXCOL =2003 , FORMAT = VARIABLE , DIO =99, time=120
+FREE DEFINE RTL2
+;SET  RPTREPORT -> M_REPORTNAME  =  $FILENAME
+ 
+ELSE
+SELECT  INTO  $OUTDEV
+FROM (
+ DUMMYT
+)
+ 
+DETAIL
+ COL 0 ,
+"File does not exist or cannot be opened: " ,
+ $FILENAME
+ WITH  NOCOUNTER, maxcol=10000
+ENDIF
+ 
+ 
+ 
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 
