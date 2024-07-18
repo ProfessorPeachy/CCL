@@ -1,0 +1,392 @@
+
+ 	*Patient Name	
+Patient Account Number	
+Mom Account Number	
+Date of Birth	
+Sex Code	
+Admit Date	
+Disch Date	
+Medical Record Number	
+Social Security Number	
+Insurance ID 1	
+Insurance ID 2	
+Insurance ID 3	
+Insurance Plan Code 1	
+Insurance Plan Code 2	
+Insurance Plan Code 3	
+Hospital Charges
+
+ 	*
+ 	*
+
+ 
+/**********************************************************************************
+		VARIABLE INITIALIZATION
+**********************************************************************************/
+declare num = i2
+declare cnt = i2
+declare quote = vc with public,noconstant('"')
+;declare fin_cd = f8
+;set fin_cd = uar_get_code_by("DISPLAY",263,"FIN")
+
+declare fin_cd						= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+declare mrn_cd						= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;2.0
+declare ssn_cd 						= f8 with public, constant(uar_get_code_by("MEANING",4,"SSN"))
+declare newborn_cd					= f8 with constant(uar_get_code_by("DISPLAYKEY",3,"NEWBORN")),protect;670841.00
+declare inpatient_cd				= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"INPATIENT")),protect;309308.00
+declare mother_cd					= f8 with constant(uar_get_code_by("MEANING",40,"MOTHER")),protect;670847
+declare child_cd					= f8 with constant(uar_get_code_by("MEANING",40,"CHLD_RESP")),protect;156.00
+declare family_member_cd			= f8 with constant(uar_get_code_by("MEANING",351,"FAMILY")),protect;1153.00
+
+
+
+ 
+
+select * from code_value cv
+plan cv
+where cv.code_value in (670841.00,309308.00)
+ 
+ 
+ 	;and e.admit_type_cd 	= 670841;newborn_cd ;670841.00 ;newborn
+	;and e.encntr_type_cd 	= inpatient_cd ;309308.00 ;inpatient
+
+/**********************************************************************************
+;		RECORD STRUCTURES
+**********************************************************************************/
+free record rec
+record rec
+(
+	1 cnt					= i4
+	1 qual[*]
+		2 facility 			= vc
+		2 pid 				= f8
+		2 eid 				= f8
+ 		2 mrn				= vc
+ 		2 finnbr 			= vc	
+ 		2 ssn				= vc
+ 		2 patient_name 		= vc ; baby
+ 		2 dob 				= vc
+ 		2 gender 			= vc
+    	2 admit_dt_tm 		= vc
+    	2 discharge_dt_tm 	= vc
+    	2 insurance_id1		= vc
+    	2 insurance_id2		= vc
+    	2 insurance_id3		= vc
+    	2 insurance_plan_1	= vc
+    	2 insurance_plan_2	= vc
+    	2 insurance_plan_3	= vc
+    	2 hospital_charges  = f8
+    	
+ 		2 pid_mom			= f8
+ 		2 eid_mom			= f8
+ 		2 mrn_mom			= vc
+ 		2 finnbr_mom		= vc
+ 		2 name_mom			= vc   
+
+    	
+    	2 related_person = vc
+    	2 PERSON_RELTN = vc
+    	2 PERSON_RELTN_TYPE = vc
+    	2 active_ind = i2
+    	2 active_cd = f8
+ 		2 active_ind2 = i2
+		2 active_cd2 = f8
+		2 no_mother_flag = vc
+		2 CHILD_PERSON_RELTN = vc
+		2 child_active_ind = i2
+		2 child_active_cd = f8
+		2 no_mother_flag_enc = vc
+)
+ 
+ 
+ 
+/*********************************************************************************
+;	Newborn Patients
+*********************************************************************************/
+
+
+;select ea.alias, ea.encntr_id, e.person_id,* from 
+;encntr_alias ea
+;,encounter e
+;plan ea
+;where ea.alias in ("202190457","202356165","202541595","202567969","202638262","202782945","900001046","201599035","201080572")
+;join e
+;where e.encntr_id = ea.encntr_id
+;and e.active_ind = 1
+;with nocounter, format, separator = " "
+;;patient information
+
+
+
+SELECT INTO $outdev ;"nl:"
+	patient_name = p.name_full_formatted
+	,finnbr = ea.alias
+	,facility = uar_get_code_display(e.loc_facility_cd)
+	,nurse_unit = UAR_GET_CODE_DISPLAY(E.LOC_NURSE_UNIT_CD)
+	,admit_dt_tm = e.REG_DT_TM
+	,dob = p.birth_dt_tm
+FROM
+	person   p
+	,encounter   e
+	,encntr_alias   ea ; fin or mrn
+plan p
+	Where cnvtupper(p.name_full_formatted) != "*CERNER*"
+	and cnvtupper(p.name_last) != "*XXX*"
+
+Join e 
+	where p.person_id 		= e.person_id
+	and e.loc_facility_cd 	= $FAC
+	and e.admit_type_cd 	= newborn_cd ;670841.00 ;newborn
+	and e.encntr_type_cd 	= inpatient_cd ;309308.00 ;inpatient
+Join ea 
+	where ea.encntr_id 		= e.encntr_id
+	and ea.active_ind 		= 1
+	and ea.encntr_alias_type_cd in (1077,1079) ;fin
+ORDER BY
+	p.person_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head p.person_id
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+ 	rec->qual[cnt].facility 			= facility 
+    rec->qual[cnt].eid 					= e.encntr_id
+    rec->qual[cnt].pid 					= p.person_id
+;    rec->qual[cnt].finnbr			= finnbr
+    rec->qual[cnt].patient_name 		= p.name_full_formatted
+    rec->qual[cnt].dob 					= format(p.birth_dt_tm,"MM/DD/YYYY;;d")
+    rec->qual[cnt].gender				= uar_get_code_display(p.sex_cd)   
+    rec->qual[cnt].admit_dt_tm 			= format(e.REG_DT_TM,"MM/dd/yyyy ;;Q")
+    rec->qual[cnt].discharge_dt_tm 		= format(e.disch_dt_tm,"MM/dd/yyyy ;;Q")
+    
+ ;   rec->qual[cnt].no_mother_flag 		= "No Mother"
+ ;   rec->qual[cnt].no_mother_flag_enc 	= "No Mother"
+detail
+	if(ea.encntr_alias_type_cd = 1077.00)
+	 	rec->qual[cnt].finnbr 		= ea.alias
+	elseif(ea.encntr_alias_type_cd = 1079.00)
+	 	rec->qual[cnt].mrn 				= ea.alias	 	
+	endif 
+foot report
+	if(cnt>0)
+		stat = alterlist(rec->qual,cnt)
+		rec->cnt = cnt
+	endif
+WITH nocounter,FORMAT, SEPARATOR = " ", time=3600
+
+
+call echojson(rec,$outdev)
+ 
+
+;;babies    with mother
+;select distinct into "nl:"
+;	pid = p.person_id
+;	,person_reltn = uar_get_code_display(ppr.person_reltn_cd)
+;	,person_reltn_type = uar_get_code_display(ppr.person_reltn_type_cd)
+;	,related_person_reltn = uar_get_code_display(ppr.related_person_reltn_cd) 
+;from
+; 	 person   p
+;	,person_person_reltn   ppr
+;plan p
+; 	 where expand(num,1,size(rec->qual,5),p.person_id,rec->qual[num].pid)
+;join ppr 
+;	where ppr.person_id 			= p.person_id
+;	and ppr.person_reltn_type_cd 	= family_member_cd ;1153.00 ; family member
+;	and ppr.person_reltn_cd 		in (mother_cd, child_cd);(156.00, 670847.00)   ; mother ; child
+;	and ppr.active_ind 				= 1
+;head p.person_id
+;	pos = locateval(num,1,size(rec->qual,5),p.person_id,rec->qual[num].pid)
+;detail
+;   	rec->qual[pos].related_person 		= related_person_reltn
+; 	rec->qual[pos].person_reltn_type 	= person_reltn_type
+; 	rec->qual[pos].active_ind 			= ppr.active_ind
+; 	rec->qual[pos].active_cd			= ppr.active_status_cd
+; 	rec->qual[pos].no_mother_flag 		= "Yes Mother" 	
+; 	rec->qual[pos].pid_mom				= ppr.related_person_id
+;
+;WITH nocounter,expand=1,time=3600
+;
+;baby ssn
+select into "nl:"
+	 babypid = rec->qual[d1.seq].pid
+	,babyeid = rec->qual[d1.seq].eid
+	,ssn.alias
+from
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+ 	,person_alias 	ssn
+plan d1
+	where d1.seq > 0
+join ssn
+	where ssn.person_id 			= rec->qual[d1.seq].pid
+ 	and ssn.person_alias_type_cd 	= ssn_cd
+  	and ssn.active_ind 			= 1
+detail
+	rec->qual[d1.seq].ssn			= ssn.alias  	
+with nocounter
+
+
+;mom informaton
+select into "nl:"
+	 babypid = rec->qual[d1.seq].pid
+	,babyeid = rec->qual[d1.seq].eid
+	,babyfin = rec->qual[d1.seq].finnbr
+	,momreg = em.reg_dt_tm
+	,momdis = em.disch_dt_tm
+	,em.encntr_id
+	,pm.person_id
+;	,m_ssn.alias
+	,m_mrn.alias
+	,mfin.alias
+from
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+	,encounter e
+   	,encntr_person_reltn epr
+   	,encounter em
+   , person pm
+  ; , person_alias m_ssn
+   , encntr_alias m_mrn
+   , encntr_alias mfin
+plan d1
+	where d1.seq > 0
+join e
+	where e.encntr_id = rec->qual[d1.seq].eid	
+join epr
+	where epr.encntr_id = rec->qual[d1.seq].eid
+  	and epr.person_reltn_cd = value(uar_get_code_by("MEANING",40,"MOTHER"))
+  	and epr.default_reltn_ind = 1
+join em
+	where em.person_id 	= epr.related_person_id
+  	and em.reg_dt_tm 	<= e.reg_dt_tm
+  	and em.disch_dt_tm 	> e.reg_dt_tm
+join pm
+	where pm.person_id = em.person_id
+;join m_ssn
+;	where m_ssn.person_id = outerjoin(pm.person_id)
+; 	and m_ssn.person_alias_type_cd = outerjoin(ssn_cd)
+;  	and m_ssn.active_ind = outerjoin(1)
+join m_mrn
+	where m_mrn.encntr_id = outerjoin(em.encntr_id)
+  	and m_mrn.encntr_alias_type_cd = outerjoin(mrn_cd)
+  	and m_mrn.active_ind = outerjoin(1)
+join mfin
+	where mfin.encntr_id = outerjoin(em.encntr_id)
+  	and mfin.encntr_alias_type_cd = outerjoin(fin_cd)
+  	and mfin.active_ind = outerjoin(1)
+detail
+	rec->qual[d1.seq].pid_mom 		= pm.person_id
+	rec->qual[d1.seq].eid_mom 		= em.encntr_id
+	rec->qual[d1.seq].mrn_mom 		= m_mrn.alias
+	rec->qual[d1.seq].finnbr_mom   	= mfin.alias
+with nocounter, format, separator = " "	
+
+ 
+;GET INSURANCE INFORMATION
+select into "nl:"
+	 eid					= rec->qual[d1.seq].eid
+	 ,insurance_id = epr.member_nbr
+	 ,hpa.alias
+	,hp.plan_desc
+	,plan_type = uar_get_code_display(hp.plan_type_cd)
+	
+	,alias_type = uar_get_code_display(hpa.plan_alias_type_cd)
+	,alias_pool = uar_get_code_display(hpa.alias_pool_cd )
+	,hpa.alias_pool_cd ;
+	,epr.member_person_code
+	,epr.alt_member_nbr, epr.card_issue_nbr
+	,epr.insured_card_name
+
+	,insured_person_id		= epr.person_id
+	,health_plan_id			= epr.health_plan_id
+	,insurance_priority		= epr.priority_seq
+from
+	encntr_plan_reltn epr
+	,health_plan 		hp
+	,health_plan_alias  hpa
+	,(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+	where rec->qual[d1.seq].eid > 0
+join epr
+	where epr.encntr_id		= rec->qual[d1.seq].eid
+	and epr.active_ind 			= 1
+join hP
+	where hP.health_plan_id		= outerjoin(epr.health_plan_id)
+	and hP.active_ind 			= 1
+join hpa ; health plan alias
+	where hpa.health_plan_id 	= outerjoin(hp.health_plan_id);outerjoin(hp.health_plan_id)
+	and hpa.plan_alias_type_cd	= outerjoin(666881.00);  cs=27121	dk=HEALTHPLANALIAS
+	and hpa.alias_pool_cd =      outerjoin(683993.00)	;cs=263     dk=HEALTHPLAN      683993.00
+	and hpa.active_ind			= outerjoin(1)
+order by eid
+detail
+	if (epr.priority_seq = 1)
+		rec->qual[d1.seq].insurance_id1 			= epr.member_nbr
+		rec->qual[d1.seq].insurance_plan_1 			= hpa.alias
+	elseif (epr.priority_seq = 2)
+		rec->qual[d1.seq].insurance_id2				= epr.member_nbr
+		rec->qual[d1.seq].insurance_plan_2 			= hpa.alias
+	elseif (epr.priority_seq = 3)
+		rec->qual[d1.seq].insurance_id2 			= epr.member_nbr
+		rec->qual[d1.seq].insurance_plan_3 			= hpa.alias
+	endif
+with time =300, format, separator = ' ', format(date,"@SHORTDATETIME") 
+ 
+select into $outdev
+	fin = rec->qual[d1.seq].finnbr
+	,pe.encntr_id, pe.pft_encntr_id, pe.pft_encntr_alias
+	, pe.charge_balance, pe.adjustment_balance, pe.applied_payment_balance
+	,pe.billing_entity_id
+	
+	;,BO.benefit_order_id
+from 
+	pft_encntr pe
+	;,BENEFIT_ORDER BO
+	,(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join pe
+	where pe.encntr_id =  rec->qual[d1.seq].eid
+	AND PE.BILLING_ENTITY_ID IN (MARSHALL_MC,MAURY_REGIONAL_MC,WAYNE_MC)
+detail
+	rec->qual[d1.seq].hospital_charges = pe.charge_balance	
+with time =300, format, separator = ' ', format(date,"@SHORTDATETIME") 	
+;call echorecord(rec)
+ 
+ ;output file
+; 
+;
+SELECT INTO $outdev
+	FACILITY				= trim(substring(1,50,rec->qual[cnt].facility))
+	,PATIENT_NAME 			= trim(substring(1,160,rec->qual[d1.seq].patient_name))
+	,PATIENT_ACCOUNT_NUMBER	= trim(substring(1,20,rec->qual[d1.seq].finnbr))
+	,MOM_ACCOUNT_NUMBER		= trim(substring(1,160,rec->qual[d1.seq].finnbr_mom))
+	,DATE_OF_BIRTH			= trim(substring(1,20,rec->qual[d1.seq].dob))
+	,SEX_CODE				= trim(substring(1,20,rec->qual[d1.seq].gender))
+	,ADMIT_DATE 			= trim(substring(1,20,rec->qual[d1.seq].admit_dt_tm))
+	,DISCH_DATE 			= trim(substring(1,20,rec->qual[d1.seq].discharge_dt_tm))
+	,MRN					= trim(substring(1,20,rec->qual[d1.seq].mrn))
+	,SSN					= trim(substring(1,20,rec->qual[d1.seq].ssn))
+	,INSURANCE_ID_1			= trim(substring(1,20,rec->qual[d1.seq].insurance_id1)) 
+	,INSURANCE_ID_2			= trim(substring(1,20,rec->qual[d1.seq].insurance_id2 ))
+	,INSURANCE_ID_3			= trim(substring(1,20,rec->qual[d1.seq].insurance_id3 ))
+	,INSURANCE_PLAN_1		= trim(substring(1,20,rec->qual[d1.seq].insurance_plan_1)) 
+	,INSURANCE_PLAN_2		= trim(substring(1,20,rec->qual[d1.seq].insurance_plan_2 ))
+	,INSURANCE_PLAN_3		= trim(substring(1,20,rec->qual[d1.seq].insurance_plan_3 ))
+	,HOSPITAL_CHARGES		= rec->qual[d1.seq].hospital_charges
+	;, PID = rec->qual[d1.seq].pid
+	;, EID = rec->qual[d1.seq].eid
+FROM
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+plan d1
+    where d1.seq > 0
+ORDER BY PATIENT_NAME   
+WITH nocounter,FORMAT, separator=" ",format,time=3600
+ 
+end
+go
