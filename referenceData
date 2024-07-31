@@ -1,0 +1,2152 @@
+
+********************************************************************************************************************************/
+drop program 01_sh_ref:dba go
+create program 01_sh_ref:dba
+
+/*********************************************************************************************************************************
+Declarations
+*********************************************************************************************************************************/
+;localize org_code per client
+declare ORG_CODE = vc with protect, constant("maury")
+
+;localize file directory per client (CCLUSERDIR is a very common location but can be customized)
+declare FILE_DIR = vc with protect, constant(logical("/cerner/d_p698/data/batch_files/ccl_extracts/stanson"))
+
+;localize All Service Sections event set per client (ALLSRVSECTS is most common but this has been different)
+declare CS93ALLSRVSECTS = f8 with protect, noconstant(uar_get_code_by("DISPLAYKEY", 93, "ALLSERVICESECTIONS"))
+
+;localize lab components specific variables (LABORATORY is most common but this has been different)
+declare CS93LABORATORY  = f8 with protect, noconstant(uar_get_code_by("DISPLAYKEY", 93, "LABORATORY"))
+
+
+;update versions as necessary
+declare SCRIPT_VERSION = vc with protect, constant("012")
+declare VERSION_DD     = vc with protect, constant("CDD-5")
+declare VERSION_SEX    = vc with protect, constant("CSEX-5")
+declare VERSION_ET     = vc with protect, constant("CET-6")
+declare VERSION_PTP    = vc with protect, constant("CPTP-6")
+declare VERSION_PPR    = vc with protect, constant("CPPR-5")
+declare VERSION_MRT    = vc with protect, constant("CMRT-5")
+declare VERSION_FRQ    = vc with protect, constant("CFRQ-5")
+declare VERSION_ALG    = vc with protect, constant("CALG-4")
+declare VERSION_DX     = vc with protect, constant("CDX-4")
+declare VERSION_LC     = vc with protect, constant("CLC-5")
+declare VERSION_MED    = vc with protect, constant("CMED-4")
+declare VERSION_PRC    = vc with protect, constant("CPRC-6")
+declare VERSION_PSP    = vc with protect, constant("CPSP-4")
+declare VERSION_NF     = vc with protect, constant("CNF-2")
+declare VERSION_VV     = vc with protect, constant("CVV-1")
+
+;initiate subroutines
+declare DeclareRoutines(null) = vc
+call DeclareRoutines(null)
+
+;other variables
+declare BDATE                     = dq8 with protect, constant(cnvtdatetime(SYSTIMESTAMP))
+declare FILE_PREFIX               = vc  with protect, constant(concat(FILE_DIR,"/",cnvtlower(ORG_CODE),"_"))
+declare FILE_SUFFIX               = vc  with protect, constant(concat("_mapping_",format(cnvtdatetime(BDATE),"yyyymmdd;;q"),".dat"))
+declare FILE_SUFFIX_ZIP           = vc  with protect, constant(concat("_",format(cnvtdatetime(BDATE),"yyyymmdd;;q"),".zip"))
+declare FILE_PROVIDERTYPE         = vc  with protect, constant(concat(FILE_PREFIX,"providertype",FILE_SUFFIX))
+declare FILE_ADMINISTRATIVESEX    = vc  with protect, constant(concat(FILE_PREFIX,"administrativesex",FILE_SUFFIX))
+declare FILE_ALLERGY              = vc  with protect, constant(concat(FILE_PREFIX,"allergy",FILE_SUFFIX))
+declare FILE_DIAGNOSIS            = vc  with protect, constant(concat(FILE_PREFIX,"diagnosis",FILE_SUFFIX))
+declare FILE_DISCHARGEDISPOSITION = vc  with protect, constant(concat(FILE_PREFIX,"dischargedisposition",FILE_SUFFIX))
+declare FILE_ENCOUNTERTYPE        = vc  with protect, constant(concat(FILE_PREFIX,"encountertype",FILE_SUFFIX))
+declare FILE_FREQUENCY            = vc  with protect, constant(concat(FILE_PREFIX,"frequency",FILE_SUFFIX))
+declare FILE_LABCOMPONENTS        = vc  with protect, constant(concat(FILE_PREFIX,"labcomponents",FILE_SUFFIX))
+declare FILE_MEDADMINROUTE        = vc  with protect, constant(concat(FILE_PREFIX,"medadminroute",FILE_SUFFIX))
+declare FILE_MEDICATION           = vc  with protect, constant(concat(FILE_PREFIX,"medication",FILE_SUFFIX))
+declare FILE_PROCEDURES           = vc  with protect, constant(concat(FILE_PREFIX,"procedures",FILE_SUFFIX))
+declare FILE_PROVIDERPATIENTRELT  = vc  with protect, constant(concat(FILE_PREFIX,"providerpatientrelt",FILE_SUFFIX))
+declare FILE_PROVIDERSPECIALTY    = vc  with protect, constant(concat(FILE_PREFIX,"providerspecialty",FILE_SUFFIX))
+declare FILE_NORMALCYFLAG         = vc  with protect, constant(concat(FILE_PREFIX,"normalcyflag",FILE_SUFFIX))
+declare FILE_VIRTVIEW             = vc  with protect, constant(concat(FILE_PREFIX,"virtualview",FILE_SUFFIX))
+declare FILE_ZIP                  = vc  with protect, constant(concat(FILE_PREFIX,"mappingdata",FILE_SUFFIX_ZIP))
+declare ZIP_COMMAND               = vc  with protect, constant(build2("zip -j ", FILE_ZIP, " ", FILE_PREFIX, "*", FILE_SUFFIX))
+declare RM_COMMAND                = vc  with protect, constant(build2("rm ", FILE_PREFIX, "*", FILE_SUFFIX))
+
+declare idx           = i4 with protect, noconstant(0)
+declare DISP_INT      = vc with protect, noconstant(";T(1)")
+declare DISP_DATE     = vc with protect, constant("yyyy-mm-dd hh:mm:ss;;q")
+declare DELIMITER     = vc with protect, constant("|")
+declare EOL           = vc with protect, constant(build(char(13),char(10)))
+declare QUOTE         = vc with protect, constant('"')
+declare CURRENT_VERSION = i4  with protect, constant(cnvtint(build(currev,currevminor,currevminor2)))
+if (CURRENT_VERSION < 8102)
+  declare EXPAND_CONTROL = i4 with protect, constant(1)
+else
+  declare EXPAND_CONTROL = i4 with protect, constant(2)
+endif
+
+;route specific variables
+declare OEFID_ROUTE               = f8  with protect, noconstant(0)
+
+;frequency specific variables
+declare OEFID_FREQ                = f8  with protect, noconstant(0)
+
+;allergy specific variables
+declare CS400MULTUMALLERGYCATEGORY = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!22969"))
+declare CS400MULTUMDRUG            = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!22970"))
+declare CS400ALLERGY               = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2960"))
+
+;diagnosis specific variables
+declare CS400ICD10CM = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4101498946"))
+
+;lab components specific variables
+;declare CS93LABORATORY  = f8 with protect, noconstant(uar_get_code_by("DISPLAYKEY", 93, "LABORATORY"))
+declare lc_no_data_disp = vc with protect, noconstant(" ")
+
+;medication and procedure shared variables
+declare CS6000PHARMACY   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3079"))
+declare CS6011PRIMARY    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3128"))
+
+;medication specific variables
+declare CS6011RXMNEMONIC = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!5384"))
+declare CS6011BRANDNAME  = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3125"))
+declare CS6011DCP        = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3126"))
+declare CS6011C          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119828"))
+declare CS6011E          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119829"))
+declare CS6011M          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119824"))
+declare CS6011N          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119826"))
+declare CS6011Y          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119825"))
+declare CS6011Z          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2119827"))
+declare CS29223MULTUMRXN = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4101799623"))
+declare genericrxcui     = vc with protect, noconstant("")
+
+;procedure specific variables
+declare cpt             = vc with protect, noconstant("")
+declare CS13019BILLCODE = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3516"))
+declare CS14002CPT4     = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3600"))
+
+;provider specialty specific variables
+declare CS19189DEPARTMENT = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!108331"))
+declare CS19189SERVICE    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!108368"))
+
+;get the oe_field_id for route and frequency files
+select into "nl:"
+from
+   oe_field_meaning ofm
+  ,order_entry_fields oef
+plan ofm
+  where ofm.oe_field_meaning in ("RXROUTE", "FREQ")
+join oef
+  where oef.oe_field_meaning_id = ofm.oe_field_meaning_id
+
+detail
+  case(ofm.oe_field_meaning)
+    of "RXROUTE": OEFID_ROUTE = oef.oe_field_id
+    of "FREQ"   : OEFID_FREQ  = oef.oe_field_id
+  endcase
+    
+with nocounter 
+
+/*********************************************************************************************************************************
+Global Record Structures
+*********************************************************************************************************************************/
+if (not validate(reply))
+    record reply
+    (
+%i cclsource:status_block.inc
+     ) with protect
+endif
+
+;used to store code values
+free record codevalue
+record codevalue (
+  1 qual_cnt      = i4
+  1 qual[*]
+    2 code_set    = f8
+    2 code_value  = f8
+    2 display     = vc
+    2 concept_cki = vc
+    2 cki         = vc
+    2 etc_code_set    = f8
+    2 etc_code_value  = f8
+    2 etc_display     = vc
+    2 etc_concept_cki = vc
+    2 etc_cki         = vc
+)
+
+;used for CCLIO to write file
+free record frec
+record frec (
+  1 file_desc   = i4
+  1 file_offset = i4
+  1 file_dir    = i4
+  1 file_name   = vc
+  1 file_buf    = vc
+)
+
+/*********************************************************************************************************************************
+Load Code Value Based Data
+   dischargedisposition - discharge dispositions from code set 19
+   administrativesex    - sex codes from code set 57
+   encountertype        - encounter types from code set 71
+   providertype         - positions from code set 88
+   providerpatientrelt  - person/prsnl and encntr/prsnl relationship types from code sets 331 and 333
+   medadminroute        - routes of administration from code set 4001
+   frequency            - frequencies from code set 4003
+   normalcycode         - normalcy codes from code set 52
+*********************************************************************************************************************************/
+call echo(build2("Begin Load Code Sets ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from 
+  code_value cv
+plan cv
+  where cv.code_set in (19,57,71,88,331,333,4001,4003,52)
+    and cv.active_ind = 1
+    and cv.begin_effective_dt_tm <= cnvtdatetime(sysdate)
+    and cv.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+   cv.code_set
+  ,cv.display_key
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 1000) = 1)
+    stat = alterlist(codevalue->qual, cnt + 999)
+  endif
+  
+  codevalue->qual[cnt].code_set    = cv.code_set
+  codevalue->qual[cnt].code_value  = cv.code_value
+  codevalue->qual[cnt].display     = cv.display
+  codevalue->qual[cnt].concept_cki = cv.concept_cki
+  codevalue->qual[cnt].cki         = cv.cki
+  
+foot report
+  codevalue->qual_cnt = cnt
+  stat = alterlist(codevalue->qual, cnt)
+    
+with nocounter
+
+/*****
+Encounter Type Class Relationships
+*****/
+call echo(build2("Begin Load Code Value Group for Encounter Type Class ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   code_value_group cvg
+  ,code_value cv
+plan cvg
+  where expand(idx,1,codevalue->qual_cnt,cvg.child_code_value,codevalue->qual[idx].code_value)
+join cv
+  where cv.code_value = cvg.parent_code_value
+    and cv.code_set = 69
+    and cv.active_ind = 1
+    and cv.begin_effective_dt_tm < cnvtdatetime(systimestamp)
+    and cv.end_effective_dt_tm > cnvtdatetime(systimestamp)
+    
+detail
+  pos = locateval(idx,1,codevalue->qual_cnt,cvg.child_code_value,codevalue->qual[idx].code_value)
+  codevalue->qual[pos].etc_code_set    = cv.code_set
+  codevalue->qual[pos].etc_code_value  = cv.code_value
+  codevalue->qual[pos].etc_display     = cv.display
+  codevalue->qual[pos].etc_concept_cki = cv.concept_cki
+  codevalue->qual[pos].etc_cki         = cv.cki
+    
+with nocounter, expand = 2
+
+/*****
+Discharge Disposition Output (CS19)
+*****/
+call echo(build2("Begin Discharge Disposition Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 19
+
+head report
+  frec->file_name = FILE_DISCHARGEDISPOSITION
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_DISCHARGEDISPOSITION))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "discharge_disposition_code", QUOTE
+    ,DELIMITER, QUOTE, "discharge_disposition_name", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_DD, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_DISCHARGEDISPOSITION))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Administrative Sex Output (CS57)
+*****/
+call echo(build2("Begin Administrative Sex Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 57
+  
+head report
+  frec->file_name = FILE_ADMINISTRATIVESEX
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ADMINISTRATIVESEX))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "administrative_sex_code", QUOTE
+    ,DELIMITER, QUOTE, "administrative_sex_name", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_SEX, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ADMINISTRATIVESEX))
+  endif
+
+with nocounter, nullreport
+
+
+/*****
+Encounter Type Output (CS71)
+*****/
+call echo(build2("Begin Encounter Type Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 71
+
+head report
+  frec->file_name = FILE_ENCOUNTERTYPE
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ENCOUNTERTYPE))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_code", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_name", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_cki", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_class_code", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_class_name", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_class_cki", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_class_concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_ET, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].etc_code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].etc_display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].etc_cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].etc_concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ENCOUNTERTYPE))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Provider Type Output (CS88)
+*****/
+call echo(build2("Begin Provider Type Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 88
+
+head report
+  frec->file_name = FILE_PROVIDERTYPE
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERTYPE))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "provider_type_code", QUOTE
+    ,DELIMITER, QUOTE, "provider_type_name", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty_title", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PTP, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERTYPE))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Provider Patient Relationships Output (CS331, CS333)
+*****/
+call echo(build2("Begin Patient Relationships Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set in (331, 333)
+
+head report
+  frec->file_name = FILE_PROVIDERPATIENTRELT
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERPATIENTRELT))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "provider_patient_reltn_code", QUOTE
+    ,DELIMITER, QUOTE, "provider_patient_reltn_name", QUOTE
+    ,DELIMITER, QUOTE, "provider_patient_reltn_type", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PPR, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(trim(evaluate(codevalue->qual[d1.seq].code_set
+                                     ,331
+                                     ,"PERSON_PROVIDER"
+                                     ,"ENCOUNTER_PROVIDER")
+                                 )
+                             )
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERPATIENTRELT))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Medication Administration Routes Output (CS4001)
+*****/
+call echo(build2("Begin Medication Administration Routes Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 4001
+
+head report
+  frec->file_name = FILE_MEDADMINROUTE
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MEDADMINROUTE))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "medication_route_code", QUOTE
+    ,DELIMITER, QUOTE, "medication_route_name", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "oe_field_id", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_MRT, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(DisplayInt(OEFID_ROUTE))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MEDADMINROUTE))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Frequency Output (CS4003)
+*****/
+call echo(build2("Begin Frequency Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 4003
+
+head report
+  frec->file_name = FILE_FREQUENCY
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FREQUENCY))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "frequency_code", QUOTE
+    ,DELIMITER, QUOTE, "frequency_name", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "oe_field_id", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_FRQ, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(DisplayInt(OEFID_FREQ))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FREQUENCY))
+  endif
+
+with nocounter, nullreport
+
+/*****
+Normalcy Flags (CS52)
+*****/
+call echo(build2("Begin Normalcy Flags Output ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(codevalue->qual, 5)))
+plan d1
+  where codevalue->qual[d1.seq].code_set = 52
+  
+head report
+  frec->file_name = FILE_NORMALCYFLAG
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_NORMALCYFLAG))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "normalcy_flag_code", QUOTE
+    ,DELIMITER, QUOTE, "normalcy_flag_name", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_NF, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(codevalue->qual[d1.seq].code_value))
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].display)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(codevalue->qual[d1.seq].concept_cki)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_NORMALCYFLAG))
+  endif
+
+with nocounter, nullreport
+
+
+/*********************************************************************************************************************************
+Allergy
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Allergy Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Allergy record structures
+*****/
+record output_alg (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 nomenclature_id   = f8
+    2 source_string     = vc
+    2 source_identifier = vc
+    2 source_vocabulary = vc
+)
+
+
+/*****
+Allergy Data Processing
+*****/
+;main allergy data
+select into "nl:"
+from
+   nomenclature n
+plan n
+  where n.source_vocabulary_cd in (CS400MULTUMALLERGYCATEGORY
+                                  ,CS400MULTUMDRUG
+                                  ,CS400ALLERGY
+                                   )
+    and n.active_ind = 1
+    and n.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and n.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+   uar_get_code_display(n.source_vocabulary_cd)
+  ,n.source_string_keycap
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 30000) = 1)
+    stat = alterlist(output_alg->qual, cnt + 29999)
+  endif
+
+  output_alg->qual[cnt].nomenclature_id   = n.nomenclature_id
+  output_alg->qual[cnt].source_string     = n.source_string
+  output_alg->qual[cnt].source_identifier = n.source_identifier
+  output_alg->qual[cnt].source_vocabulary = uar_get_code_display(n.source_vocabulary_cd)
+  
+foot report
+  output_alg->qual_cnt = cnt
+  stat = alterlist(output_alg->qual, cnt)
+    
+with nocounter
+ 
+if (output_alg->qual_cnt = 0)
+  go to NO_ALG_DATA
+endif 
+
+ 
+/*****
+Allergy Output
+*****/
+select into "nl:"
+
+from
+  (dummyt   d1  with seq = value(size(output_alg->qual, 5)))
+
+head report
+  frec->file_name = FILE_ALLERGY
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALLERGY))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "nomenclature_id", QUOTE
+    ,DELIMITER, QUOTE, "source_string", QUOTE
+    ,DELIMITER, QUOTE, "source_identifier", QUOTE
+    ,DELIMITER, QUOTE, "source_vocabulary", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_ALG, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_alg->qual[d1.seq].nomenclature_id))
+    ,DELIMITER, DisplayText(output_alg->qual[d1.seq].source_string)
+    ,DELIMITER, DisplayText(output_alg->qual[d1.seq].source_identifier)
+    ,DELIMITER, DisplayText(output_alg->qual[d1.seq].source_vocabulary)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALLERGY))
+  endif
+
+with nocounter
+
+#NO_ALG_DATA
+if (output_alg->qual_cnt = 0)
+  select into FILE_ALLERGY
+  from (dummyt d with seq = 1)
+  detail
+  call print("No allergy data qualified.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Allergy Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Diagnosis
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Diagnosis Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Diagnosis record structures
+*****/
+record output_dx (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 nomenclature_id   = f8
+    2 concept_cki       = vc
+    2 source_string     = vc
+    2 source_identifier = vc
+    2 source_vocabulary = vc
+)
+ 
+/*****
+Diagnosis Data Processing
+*****/
+;main diagnosis data
+select into "nl:"
+from
+  nomenclature n
+plan n
+  where n.source_vocabulary_cd = CS400ICD10CM
+    and n.active_ind = 1
+    and n.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and n.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+  n.source_identifier_keycap
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 100000) = 1)
+    stat = alterlist(output_dx->qual, cnt + 99999)
+  endif
+
+  output_dx->qual[cnt].nomenclature_id   = n.nomenclature_id ;f8
+  output_dx->qual[cnt].concept_cki       = n.concept_cki ;vc
+  output_dx->qual[cnt].source_string     = n.source_string ;vc
+  output_dx->qual[cnt].source_identifier = n.source_identifier ;vc
+  output_dx->qual[cnt].source_vocabulary = uar_get_code_display(n.source_vocabulary_cd) ;vc
+
+  
+foot report
+  output_dx->qual_cnt = cnt
+  stat = alterlist(output_dx->qual, cnt)
+    
+with nocounter
+ 
+if (output_dx->qual_cnt = 0)
+  go to NO_DX_DATA
+endif 
+
+ 
+/*****
+Diagnosis Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_dx->qual, 5)))
+
+head report
+  frec->file_name = FILE_DIAGNOSIS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_DIAGNOSIS))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "nomenclature_id", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "source_string", QUOTE
+    ,DELIMITER, QUOTE, "source_identifier", QUOTE
+    ,DELIMITER, QUOTE, "source_vocabulary", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_DX, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_dx->qual[d1.seq].nomenclature_id))
+    ,DELIMITER, DisplayText(output_dx->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(output_dx->qual[d1.seq].source_string)
+    ,DELIMITER, DisplayText(output_dx->qual[d1.seq].source_identifier)
+    ,DELIMITER, DisplayText(output_dx->qual[d1.seq].source_vocabulary)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_DIAGNOSIS))
+  endif
+
+with nocounter
+ 
+ 
+#NO_DX_DATA
+if (output_dx->qual_cnt = 0)
+  select into FILE_DIAGNOSIS
+  from (dummyt d with seq = 1)
+  detail
+  call print("No Diagnosis Data Found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Diagnosis Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Lab Components
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Lab Components Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Lab Components record structures
+*****/
+record output_lc (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 org_code       = vc
+    2 component_code = f8
+    2 component_name = vc
+    2 external_name  = vc
+    2 base_name      = vc
+    2 common_name    = vc
+    2 loinc_code     = vc
+    2 default_units  = vc
+    2 cki            = vc
+    2 concept_cki    = vc
+    2 ce_event_code  = f8
+)
+ 
+/*****
+Lab Components Data Processing
+*****/
+;confirm the lab event_set_cd
+select into "nl:"
+from 
+  v500_event_set_canon lab
+plan lab
+  where lab.parent_event_set_cd = CS93ALLSRVSECTS
+    and lab.event_set_cd = CS93LABORATORY
+detail
+  CS93LABORATORY = lab.event_set_cd
+
+with nocounter
+
+if(CS93LABORATORY <= 0 or CS93ALLSRVSECTS <= 0)
+  set lc_no_data_disp = "Failed to find the Laboratory Event Set.  Check the declarations for CS93LABORATORY and CS93ALLSRVSECTS"
+  go to NO_LC_DATA
+endif
+
+;get the lab event_codes
+select into "nl:"
+  event_set_name = cnvtupper(vesc.event_set_name)
+from 
+   v500_event_set_explode vese
+  ,v500_event_set_explode vese1
+  ,v500_event_set_code vesc
+  ,code_value cv
+plan vese
+  where vese.event_set_cd = CS93LABORATORY
+join vese1
+  where vese1.event_cd = vese.event_cd
+    and vese1.event_set_level = 0
+join vesc
+  where vesc.event_set_cd = vese1.event_set_cd
+join cv
+  where cv.code_value = vese1.event_set_cd
+order
+  event_set_name
+ ,vesc.event_set_cd
+head report
+  cnt = 0
+
+head event_set_name
+  null
+
+head vesc.event_set_cd
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_lc->qual, cnt + 9999)
+  endif
+  
+;  output_lc->qual[].org_code       = 
+  output_lc->qual[cnt].component_code = vesc.event_set_cd
+  output_lc->qual[cnt].component_name = vesc.event_set_name
+;  output_lc->qual[].external_name  = 
+;  output_lc->qual[].base_name      = 
+;  output_lc->qual[].common_name    = 
+;  output_lc->qual[].loinc_code     = 
+;  output_lc->qual[].default_units  = 
+  output_lc->qual[cnt].cki            = cv.cki
+  output_lc->qual[cnt].concept_cki    = cv.concept_cki
+  output_lc->qual[cnt].ce_event_code = vese1.event_cd
+
+ 
+detail
+  null
+
+foot event_set_name
+  null
+
+foot vesc.event_set_cd
+  null
+ 
+foot report
+  output_lc->qual_cnt = cnt
+  stat = alterlist(output_lc->qual, cnt)
+    
+with nocounter
+ 
+if (output_lc->qual_cnt = 0)
+  set lc_no_data_disp = "No lab components found."
+  go to NO_LC_DATA
+endif 
+
+ 
+/*****
+Lab Components Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_lc->qual, 5)))
+
+head report
+  frec->file_name = FILE_LABCOMPONENTS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_LABCOMPONENTS))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "component_code", QUOTE
+    ,DELIMITER, QUOTE, "component_name", QUOTE
+    ,DELIMITER, QUOTE, "external_name", QUOTE
+    ,DELIMITER, QUOTE, "base_name", QUOTE
+    ,DELIMITER, QUOTE, "common_name", QUOTE
+    ,DELIMITER, QUOTE, "loinc_code", QUOTE
+    ,DELIMITER, QUOTE, "default_units", QUOTE
+    ,DELIMITER, QUOTE, "cki", QUOTE
+    ,DELIMITER, QUOTE, "concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "event_code", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_LC, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_lc->qual[d1.seq].component_code))
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].component_name)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].external_name)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].base_name)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].common_name)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].loinc_code)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].default_units)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(output_lc->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(DisplayInt(output_lc->qual[d1.seq].ce_event_code))
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_LABCOMPONENTS))
+  endif
+
+with nocounter
+ 
+ 
+#NO_LC_DATA
+if (output_lc->qual_cnt = 0)
+  select into FILE_LABCOMPONENTS
+  from (dummyt d with seq = 1)
+  detail
+  call print(lc_no_data_disp)
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Lab Components Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Medication
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Medication Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Medication record structures
+*****/
+;holds the final output
+record output_med (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 catsort             = i2
+    2 cki                 = vc
+    2 ocs_concept_cki_ind = i2
+    2 concept_cki         = vc
+    2 medication_id       = f8
+    2 medication_name     = vc
+    2 thera_class_code    = f8
+    2 thera_class_name    = vc
+    2 thera_class_name2   = vc
+    2 thera_class_name3   = vc
+    2 pharm_class_code    = f8
+    2 pharm_class_name    = vc
+    2 pharm_subclass_code = f8
+    2 pharm_subclass_name = vc
+    2 generic_med_id      = f8
+    2 generic_med_name    = vc
+    2 generic_med_concept_cki = vc
+    2 generic_med_rxcui   = vc
+    2 medication_strength = vc
+    2 medication_form     = vc
+    2 medication_route    = vc
+    2 rxnormcui           = vc
+    2 catalog_cki         = vc
+    2 catalog_type_cd     = f8
+    2 catalog_type_disp   = vc
+    2 event_set_name      = vc
+)
+
+;therapeutic class data 
+record sh_therapy_class (
+  1 qual_cnt = i4
+  1 level = i4
+  1 qual [*]
+    2 cki = vc
+    2 therapy_cnt = i4
+    2 therapy[*]
+      3 therapy_class = vc
+)
+
+;rxnorm data
+record rxnorm (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 concept_cki = vc
+    2 rxcui = vc
+) 
+
+/******
+Medication Data Processing
+******/
+;get the medication order catalog
+select into "nl:"
+   concept_cki = evaluate(size(trim(ocs.concept_cki)), 0, mocl.synonym_concept_cki, ocs.concept_cki)
+  ,catsort = evaluate2(
+                           if (ocs.mnemonic_type_cd = CS6011PRIMARY)     1
+                       elseif (ocs.mnemonic_type_cd = CS6011BRANDNAME)   2
+                       elseif (ocs.mnemonic_type_cd = CS6011DCP)         3
+                       elseif (ocs.mnemonic_type_cd = CS6011C)           4
+                       elseif (ocs.mnemonic_type_cd = CS6011E)           5
+                       elseif (ocs.mnemonic_type_cd = CS6011M)           6
+                       elseif (ocs.mnemonic_type_cd = CS6011N)           7
+                       elseif (ocs.mnemonic_type_cd = CS6011Y)           8
+                       elseif (ocs.mnemonic_type_cd = CS6011Z)           9
+                       elseif (ocs.mnemonic_type_cd = CS6011RXMNEMONIC) 10
+                        endif
+                            )
+from
+   order_catalog oc
+  ,order_catalog_synonym ocs
+  ,mltm_order_catalog_load mocl
+plan oc
+  where oc.catalog_type_cd = CS6000PHARMACY
+    and oc.active_ind = 1
+    and oc.orderable_type_flag in (0,1,10)
+join ocs
+  where ocs.catalog_cd = oc.catalog_cd
+    and ocs.active_ind = 1
+join mocl
+  where mocl.synonym_cki = outerjoin(ocs.cki)
+    and mocl.active_ind = outerjoin(1)
+order by
+ concept_cki
+head report
+  cnt = 0
+  ckicnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 40000) = 1)
+    stat = alterlist(output_med->qual, cnt + 39999)
+    stat = alterlist(sh_therapy_class->qual, cnt + 39999)
+  endif
+  
+  output_med->qual[cnt].catsort             = catsort
+  output_med->qual[cnt].cki                 = ocs.cki
+  output_med->qual[cnt].medication_id       = ocs.synonym_id
+  output_med->qual[cnt].medication_name     = ocs.mnemonic
+  output_med->qual[cnt].generic_med_id      = oc.catalog_cd
+  output_med->qual[cnt].generic_med_name    = oc.primary_mnemonic
+  output_med->qual[cnt].catalog_cki         = oc.cki
+  output_med->qual[cnt].catalog_type_cd     = oc.catalog_type_cd
+  output_med->qual[cnt].catalog_type_disp   = uar_get_code_display(oc.catalog_type_cd)
+  sh_therapy_class->qual[cnt].cki           = oc.cki
+ 
+  if (size(trim(concept_cki)) > 0)
+    output_med->qual[cnt].ocs_concept_cki_ind     = 1
+    output_med->qual[cnt].concept_cki             = concept_cki
+    
+    ckicnt = ckicnt + 1
+    if (mod(ckicnt, 40000) = 1)
+      stat = alterlist(rxnorm->qual, ckicnt + 39999)
+    endif
+    
+    rxnorm->qual[ckicnt].concept_cki = concept_cki
+    
+  endif
+ 
+ 
+foot report
+  output_med->qual_cnt = cnt
+  stat = alterlist(output_med->qual, cnt)
+  
+  sh_therapy_class->qual_cnt = cnt
+  stat = alterlist(sh_therapy_class->qual, cnt)
+  
+  rxnorm->qual_cnt = ckicnt
+  stat = alterlist(rxnorm->qual, cnt)
+  
+with nocounter
+ 
+if (output_med->qual_cnt = 0)
+  go to NO_MED_DATA
+endif
+
+;get medication event set
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   code_value_event_r cver
+  ,v500_event_set_explode vese
+  ,v500_event_set_code vesc
+plan cver
+  where expand(idx,1,output_med->qual_cnt,cver.parent_cd,output_med->qual[idx].generic_med_id)
+join vese
+  where vese.event_cd = cver.event_cd
+    and vese.event_set_level = 0
+join vesc
+  where vesc.event_set_cd = vese.event_set_cd
+  
+detail
+  pos = locateval(idx,1,output_med->qual_cnt,cver.parent_cd,output_med->qual[idx].generic_med_id)
+  while (pos != 0)
+    output_med->qual[pos].event_set_name = vesc.event_set_cd_disp
+    pos = locateval(idx,pos+1,output_med->qual_cnt,cver.parent_cd,output_med->qual[idx].generic_med_id)
+  endwhile
+
+with nocounter, expand = 2
+ 
+;get rxnorm
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   cmt_cross_map ccm
+  ,nomenclature n
+plan ccm
+  where expand(idx,1,rxnorm->qual_cnt,ccm.concept_cki,rxnorm->qual[idx].concept_cki)
+    and ccm.map_type_cd = CS29223MULTUMRXN
+    and ccm.active_ind = 1
+    and ccm.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and ccm.end_effective_dt_tm >= cnvtdatetime(sysdate)
+join n
+  where n.concept_cki = ccm.target_concept_cki
+    and n.active_ind = 1
+    and n.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and n.end_effective_dt_tm >= cnvtdatetime(sysdate)
+ 
+detail
+  pos = locatevalsort(idx,1,rxnorm->qual_cnt,ccm.concept_cki,rxnorm->qual[idx].concept_cki)
+  if (pos > 0)
+    rxnorm->qual[pos].rxcui = n.source_identifier
+  endif
+ 
+with nocounter, expand = 2
+ 
+;populate the tharapapeutic class
+call sh_get_therapy_class(null)
+
+select into "nl:"
+   primary = trim(substring(1,100,cnvtupper(output_med->qual[d1.seq].generic_med_name)))
+  ,catsort = output_med->qual[d1.seq].catsort
+  ,mnemonic = trim(substring(1,100,cnvtupper(output_med->qual[d1.seq].medication_name)))
+from
+   (dummyt   d1  with seq = sh_therapy_class->qual_cnt)
+  ,(dummyt   d2  with seq = 1)
+plan d1 where maxrec(d2, sh_therapy_class->qual[d1.seq].therapy_cnt)
+join d2
+order by
+   primary
+  ,catsort
+  ,mnemonic
+  ,d2.seq
+head report
+  null
+  
+head primary
+  genericrxcui = ""
+  
+head catsort
+  null
+  
+head mnemonic
+  if (output_med->qual[d1.seq].ocs_concept_cki_ind = 1)
+    pos = locatevalsort(idx,1,rxnorm->qual_cnt,output_med->qual[d1.seq].concept_cki,rxnorm->qual[idx].concept_cki)
+    if (pos > 0)
+      output_med->qual[d1.seq].rxnormcui = rxnorm->qual[pos].rxcui
+      if (catsort = 1)
+        genericrxcui = rxnorm->qual[pos].rxcui
+        output_med->qual[d1.seq].generic_med_rxcui = genericrxcui
+      else
+        output_med->qual[d1.seq].generic_med_rxcui = genericrxcui        
+      endif
+    endif
+  endif
+  
+detail
+  case(d2.seq)
+      of 1: output_med->qual[d1.seq].thera_class_name = sh_therapy_class->qual[d1.seq].therapy[d2.seq].therapy_class
+      of 2: output_med->qual[d1.seq].thera_class_name2 = sh_therapy_class->qual[d1.seq].therapy[d2.seq].therapy_class
+      of 3: output_med->qual[d1.seq].thera_class_name3 = sh_therapy_class->qual[d1.seq].therapy[d2.seq].therapy_class
+  endcase
+
+foot mnemonic
+  null
+  
+foot catsort
+  null
+  
+foot primary
+  null
+  
+foot report
+  null
+
+with nocounter, separator=" ", format, outerjoin = d1
+
+ 
+/*****
+Medication Output
+*****/
+select into "nl:"
+from
+   (dummyt   d1  with seq = output_med->qual_cnt)
+order
+   cnvtupper(output_med->qual[d1.seq].generic_med_name)
+  ,output_med->qual[d1.seq].catsort
+  ,cnvtupper(output_med->qual[d1.seq].medication_name)
+
+head report
+  frec->file_name = FILE_MEDICATION
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MEDICATION))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "medication_id", QUOTE
+    ,DELIMITER, QUOTE, "medication_name", QUOTE
+    ,DELIMITER, QUOTE, "thera_class_code", QUOTE
+    ,DELIMITER, QUOTE, "thera_class_name", QUOTE
+    ,DELIMITER, QUOTE, "thera_class_name2", QUOTE
+    ,DELIMITER, QUOTE, "thera_class_name3", QUOTE
+    ,DELIMITER, QUOTE, "pharm_class_code", QUOTE
+    ,DELIMITER, QUOTE, "pharm_class_name", QUOTE
+    ,DELIMITER, QUOTE, "pharm_subclass_code", QUOTE
+    ,DELIMITER, QUOTE, "pharm_subclass_name", QUOTE
+    ,DELIMITER, QUOTE, "generic_med_id", QUOTE
+    ,DELIMITER, QUOTE, "generic_med_name", QUOTE
+    ,DELIMITER, QUOTE, "medication_strength", QUOTE
+    ,DELIMITER, QUOTE, "medication_form", QUOTE
+    ,DELIMITER, QUOTE, "medication_route", QUOTE
+    ,DELIMITER, QUOTE, "rxnormcui", QUOTE
+    ,DELIMITER, QUOTE, "genericrxnormcui", QUOTE
+    ,DELIMITER, QUOTE, "syn_cki", QUOTE
+    ,DELIMITER, QUOTE, "syn_concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "catalog_cki", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_cd", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_disp", QUOTE
+    ,DELIMITER, QUOTE, "event_set_name", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_MED, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].medication_id))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].medication_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].thera_class_code))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].thera_class_name)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].thera_class_name2)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].thera_class_name3)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].pharm_class_code))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].pharm_class_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].pharm_subclass_code))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].pharm_subclass_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].generic_med_id))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].generic_med_name)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].medication_strength)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].medication_form)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].medication_route)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].rxnormcui)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].generic_med_rxcui)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].cki)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].concept_cki)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].catalog_cki)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].catalog_type_cd))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].catalog_type_disp)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].event_set_name)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MEDICATION))
+  endif
+
+with nocounter
+ 
+ 
+#NO_MED_DATA
+if (output_med->qual_cnt = 0)
+  select into FILE_MEDICATION
+  from (dummyt d with seq = 1)
+  detail
+  call print("No medication data qualified.")
+  with nocounter
+endif
+
+call echo(build2("End Get Medication Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+/*********************************************************************************************************************************
+Virtual View Data
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Virtual View Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Virtual View record structures
+*****/
+record output_cvv (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 catalog_disp           = vc
+	2 catalog_desc           = vc
+	2 catalog_type           = vc
+	2 facility_disp          = vc
+	2 facility_desc          = vc
+	2 facility_code          = vc
+	2 synonym_id             = vc
+	2 catalog_code           = vc
+	2 oeformat_id            = vc
+	2 actsubtype             = vc
+)
+
+/*****
+Virtual View Data Processing
+*****/
+
+SELECT into "nl:"
+                O_CATALOG_DISP = UAR_GET_CODE_DISPLAY(O.CATALOG_CD)
+                ,O_CATALOG_DESC = UAR_GET_CODE_DESCRIPTION(O.CATALOG_CD)
+                ,O_CATALOG_TYPE_DISP = UAR_GET_CODE_DISPLAY(O.CATALOG_TYPE_CD)
+                ,OFR_FACILITY_DISP = UAR_GET_CODE_DISPLAY(OFR.FACILITY_CD)
+                ,OFR_FACILITY_DESC = UAR_GET_CODE_DESCRIPTION(OFR.FACILITY_CD)
+                ,faccode    = cnvtstring(OFR.FACILITY_CD)
+                ,synid      = cnvtstring(OFR.SYNONYM_ID)
+                ,catolgcode = cnvtstring(O.CATALOG_CD)
+                ,oe_format  = cnvtstring(O.OE_FORMAT_ID)
+				,actsubtype = UAR_GET_CODE_DISPLAY(o.activity_subtype_cd)
+
+FROM
+                ORDER_CATALOG_SYNONYM   O
+                , OCS_FACILITY_R   OFR
+				, LOCATION  L
+
+plan o where  o.catalog_type_cd = 2517 
+     and o.active_ind = 1
+join OFR where OFR.synonym_id = O.synonym_id 
+join l where l.location_cd = ofr.facility_cd
+	 and l.active_ind = 1
+	 and l.end_effective_dt_tm >sysdate
+
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_cvv->qual, cnt + 9999)
+  endif
+  
+	output_cvv->qual[cnt].catalog_disp = O_CATALOG_DISP
+	output_cvv->qual[cnt].catalog_desc = O_CATALOG_DESC
+	output_cvv->qual[cnt].catalog_type = O_CATALOG_TYPE_DISP
+	output_cvv->qual[cnt].facility_disp = OFR_FACILITY_DISP
+	output_cvv->qual[cnt].facility_desc = OFR_FACILITY_DESC
+	output_cvv->qual[cnt].facility_code = faccode
+	output_cvv->qual[cnt].synonym_id = synid
+	output_cvv->qual[cnt].catalog_code = catolgcode
+	output_cvv->qual[cnt].oeformat_id = oe_format
+	output_cvv->qual[cnt].actsubtype = actsubtype
+               
+foot report
+  output_cvv->qual_cnt = cnt
+  stat = alterlist(output_cvv->qual, cnt)
+  
+  
+WITH NOCOUNTER
+
+ 
+if (output_cvv->qual_cnt = 0)
+  go to NO_CVV_DATA
+endif
+
+/*****
+Virtual View Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_cvv->qual, 5)))
+
+head report
+  frec->file_name = FILE_VIRTVIEW
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_VIRTVIEW))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+	,DELIMITER, QUOTE, "catalog_disp", QUOTE
+    ,DELIMITER, QUOTE, "catalog_desc", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type", QUOTE
+    ,DELIMITER, QUOTE, "facility_disp", QUOTE
+    ,DELIMITER, QUOTE, "facility_desc", QUOTE
+    ,DELIMITER, QUOTE, "facility_code", QUOTE
+    ,DELIMITER, QUOTE, "synonym_id", QUOTE
+    ,DELIMITER, QUOTE, "catalog_code", QUOTE
+    ,DELIMITER, QUOTE, "oeformat_id", QUOTE
+    ,DELIMITER, QUOTE, "actsubtype", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_VV, QUOTE
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].catalog_disp)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].catalog_desc)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].catalog_type)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].facility_disp)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].facility_desc)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].facility_code)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].synonym_id)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].catalog_code)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].oeformat_id)
+    ,DELIMITER, DisplayText(output_cvv->qual[d1.seq].actsubtype)
+    )
+
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_VIRTVIEW))
+  endif
+
+with nocounter
+
+#NO_CVV_DATA
+if (output_cvv->qual_cnt = 0)
+  select into FILE_PROCEDURES
+  from (dummyt d with seq = 1)
+  detail
+  call print("No virtual view data found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Virtual View Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Procedures
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Procedures Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Procedures record structures
+*****/
+record output_prc (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 procedure_id             = f8
+    2 procedure_name           = vc
+    2 procedure_code           = f8
+    2 procedure_category_code  = f8
+    2 procedure_category_name  = vc
+    2 clinically_inactive_flag = vc
+    2 orderable_flag           = vc
+    2 performable_flag         = vc
+    2 chargeable_flag          = vc
+    2 historical_flag          = vc
+    2 order_display_name       = vc
+    2 default_loinc_lnc_code   = vc
+    2 cpt_code                 = vc
+    2 cpt_name                 = vc
+    2 catalog_cd               = f8
+    2 mnemonic_type            = vc
+    2 primary_mnemonic         = vc
+    2 catalog_concept_cki      = vc
+    2 catalog_type_cd          = f8
+    2 catalog_type_disp        = vc
+    2 oe_format_id             = f8
+    2 syn_hide_flag            = vc
+)
+
+/*****
+Procedures Data Processing
+*****/
+;main procedures data
+select into "nl:"
+   primary = evaluate(ocs.mnemonic_type_cd, CS6011PRIMARY, 1, 0)
+from
+   order_catalog oc
+  ,order_catalog_synonym ocs
+plan oc
+  where oc.catalog_type_cd != CS6000PHARMACY
+    and oc.active_ind = 1
+    and oc.orderable_type_flag in (0,1,10)
+join ocs
+  where ocs.catalog_cd = oc.catalog_cd
+    and ocs.active_ind = 1   
+order
+   cnvtupper(oc.primary_mnemonic)
+  ,primary desc
+  ,cnvtupper(ocs.mnemonic)
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_prc->qual, cnt + 9999)
+  endif
+
+  output_prc->qual[cnt].procedure_id             = ocs.synonym_id
+  output_prc->qual[cnt].procedure_name           = ocs.mnemonic
+;  output_prc->qual[].procedure_code           = 
+  output_prc->qual[cnt].procedure_category_code  = oc.catalog_type_cd
+  output_prc->qual[cnt].procedure_category_name  = uar_get_code_display(oc.catalog_type_cd)
+;  output_prc->qual[].clinically_inactive_flag = 
+;  output_prc->qual[].orderable_flag           = 
+;  output_prc->qual[].performable_flag         = 
+;  output_prc->qual[].chargeable_flag          = 
+;  output_prc->qual[].historical_flag          = 
+;  output_prc->qual[].order_display_name       = 
+;  output_prc->qual[].default_loinc_lnc_code   = 
+  output_prc->qual[cnt].catalog_cd               = oc.catalog_cd
+  output_prc->qual[cnt].mnemonic_type            = uar_get_code_display(ocs.mnemonic_type_cd)
+  output_prc->qual[cnt].primary_mnemonic         = oc.primary_mnemonic
+  output_prc->qual[cnt].catalog_concept_cki      = oc.concept_cki
+  output_prc->qual[cnt].catalog_type_cd          = oc.catalog_type_cd
+  output_prc->qual[cnt].catalog_type_disp        = uar_get_code_display(oc.catalog_type_cd)
+  output_prc->qual[cnt].oe_format_id             = ocs.OE_FORMAT_ID
+  output_prc->qual[cnt].syn_hide_flag            = cnvtstring(ocs.HIDE_FLAG)
+
+foot report
+  output_prc->qual_cnt = cnt
+  stat = alterlist(output_prc->qual, cnt)
+    
+with nocounter
+ 
+if (output_prc->qual_cnt = 0)
+  go to NO_PRC_DATA
+endif
+
+;get cpt codes
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from 
+   bill_item bi
+  ,bill_item_modifier bim
+plan bi
+  where expand(idx,1,output_prc->qual_cnt,bi.ext_parent_reference_id,output_prc->qual[idx].catalog_cd)
+    and bi.ext_child_reference_id = 0
+    and bi.active_ind = 1
+    and bi.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and bi.end_effective_dt_tm >= cnvtdatetime(sysdate)
+join bim
+  where bim.bill_item_id = bi.bill_item_id
+    and bim.bill_item_type_cd = CS13019BILLCODE
+    and bim.key1_id = CS14002CPT4
+    and bim.active_ind = 1
+    and bim.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and bim.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+  bi.ext_parent_reference_id
+ ,bi.bill_item_id
+
+head bi.ext_parent_reference_id
+  cnt = 0
+  pos = locateval(idx,1,output_prc->qual_cnt,bi.ext_parent_reference_id,output_prc->qual[idx].catalog_cd)
+detail
+  cnt = cnt + 1
+  
+  if(cnt = 1)
+    cpt = trim(bim.key6)
+  else
+    cpt = build(cpt,";",trim(bim.key6))
+  endif
+  
+
+foot bi.ext_parent_reference_id
+  while (pos !=0)
+    output_prc->qual[pos].cpt_code = cpt
+    output_prc->qual[pos].cpt_name = "CPT4"
+    pos = locateval(idx,pos+1,output_prc->qual_cnt,bi.ext_parent_reference_id,output_prc->qual[idx].catalog_cd)
+  endwhile
+  
+ 
+with nocounter, expand = 2
+ 
+/*****
+Procedures Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_prc->qual, 5)))
+
+head report
+  frec->file_name = FILE_PROCEDURES
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROCEDURES))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "procedure_id", QUOTE
+    ,DELIMITER, QUOTE, "procedure_name", QUOTE
+    ,DELIMITER, QUOTE, "procedure_code", QUOTE
+    ,DELIMITER, QUOTE, "procedure_category_code", QUOTE
+    ,DELIMITER, QUOTE, "procedure_category_name", QUOTE
+    ,DELIMITER, QUOTE, "clinically_inactive_flag", QUOTE
+    ,DELIMITER, QUOTE, "orderable_flag", QUOTE
+    ,DELIMITER, QUOTE, "performable_flag", QUOTE
+    ,DELIMITER, QUOTE, "chargeable_flag", QUOTE
+    ,DELIMITER, QUOTE, "historical_flag", QUOTE
+    ,DELIMITER, QUOTE, "order_display_name", QUOTE
+    ,DELIMITER, QUOTE, "default_loinc_lnc_code", QUOTE
+    ,DELIMITER, QUOTE, "cpt_code", QUOTE
+    ,DELIMITER, QUOTE, "cpt_name", QUOTE
+    ,DELIMITER, QUOTE, "primary_mnemonic", QUOTE
+    ,DELIMITER, QUOTE, "catalog_concept_cki", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_cd", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_disp", QUOTE
+    ,DELIMITER, QUOTE, "catalog_cd", QUOTE
+    ,DELIMITER, QUOTE, "oe_format_id", QUOTE
+    ,DELIMITER, QUOTE, "syn_hide_flag", QUOTE
+    ,DELIMITER, QUOTE, "mnemonic_type", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PRC, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].procedure_id))
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].procedure_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].procedure_code))
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].procedure_category_code))
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].procedure_category_name)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].clinically_inactive_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].orderable_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].performable_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].chargeable_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].historical_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].order_display_name)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].default_loinc_lnc_code)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].cpt_code)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].cpt_name)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].primary_mnemonic)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].catalog_concept_cki)
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].catalog_type_cd))
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].catalog_type_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].catalog_cd))
+    ,DELIMITER, DisplayText(DisplayInt(output_prc->qual[d1.seq].oe_format_id))
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].syn_hide_flag)
+    ,DELIMITER, DisplayText(output_prc->qual[d1.seq].mnemonic_type)
+    )
+
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROCEDURES))
+  endif
+
+with nocounter
+ 
+ 
+#NO_PRC_DATA
+if (output_prc->qual_cnt = 0)
+  select into FILE_PROCEDURES
+  from (dummyt d with seq = 1)
+  detail
+  call print("No procedure data found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Procedures Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Provider Specialty
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Provider Specialty Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Provider Specialty record structures
+*****/
+record output_psp (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 provider_specialty_code = f8
+    2 provider_specialty_name = vc
+    2 provider_specialty_type = vc
+)
+
+/*****
+Provider Specialty Data Processing
+*****/
+;main Provider Specialty query
+select into "nl:"
+from
+   prsnl_group pg
+plan pg
+  where pg.prsnl_group_class_cd in (CS19189DEPARTMENT, CS19189SERVICE)
+    and pg.active_ind = 1
+    and pg.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and pg.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+  pg.prsnl_group_name
+head report
+  cnt = 0
+  
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_psp->qual, cnt + 9999)
+  endif
+
+  output_psp->qual[cnt].provider_specialty_code = pg.prsnl_group_id
+  output_psp->qual[cnt].provider_specialty_name = pg.prsnl_group_name
+  output_psp->qual[cnt].provider_specialty_type = uar_get_code_display(pg.prsnl_group_class_cd)
+  
+foot report
+  output_psp->qual_cnt = cnt
+  stat = alterlist(output_psp->qual, cnt)
+    
+with nocounter
+ 
+if (output_psp->qual_cnt = 0)
+  go to NO_PSP_DATA
+endif 
+
+ 
+/*****
+Provider Specialty Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_psp->qual, 5)))
+
+head report
+  frec->file_name = FILE_PROVIDERSPECIALTY
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERSPECIALTY))
+  endif
+  
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty_code", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty_name", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty_type", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+  
+  
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PSP, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_psp->qual[d1.seq].provider_specialty_code))
+    ,DELIMITER, DisplayText(output_psp->qual[d1.seq].provider_specialty_name)
+    ,DELIMITER, DisplayText(output_psp->qual[d1.seq].provider_specialty_type)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+    
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERSPECIALTY))
+  endif
+
+with nocounter
+ 
+ 
+#NO_PSP_DATA
+if (output_psp->qual_cnt = 0)
+  select into FILE_PROVIDERSPECIALTY
+  from (dummyt d with seq = 1)
+  detail
+  call print("No provider specialties found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("End Get Provider Specialty Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+Zip all files and remove the individual files
+*********************************************************************************************************************************/
+set dclstat = 0
+call dcl(ZIP_COMMAND, size(ZIP_COMMAND), dclstat)
+set dclstat = 0
+call dcl(RM_COMMAND, size(RM_COMMAND), dclstat)
+
+
+#EXIT_PROGRAM
+set reply->status_data->status = "S"
+call echo(build2("END ", trim(CURPROG), " ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+set lastmod = "012 05/29/18 Mark Anderson"
+
+/*********************************************************************************************************************************
+Subroutines (keep all programming above this point)
+*********************************************************************************************************************************/
+subroutine DeclareRoutines(null)
+  declare DisplayInt(dnum = vc) = vc
+  declare DisplayText(tstring = vc) = vc
+  declare sh_get_therapy_class(null) = null
+end ;subroutine DeclareRoutines
+
+
+/**
+ * Returns a blank string if the number is zero or the integer formatted as text if it is nonzero
+ *
+ * @param dnum the number to evaluate
+ * @returns the number formatted as an integer 
+ */
+subroutine DisplayInt(dnum)
+    declare return_val = vc with private, noconstant(" ")
+
+    if (dnum != 0)
+      set return_val = trim(format(dnum,DISP_INT),3)
+    endif
+    
+    return (return_val)
+
+end  ;subroutine DisplayInt
+
+
+/**
+ * Returns the file delimiter if the file text string is empty, else returns the string with quotes
+ *
+ * @param tstring the text to evaluate
+ * @returns text with quotes
+ */
+subroutine DisplayText(tstring)
+    declare return_val = vc with private, noconstant(" ")
+    declare CRLF       = vc with private, constant(build(char(13),char(10)))
+    declare CR         = vc with private, constant(char(13))
+    declare LF         = vc with private, constant(char(10))
+ 
+    if (size(tstring) > 0)
+      set tstring = replace(tstring, "|", " ")
+      set tstring = replace(tstring, CRLF, " ")
+      set tstring = replace(tstring, CR, " ")
+      set tstring = replace(tstring, LF, " ")
+      set return_val = concat(QUOTE, tstring, QUOTE)
+    endif
+ 
+    return (return_val)
+ 
+end  ;subroutine DisplayText
+
+
+/**
+ * Given a set of medication CKI values, this script returns the highest level Multum therapeutic class for each cki in the list.
+ * Prerequisites: The following record structure must be defined and populated before executing this subroutine:
+ *
+ *                       record sh_therapy_class (
+ *                         1 qual_cnt = i4
+ *                         1 qual [*]
+ *                           2 level = i4 ;populate to 1 if you want the most specific therapeutic class, 0 for most generic
+ *                           2 cki = vc
+ *                           2 therapy_cnt = i4
+ *                           2 therapy[*]
+ *                             3 therapy_class = vc
+ *                       )
+ */ 
+subroutine sh_get_therapy_class(null)
+
+  declare idx            = i4 with protect, noconstant(0)
+  declare h_type         = vc with protect, noconstant(" ")
+  declare h_dnum         = vc with protect, noconstant(" ")
+  declare LEVEL_GENERIC  = i4 with protect, constant(0)
+  declare LEVEL_SPECIFIC = i4 with protect, constant(1)
+ 
+  ;temporary record to hold additional details that will not be ruturned
+  record temp (
+    1 qual_cnt = i4
+    1 qual [*]
+      2 cki = vc
+      2 type = vc
+      2 mmdc = i4
+      2 dnum = vc
+  )
+ 
+  ;process cki into dnum or mmdc
+  set temp->qual_cnt = sh_therapy_class->qual_cnt
+  set stat = alterlist(temp->qual, sh_therapy_class->qual_cnt)
+  for (x = 1 to sh_therapy_class->qual_cnt)
+    set temp->qual[x].cki = sh_therapy_class->qual[x].cki
+    set h_type = piece(sh_therapy_class->qual[x].cki, "!", 1, "Not Found")
+    set h_dnum = piece(sh_therapy_class->qual[x].cki, "!", 2, "Not Found")
+    set temp->qual[x].type = h_type
+    if (h_type = "MUL.ORD")
+      set temp->qual[x].dnum = h_dnum
+    elseif (h_type = "MUL.MMDC")
+      set temp->qual[x].mmdc = cnvtint(h_dnum)
+    endif
+  endfor
+  ;get dnum for mmdc
+  select if(EXPAND_CONTROL = 1)
+           with expand = 1
+         endif
+  into "nl:"
+  from mltm_ndc_main_drug_code mnmdc
+  plan mnmdc where expand(idx,1,temp->qual_cnt,mnmdc.main_multum_drug_code,temp->qual[idx].mmdc)
+  detail
+    mmdcpos = locateval(idx,1,temp->qual_cnt,mnmdc.main_multum_drug_code,temp->qual[idx].mmdc)
+    while (mmdcpos > 0)
+      temp->qual[idx].dnum = mnmdc.drug_identifier
+      mmdcpos = locateval(idx,mmdcpos + 1,temp->qual_cnt,mnmdc.main_multum_drug_code,temp->qual[idx].mmdc)
+    endwhile
+  with expand = 2, nocounter
+   
+   
+  ;load therapy class by dnum
+  select if(EXPAND_CONTROL = 1)
+           with expand = 1
+         endif
+  into "nl:"
+  from
+    mltm_category_drug_xref mcdx,
+    mltm_drug_categories mdc,
+    mltm_category_sub_xref mcsx,
+    mltm_drug_categories mdc1,
+    mltm_category_sub_xref mcsx1,
+    mltm_drug_categories mdc2
+  plan mcdx  where expand(idx,1,temp->qual_cnt,mcdx.drug_identifier,temp->qual[idx].dnum)
+  join mdc   where mdc.multum_category_id = mcdx.multum_category_id
+  join mcsx  where mcsx.sub_category_id = outerjoin(mdc.multum_category_id)
+  join mdc1  where mdc1.multum_category_id = outerjoin(mcsx.multum_category_id)
+  join mcsx1 where mcsx1.sub_category_id = outerjoin(mcsx.multum_category_id)
+  join mdc2  where mdc2.multum_category_id = outerjoin(mcsx1.multum_category_id)
+  detail
+   
+    ckipos = locateval(idx,1,temp->qual_cnt,mcdx.drug_identifier,temp->qual[idx].dnum)
+    while (ckipos > 0)
+      therapypos = sh_therapy_class->qual[ckipos].therapy_cnt
+      if (sh_therapy_class->level != LEVEL_SPECIFIC) ;populate most generic level of therapeutic class
+        ;make sure the therapy class isn't already poulated
+        if (therapypos > 0)
+          grandloc  = locateval(idx,1,therapypos,mdc2.category_name,sh_therapy_class->qual[ckipos].therapy[idx].therapy_class)
+          parentloc = locateval(idx,1,therapypos,mdc1.category_name,sh_therapy_class->qual[ckipos].therapy[idx].therapy_class)
+          baseloc   = locateval(idx,1,therapypos,mdc.category_name,sh_therapy_class->qual[ckipos].therapy[idx].therapy_class)
+          if (grandloc = 0 and parentloc = 0 and baseloc = 0) ;did not find the class populated
+            catloc = 0
+          else
+            catloc = 1
+          endif
+        else
+          catloc = 0
+        endif
+        if (catloc = 0) ;populate the therapy class if it isn't populated
+          if (mdc2.multum_category_id > 0) ;grandparent present - highest level
+            therapypos = therapypos + 1
+            sh_therapy_class->qual[ckipos].therapy_cnt = therapypos
+            stat = alterlist(sh_therapy_class->qual[ckipos].therapy, therapypos)
+            sh_therapy_class->qual[ckipos].therapy[therapypos].therapy_class = mdc2.category_name
+          elseif (mdc1.multum_category_id > 0) ;parent present - second highest level
+            therapypos = therapypos + 1
+            sh_therapy_class->qual[ckipos].therapy_cnt = therapypos
+            stat = alterlist(sh_therapy_class->qual[ckipos].therapy, therapypos)
+            sh_therapy_class->qual[ckipos].therapy[therapypos].therapy_class = mdc1.category_name
+          elseif (mdc.multum_category_id > 0) ;base level present - third highest level
+            therapypos = therapypos + 1
+            sh_therapy_class->qual[ckipos].therapy_cnt = therapypos
+            stat = alterlist(sh_therapy_class->qual[ckipos].therapy, therapypos)
+            sh_therapy_class->qual[ckipos].therapy[therapypos].therapy_class = mdc.category_name
+          endif
+        endif
+      else  ;populate most specific level of thereapeutic class
+        ;make sure the therapy class isn't already poulated
+        if (therapypos > 0)
+          catloc  = locateval(idx,1,therapypos,mdc.category_name,sh_therapy_class->qual[ckipos].therapy[idx].therapy_class)
+        endif
+        if (catloc = 0) ;populate the therapy class if it isn't populated
+            therapypos = therapypos + 1
+            sh_therapy_class->qual[ckipos].therapy_cnt = therapypos
+            stat = alterlist(sh_therapy_class->qual[ckipos].therapy, therapypos)
+            sh_therapy_class->qual[ckipos].therapy[therapypos].therapy_class = mdc.category_name
+        endif
+      endif
+    ckipos = locateval(idx,ckipos + 1,temp->qual_cnt,mcdx.drug_identifier,temp->qual[idx].dnum)
+    endwhile
+  with expand = 2, nocounter
+   
+end ;subroutine sh_get_therapy_class
+
+/*********************************************************************************************************************************
+End of Subroutines
+*********************************************************************************************************************************/
+end go
