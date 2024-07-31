@@ -1,0 +1,4231 @@
+
+********************************************************************************************************************************/
+  drop program :dba go
+create program :dba
+
+prompt 
+	"Begin Date" = "CURDATE"
+	, "Send PHI" = 0 
+
+with BEG_DATE, SENDPHI
+
+
+/*********************************************************************************************************************************
+Declarations
+*********************************************************************************************************************************/
+;localize org_code per client
+declare ORG_CODE = vc with protect, constant("maury")
+
+;localize file directory per client (CCLUSERDIR is a very common location but can be customized)
+declare FILE_DIR = vc with protect, constant(logical("/cerner/d_p698/data/batch_files/ccl_extracts/stanson"))
+
+;localize service area name and id per client
+declare _SERVICE_AREA_NAME  = vc with protect, constant("Maury Regional Health")
+declare _SERVICE_AREA_ID  = f8 with protect, constant(1)
+
+;localize logical domain mnemonic per client - if not a logical domain client then
+declare LDMNEMONIC = vc with protect, constant(" ")
+
+;update versions as necessary
+declare SCRIPT_VERSION = vc with protect, constant("023")
+declare VERSION_DLG    = vc with protect, constant("CDLG-11")
+declare VERSION_EMA    = vc with protect, constant("CEMA-11")
+declare VERSION_MED    = vc with protect, constant("CMDA-7")
+declare VERSION_ORD    = vc with protect, constant("CORD-18")
+declare VERSION_MORD   = vc with protect, constant("CMORD-6")
+declare VERSION_PRV    = vc with protect, constant("CPRV-8")
+declare VERSION_FAC    = vc with protect, constant("CFAC-5")
+declare VERSION_ALT    = vc with protect, constant("CALT-9")
+declare VERSION_PHI    = vc with protect, constant("CPHI-7")
+declare VERSION_APPT   = vc with protect, constant("CAPPT-1")
+ 
+;initiate subroutines
+declare DeclareRoutines(null) = vc
+call DeclareRoutines(null)
+
+;Initiate script status
+if (not validate(reply))
+    record reply
+    (
+%i cclsource:status_block.inc
+     ) with protect
+endif
+
+declare status            = c1  with protect, noconstant("S")
+declare OperationName     = c25 with protect, noconstant("Stanson Analytics")
+declare OperationStatus   = c1  with protect, noconstant("S")
+declare TargetObjectName  = c25 with protect, noconstant("01_sh_analytics")
+declare TargetObjectValue = vc  with protect, noconstant("Success")
+
+
+/***************************************************
+Logical Domain Checks
+****************************************************/
+;check to see if logical domain is being used and get the logical_domain_id
+declare LDACTIVE = i2 with protect, constant(isLogicalDomainsActive(null))
+declare LDID = f8 with protect, noconstant(-1)
+
+if (LDACTIVE = 1)
+  
+  select into "nl:"
+  from logical_domain ld
+  plan ld
+    where ld.mnemonic = LDMNEMONIC
+      and ld.active_ind = 1
+  head report
+    cnt = 0
+  detail
+    cnt = cnt + 1
+    if (cnt < 2)
+      LDID = ld.logical_domain_id
+    else
+      LDID = -1
+    endif
+  with nocounter
+  
+  if (LDID = -1)
+    call echo(build2("Failed to get a valid logical domain id for LDMNEMONIC of: ", LDMNEMONIC))
+    set status            = "F"
+    set OperationName     = "Logical Domain Check"
+    set OperationStatus   = "F"
+    set TargetObjectName  = "01_sh_analytics"
+    set TargetObjectValue = build2("Failed to get a valid logical domain id for LDMNEMONIC of: ", LDMNEMONIC)
+    go to exit_program
+  else
+    call echo(build2("Logical Domain is active and a valid logical_domain_id of ", trim(cnvtstring(LDID)), " was found."))
+  endif
+  
+  
+else ;LD not active
+  call echo("Logical Domain is NOT active.")
+  
+endif
+
+declare LD_CONCEPT_PRSNL        = i2 with public,constant(1)
+declare LD_CONCEPT_LOCATION     = i2 with public,constant(2)
+declare LD_DLG_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_PRSNL, "ede.dlg_prsnl_id", LDID))
+declare LD_EMA_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_PRSNL, "ema.personnel_id", LDID))
+declare LD_MED_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_PRSNL, "ede.dlg_prsnl_id", LDID))
+declare LD_ORD_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_PRSNL, "oa.action_personnel_id", LDID))
+;LD_MORD_PARSER - uses same parser as Orders File
+declare LD_PRV_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_PRSNL, "p.person_id", LDID))
+declare LD_FAC_PARSER    = vc with protect, constant(getLDConceptParser (LD_CONCEPT_LOCATION, "fac.location_cd", LDID))
+;LD_ALT_PARSER - no way to filter Discern Alert Definitions by a location or logical domain
+;LD_PHI_PARSER - PHI data is derived from the other files - it won't be extracted unless the personnel alerted was in the domain
+ 
+;other variables
+declare BDATE                 = dq8 with protect, constant(GetPromptDate($BEG_DATE, CURDATE, 000000))
+declare EDATE                 = dq8 with protect, constant(GetPromptDate($BEG_DATE, CURDATE, 235959))
+declare FILE_PREFIX           = vc  with protect, constant(concat(FILE_DIR,"/",cnvtlower(ORG_CODE),"_"))
+declare FILE_SUFFIX           = vc  with protect, constant(concat("_",format(cnvtdatetime(BDATE),"yyyymmdd;;q"),".dat"))
+declare FILE_SUFFIX_ZIP       = vc  with protect, constant(concat("_",format(cnvtdatetime(BDATE),"yyyymmdd;;q"),".zip"))
+declare FILE_ALERTSDLG        = vc  with protect, constant(concat(FILE_PREFIX,"alertsdlg",FILE_SUFFIX))
+declare FILE_ALERTSEMA        = vc  with protect, constant(concat(FILE_PREFIX,"alertsema",FILE_SUFFIX))
+declare FILE_ALERTSMED        = vc  with protect, constant(concat(FILE_PREFIX,"alertsmed",FILE_SUFFIX))
+declare FILE_ORDERS           = vc  with protect, constant(concat(FILE_PREFIX,"orders",FILE_SUFFIX))
+declare FILE_MORDERS          = vc  with protect, constant(concat(FILE_PREFIX,"morders",FILE_SUFFIX))
+declare FILE_PROVIDERS        = vc  with protect, constant(concat(FILE_PREFIX,"providers",FILE_SUFFIX))
+declare FILE_FACILITIES       = vc  with protect, constant(concat(FILE_PREFIX,"facilities",FILE_SUFFIX))
+declare FILE_FUT_APPT         = vc  with protect, constant(concat(FILE_PREFIX,"futappointments",FILE_SUFFIX))
+declare FILE_ALERTDEFINITIONS = vc  with protect, constant(concat(FILE_PREFIX,"alertdefinitions",FILE_SUFFIX))
+declare FILE_PHI              = vc  with protect, constant(concat(FILE_PREFIX,"phi",FILE_SUFFIX))
+declare FILE_ZIP              = vc  with protect, constant(concat(FILE_PREFIX,"analytics",FILE_SUFFIX_ZIP))
+declare ZIP_COMMAND           = vc  with protect, constant(build2("zip -j ", FILE_ZIP, " ", FILE_PREFIX, "*", FILE_SUFFIX))
+declare RM_COMMAND            = vc  with protect, constant(build2("rm ", FILE_PREFIX, "*", FILE_SUFFIX))
+ 
+declare CS319FINNBR     = f8  with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2930"))
+declare CS319MRN        = f8  with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!8021"))
+declare idx             = i4  with protect, noconstant(0)
+declare DISP_INT        = vc  with protect, noconstant(";T(1)")
+declare DISP_DATE       = vc  with protect, constant("yyyy-mm-dd hh:mm:ss;;q")
+declare DELIMITER       = vc  with protect, constant("|")
+declare EOL             = vc  with protect, constant(build(char(13),char(10)))
+declare QUOTE           = vc  with protect, constant('"')
+declare tevent_str      = vc  with protect, noconstant(" ")
+declare CURRENT_VERSION = i4  with protect, constant(cnvtint(build(currev,currevminor,currevminor2)))
+if (CURRENT_VERSION < 8102)
+  declare EXPAND_CONTROL = i4 with protect, constant(1)
+else
+  declare EXPAND_CONTROL = i4 with protect, constant(2)
+endif
+ 
+;alertsmed specific variables
+declare order_id_str       = vc with protect, noconstant(" ")
+declare catalog_id_str     = vc with protect, noconstant(" ")
+declare catalog_disp_str   = vc with protect, noconstant(" ")
+declare allergen_id_str    = vc with protect, noconstant(" ")
+declare allergen_disp_str  = vc with protect, noconstant(" ")
+declare allergen_nomen_str = vc with protect, noconstant(" ")
+declare severity_str       = vc with protect, noconstant(" ")
+declare major_cont_str     = vc with protect, noconstant(" ")
+ 
+;orders specific variables
+declare OBDATE         = dq8 with protect, noconstant(GetPromptDate($BEG_DATE, CURDATE, 000000))
+declare OEDATE         = dq8 with protect, noconstant(GetPromptDate($BEG_DATE, CURDATE, 005959))
+declare CS6003ORDER    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3094"))
+declare CS6003MODIFY   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3093"))
+declare CS6003DISCONTINUE = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3092"))
+declare CS6003CANCEL   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3090"))
+declare CS6003DELETE   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!42385"))
+declare CS89POWERCHART = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!4835"))
+declare OFMFREQUENCY   = f8 with protect, constant(2011)
+declare OFMROUTE       = f8 with protect, constant(2050)
+declare ord_src        = vc with protect, noconstant(" ")
+declare ord_srcn       = vc with protect, noconstant(" ")
+declare ord_srcc       = vc with protect, noconstant(" ")
+declare ord_srct       = vc with protect, noconstant(" ")
+declare oexp_start     = i4 with protect, noconstant(1)
+ 
+;providers specific variables
+declare CS320NPI          = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2160654021"))
+declare CS213PRSNL        = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2403228"))
+declare CS19189DEPARTMENT = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!108331"))
+declare CS19189SERVICE    = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!108368"))
+declare special_str       = vc with protect, noconstant("")
+declare special_str_txt   = vc with protect, noconstant("")
+ 
+;facilities specific variables
+declare CS222AMBULATORY = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!9458"))
+declare CS222NURSEUNIT  = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2845"))
+declare CS222ANCILSURG  = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2859"))
+declare CS222BUILDING   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2843"))
+declare CS222FACILITY   = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2844"))
+ 
+;alert definitions specific variables
+declare tstr          = vc  with protect, noconstant("")
+declare title         = vc  with protect, noconstant("")
+declare alert_text    = vc  with protect, noconstant("")
+declare creation_date = dq8 with protect, noconstant(0)
+declare release_date  = dq8 with protect, noconstant(0)
+declare ekm_info      = vc  with protect, noconstant("")
+declare keywords      = vc  with protect, noconstant("")
+
+;future appointment specific variables
+declare dSCH_STATE_CONF  = f8 with constant(uar_get_code_by("MEANING" , 14233 , "CONFIRMED"))
+declare dLOC_TYPE_AMB  = f8 with constant(uar_get_code_by("MEANING" , 222 , "AMBULATORY")) 
+declare dPA_MRN_TYPE  = f8 with constant(uar_get_code_by("MEANING" , 4 , "MRN"))
+ 
+call echo(build2("BDATE = ", format(BDATE,"@SHORTDATETIME"), " EDATE = ", format(EDATE,"@SHORTDATETIME")))
+ 
+/*********************************************************************************************************************************
+Global Record Structures
+*********************************************************************************************************************************/
+; If reply is already defined, do not redefine it
+if (not validate(reply))
+    record reply
+    (
+%i cclsource:status_block.inc
+     ) with protect
+endif
+
+;used for CCLIO to write file
+free record frec
+record frec (
+  1 file_desc   = i4
+  1 file_offset = i4
+  1 file_dir    = i4
+  1 file_name   = vc
+  1 file_buf    = vc
+)
+
+
+;PHI record structures
+if ($SENDPHI = 1)
+record output_phi(
+  1 qual_cnt                          = i4
+  1 qual[*]
+    2 encntr_id                       = f8
+    2 person_id                       = f8
+    2 fin                             = vc
+    2 mrn                             = vc
+    2 patient_encounter_id            = vc
+    2 patient_encounter_id_verify_key = vc
+    2 patient_id                      = vc
+    2 patient_id_verify_key           = vc
+    2 encntr_id_hash                  = vc
+    2 encntr_id_verify_key            = vc
+    2 person_id_hash                  = vc
+    2 person_id_verify_key            = vc
+)
+endif
+ 
+/*********************************************************************************************************************************
+Alerts DLG
+*********************************************************************************************************************************/
+call echo(build2("Begin Get DLG Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Alerts DLG record structures
+*****/
+record output_dlg (
+  1 qual_cnt                          = i4
+  1 qual[*]
+    2 encntr_id                       = f8
+    2 person_id                       = f8
+    2 fin                             = vc
+    2 mrn                             = vc
+    2 alert_id                        = vc
+    2 alert_type                      = vc
+    2 alert_sub_type                  = vc
+    2 alert_instance_id               = f8
+    2 patient_encounter_id            = vc
+    2 patient_encounter_id_verify_key = vc
+    2 patient_id                      = vc
+    2 patient_id_verify_key           = vc
+    2 alert_name                      = vc
+    2 alert_date                      = dq8
+    2 alert_outcome                   = vc
+    2 override_reason_disp            = vc
+    2 override_reason_id              = f8
+    2 override_comment                = vc
+    2 trigger_event_str               = vc
+    2 trigger_events_cnt              = i2
+    2 trigger_events[*]
+      3 trigger_event                 = vc
+    2 alerted_provider_name           = vc
+    2 alerted_provider_id             = f8
+    2 authorizing_provider_name       = vc
+    2 authorizing_provider_id         = f8
+    2 department_disp                 = vc
+    2 department_id                   = f8
+    2 med_alert_vendor                = vc
+    2 trigger_order                   = f8
+    2 action_taken                    = vc
+    2 last_update_provider_name       = vc
+    2 last_update_provider_id         = f8
+    2 encntr_id_hash                  = vc
+    2 encntr_id_verify_key            = vc
+    2 person_id_hash                  = vc
+    2 person_id_verify_key            = vc
+)
+ 
+/*****
+Alerts DLG Data Processing
+*****/
+;get main DLG data
+select into "nl:"
+   eid = sqlpassthru("ora_hash(fin.alias)",200)
+  ,pid = sqlpassthru("ora_hash(mrn.alias)",200)
+  ,reid = sqlpassthru("ora_hash(reverse(fin.alias))",200)
+  ,rpid = sqlpassthru("ora_hash(reverse(mrn.alias))",200)
+  ,enid = sqlpassthru("ora_hash(to_char(ede.encntr_id))",200)
+  ,prid = sqlpassthru("ora_hash(to_char(ede.person_id))",200)
+  ,renid = sqlpassthru("ora_hash(reverse(to_char(ede.encntr_id)))",200)
+  ,rprid = sqlpassthru("ora_hash(reverse(to_char(ede.person_id)))",200)
+from
+  eks_dlg_event ede
+ ,(left join orders o
+     on o.order_id = ede.trigger_order_id
+  )
+ ,(left join order_action oa
+     on oa.order_id = o.order_id
+    and oa.action_type_cd = CS6003ORDER
+  )
+ ,(left join prsnl pauthoa
+     on pauthoa.person_id = oa.order_provider_id
+  )
+ ,(left join prsnl pauth
+     on pauth.person_id = o.last_update_provider_id
+  )
+ ,(left join eks_dlg ed
+     on ed.dlg_name = ede.dlg_name
+  )
+ ,(left join eks_module em
+     on em.module_name = ed.program_name
+    and em.active_flag = "A"
+  )
+ ,(left join eks_modulestorage ems
+     on ems.module_name = em.module_name
+    and ems.version = em.version
+    and ems.data_type = 7
+  )
+ ,long_text lt
+ ,encntr_alias mrn
+ ,encntr_alias fin
+ ,prsnl palert
+plan ede
+  where ede.dlg_dt_tm between cnvtdatetime(BDATE) and cnvtdatetime(EDATE)
+    and ede.active_ind = 1
+    and ede.action_flag != 5
+    and parser(LD_DLG_PARSER)
+join o
+join oa
+join pauthoa
+join pauth
+join ed
+join em
+join ems
+join lt
+  where lt.long_text_id = ede.long_text_id
+join mrn
+  where mrn.encntr_id = ede.encntr_id
+    and mrn.encntr_alias_type_cd = CS319MRN
+    and mrn.active_ind = 1
+    and mrn.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and mrn.end_effective_dt_tm >= cnvtdatetime(sysdate)
+join fin
+  where fin.encntr_id = ede.encntr_id
+    and fin.encntr_alias_type_cd = CS319FINNBR
+    and fin.active_ind = 1
+    and fin.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fin.end_effective_dt_tm >= cnvtdatetime(sysdate)
+join palert
+  where palert.person_id = ede.dlg_prsnl_id
+ 
+order by
+  ede.dlg_dt_tm
+ 
+head report
+  cnt = 0
+ 
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 50) = 1)
+    stat = alterlist(output_dlg->qual, cnt + 50)
+  endif
+ 
+  output_dlg->qual[cnt].encntr_id = ede.encntr_id
+  output_dlg->qual[cnt].person_id = ede.person_id
+  output_dlg->qual[cnt].encntr_id_hash = enid
+  output_dlg->qual[cnt].encntr_id_verify_key = renid
+  output_dlg->qual[cnt].person_id_hash = prid
+  output_dlg->qual[cnt].person_id_verify_key = rprid
+  output_dlg->qual[cnt].fin = cnvtalias(fin.alias,fin.alias_pool_cd)
+  output_dlg->qual[cnt].mrn = cnvtalias(mrn.alias,mrn.alias_pool_cd)
+  output_dlg->qual[cnt].alert_id = evaluate(size(trim(ed.program_name)),0,"MUL_MED",ed.program_name)
+  output_dlg->qual[cnt].alert_type = evaluate(piece(ede.dlg_name,"!",1,ede.dlg_name),"MUL_MED","MED"," ")
+  output_dlg->qual[cnt].alert_sub_type = evaluate(output_dlg->qual[cnt].alert_type,"MED",piece(ede.dlg_name,"!",2,ede.dlg_name)," ")
+  output_dlg->qual[cnt].alert_instance_id = ede.dlg_event_id
+  output_dlg->qual[cnt].patient_encounter_id = eid
+  output_dlg->qual[cnt].patient_encounter_id_verify_key = reid
+  output_dlg->qual[cnt].patient_id = pid
+  output_dlg->qual[cnt].patient_id_verify_key = rpid
+  output_dlg->qual[cnt].alert_name = evaluate(size(trim(ed.title)), 0, output_dlg->qual[cnt].alert_id, ed.title)
+  output_dlg->qual[cnt].alert_date = ede.dlg_dt_tm
+  output_dlg->qual[cnt].override_reason_disp = uar_get_code_display(ede.override_reason_cd)
+  output_dlg->qual[cnt].override_reason_id = ede.override_reason_cd
+  output_dlg->qual[cnt].override_comment = check(lt.long_text,char(14),char(126))
+  output_dlg->qual[cnt].trigger_event_str = evaluate(output_dlg->qual[cnt].alert_type
+                                                                    ,"MED","ADDTOSCRATCHPAD or SIGNORDER",ede.trigger_entity_name)
+  output_dlg->qual[cnt].alerted_provider_id = ede.dlg_prsnl_id
+  output_dlg->qual[cnt].alerted_provider_name = palert.name_full_formatted
+  if (o.order_id != 0)
+    output_dlg->qual[cnt].authorizing_provider_id = oa.order_provider_id
+    output_dlg->qual[cnt].authorizing_provider_name = pauthoa.name_full_formatted
+    output_dlg->qual[cnt].last_update_provider_id = o.last_update_provider_id
+    output_dlg->qual[cnt].last_update_provider_name = pauth.name_full_formatted
+  endif
+  output_dlg->qual[cnt].med_alert_vendor = evaluate(output_dlg->qual[cnt].alert_type,"MED","MULTUM"," ")
+  output_dlg->qual[cnt].trigger_order = ede.trigger_order_id
+ 
+  pos1 = 1
+  pos2 = 1
+  ecnt = 0
+  while (pos2)
+    pos2 = findstring(char(4), ems.ekm_info, pos1)
+    if (pos2)
+      ecnt = ecnt + 1
+      if (mod(ecnt,5) = 1)
+        stat = alterlist(output_dlg->qual[cnt].trigger_events, ecnt + 4)
+      endif
+      output_dlg->qual[cnt].trigger_events[ecnt].trigger_event = substring(pos1, pos2-pos1, ems.ekm_info)
+      pos2 = findstring(char(4), ems.ekm_info, pos2+1)
+      pos1 = pos2+1
+    endif
+  endwhile
+  output_dlg->qual[cnt].trigger_events_cnt = ecnt
+  stat = alterlist(output_dlg->qual[cnt].trigger_events, ecnt)
+ 
+foot report
+  output_dlg->qual_cnt = cnt
+  stat = alterlist(output_dlg->qual, cnt)
+ 
+with nocounter, orahintcbo("INDEX( FIN XIE2ENCNTR_ALIAS)", "INDEX( MRN XIE2ENCNTR_ALIAS)")
+ 
+if (output_dlg->qual_cnt = 0)
+  go to NO_DLG_DATA
+endif
+ 
+;resort the trigger_events and populate the final string
+select into "nl:"
+from
+   (dummyt d1 with seq = output_dlg->qual_cnt)
+  ,(dummyt d2 with seq = 1)
+plan d1
+  where maxrec(d2, output_dlg->qual[d1.seq].trigger_events_cnt)
+    and output_dlg->qual[d1.seq].alert_type != "MED"
+join d2
+order
+   d1.seq
+  ,cnvtupper(output_dlg->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+ 
+head d1.seq
+  cnt = 0
+  tevent_str = " "
+ 
+head d2.seq
+  null
+ 
+detail
+  cnt = cnt + 1
+  if (cnt = 1)
+    tevent_str = output_dlg->qual[d1.seq].trigger_events[d2.seq].trigger_event
+  else
+    tevent_str = concat(tevent_str, ",", output_dlg->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+  endif
+ 
+foot d2.seq
+  null
+ 
+foot d1.seq
+  output_dlg->qual[d1.seq].trigger_event_str = tevent_str
+ 
+with nocounter
+ 
+;get patient's location at the time the alert fired
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_dlg_event ede
+  ,encntr_loc_hist elh
+plan ede
+  where expand(idx,1,output_dlg->qual_cnt,ede.dlg_event_id,output_dlg->qual[idx].alert_instance_id)
+    and ede.encntr_id != 0
+join elh
+  where elh.encntr_id = ede.encntr_id
+    and elh.beg_effective_dt_tm <= ede.dlg_dt_tm
+    and elh.end_effective_dt_tm > ede.dlg_dt_tm
+    and elh.active_ind = 1
+ 
+detail
+  pos = locateval(idx,1,output_dlg->qual_cnt,ede.dlg_event_id,output_dlg->qual[idx].alert_instance_id)
+  output_dlg->qual[pos].department_disp = uar_get_code_display(elh.loc_nurse_unit_cd)
+  output_dlg->qual[pos].department_id = elh.loc_nurse_unit_cd
+ 
+with nocounter, expand = 2
+
+;add PHI information if sending
+if ($SENDPHI = 1)
+  select into "nl:"
+    encntr_id = output_dlg->qual[d1.seq].encntr_id
+  from
+  (dummyt d1 with seq = output_dlg->qual_cnt)
+  order
+    output_dlg->qual[d1.seq].encntr_id
+    
+  head report
+    cnt = 0
+  
+  head encntr_id
+    cnt = cnt + 1
+    if (mod(cnt,10000) = 1)
+      stat = alterlist(output_phi->qual, cnt + 9999)
+    endif
+    
+    output_phi->qual[cnt].encntr_id                       = output_dlg->qual[d1.seq].encntr_id
+    output_phi->qual[cnt].person_id                       = output_dlg->qual[d1.seq].person_id
+    output_phi->qual[cnt].fin                             = output_dlg->qual[d1.seq].fin
+    output_phi->qual[cnt].mrn                             = output_dlg->qual[d1.seq].mrn
+    output_phi->qual[cnt].patient_encounter_id            = output_dlg->qual[d1.seq].patient_encounter_id
+    output_phi->qual[cnt].patient_encounter_id_verify_key = output_dlg->qual[d1.seq].patient_encounter_id_verify_key
+    output_phi->qual[cnt].patient_id                      = output_dlg->qual[d1.seq].patient_id
+    output_phi->qual[cnt].patient_id_verify_key           = output_dlg->qual[d1.seq].patient_id_verify_key
+    output_phi->qual[cnt].encntr_id_hash                  = output_dlg->qual[d1.seq].encntr_id_hash
+    output_phi->qual[cnt].encntr_id_verify_key            = output_dlg->qual[d1.seq].encntr_id_verify_key
+    output_phi->qual[cnt].person_id_hash                  = output_dlg->qual[d1.seq].person_id_hash
+    output_phi->qual[cnt].person_id_verify_key            = output_dlg->qual[d1.seq].person_id_verify_key
+  
+  detail
+    null
+  
+  foot encntr_id
+    null
+  
+  foot report
+    output_phi->qual_cnt = cnt
+    ;leave record structure open for next select
+  
+  with nocounter
+endif
+ 
+/*****
+Alerts DLG Output
+*****/
+select into "nl:"
+from
+   (dummyt   d1  with seq = output_dlg->qual_cnt)
+head report
+  frec->file_name = FILE_ALERTSDLG
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSDLG))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "alert_id", QUOTE
+    ,DELIMITER, QUOTE, "alert_type", QUOTE
+    ,DELIMITER, QUOTE, "alert_sub_type", QUOTE
+    ,DELIMITER, QUOTE, "alert_instance_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "patient_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "alert_name", QUOTE
+    ,DELIMITER, QUOTE, "alert_date", QUOTE
+    ,DELIMITER, QUOTE, "override_reason", QUOTE
+    ,DELIMITER, QUOTE, "override_reason_id", QUOTE
+    ,DELIMITER, QUOTE, "override_comment", QUOTE
+    ,DELIMITER, QUOTE, "trigger_event", QUOTE
+    ,DELIMITER, QUOTE, "alerted_provider", QUOTE
+    ,DELIMITER, QUOTE, "alerted_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "department", QUOTE
+    ,DELIMITER, QUOTE, "department_id", QUOTE
+    ,DELIMITER, QUOTE, "med_alert_vendor", QUOTE
+    ,DELIMITER, QUOTE, "trigger_order", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "person_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "person_id_verify_key", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_DLG, QUOTE
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].alert_id)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].alert_type)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].alert_sub_type)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].alert_instance_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].patient_encounter_id)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].patient_encounter_id_verify_key)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].patient_id)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].patient_id_verify_key)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].alert_name)
+    ,DELIMITER, DisplayText(trim(format(output_dlg->qual[d1.seq].alert_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].override_reason_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].override_reason_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].override_comment)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].trigger_event_str)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].alerted_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].alerted_provider_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].authorizing_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].authorizing_provider_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].department_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].department_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].med_alert_vendor)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].trigger_order))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].last_update_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_dlg->qual[d1.seq].last_update_provider_id))
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].encntr_id_hash)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].encntr_id_verify_key)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].person_id_hash)
+    ,DELIMITER, DisplayText(output_dlg->qual[d1.seq].person_id_verify_key)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSDLG))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_DLG_DATA
+if (output_dlg->qual_cnt = 0)
+  select into FILE_ALERTSDLG
+  from (dummyt d with seq = 1)
+  detail
+  call print(build2("No DLG alerts found for ", format(BDATE,"@SHORTDATETIME"), " to ", format(EDATE,"@SHORTDATETIME")))
+  with nocounter
+endif
+
+
+call echo(build2("DLG Data Row Count: ", trim(cnvtstring(output_dlg->qual_cnt))))
+free record output_dlg
+
+call echo(build2("End Get DLG Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+ 
+ 
+/*********************************************************************************************************************************
+Alerts EMA
+*********************************************************************************************************************************/
+call echo(build2("Begin Get EMA Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Alerts EMA record structures
+*****/
+record output_ema (
+  1 qual_cnt                          = i4
+  1 qual[*]
+    2 encntr_id                       = f8
+    2 person_id                       = f8
+    2 fin                             = vc
+    2 mrn                             = vc
+    2 alert_id                        = vc
+    2 alert_type                      = vc
+    2 alert_sub_type                  = vc
+    2 alert_instance_id               = f8
+    2 alert_unique_instance_id        = vc
+    2 patient_encounter_id            = vc
+    2 patient_encounter_id_verify_key = vc
+    2 patient_id                      = vc
+    2 patient_id_verify_key           = vc
+    2 alert_name                      = vc
+    2 alert_date                      = dq8
+    2 alert_outcome                   = vc
+    2 maint_validation                = vc
+    2 maint_dur_begin_dt_tm           = dq8
+    2 maint_dur_end_dt_tm             = dq8
+    2 override_reason_disp            = vc
+    2 override_reason_id              = f8
+    2 override_comment                = vc
+    2 trigger_event_str               = vc
+    2 trigger_events_cnt              = i2
+    2 trigger_events[*]
+      3 trigger_event                 = vc
+    2 alerted_provider_name           = vc
+    2 alerted_provider_id             = f8
+    2 authorizing_provider_name       = vc
+    2 authorizing_provider_id         = f8
+    2 department_disp                 = vc
+    2 department_id                   = f8
+    2 med_alert_vendor                = vc
+    2 trigger_order                   = f8
+    2 action_taken                    = vc
+    2 alert_beg_dt_tm                 = dq8
+    2 alert_logging                   = vc
+    2 last_update_provider_name       = vc
+    2 last_update_provider_id         = f8
+    2 encntr_id_hash                  = vc
+    2 encntr_id_verify_key            = vc
+    2 person_id_hash                  = vc
+    2 person_id_verify_key            = vc
+)
+ 
+/*****
+Alerts EMA data processing
+*****/
+;main ema data
+select into "nl:"
+eid = sqlpassthru("ora_hash(fin.alias)",200)
+  ,pid = sqlpassthru("ora_hash(mrn.alias)",200)
+  ,reid = sqlpassthru("ora_hash(reverse(fin.alias))",200)
+  ,rpid = sqlpassthru("ora_hash(reverse(mrn.alias))",200)
+  ,enid = sqlpassthru("ora_hash(to_char(emad.encntr_id))",200)
+  ,prid = sqlpassthru("ora_hash(to_char(emad.person_id))",200)
+  ,renid = sqlpassthru("ora_hash(reverse(to_char(emad.encntr_id)))",200)
+  ,rprid = sqlpassthru("ora_hash(reverse(to_char(emad.person_id)))",200)
+from
+   eks_module_audit ema
+  ,eks_module_audit_temp emat
+  ,eks_module_audit_det emad
+ ,(left join encntr_alias mrn
+     on mrn.encntr_id = emad.encntr_id
+    and mrn.encntr_id != 0
+    and mrn.encntr_alias_type_cd = CS319MRN
+    and mrn.active_ind = 1
+    and mrn.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and mrn.end_effective_dt_tm >= cnvtdatetime(sysdate)
+  )
+ ,(left join encntr_alias fin
+     on fin.encntr_id = emad.encntr_id
+    and fin.encntr_id != 0
+    and fin.encntr_alias_type_cd = CS319FINNBR
+    and fin.active_ind = 1
+    and fin.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fin.end_effective_dt_tm >= cnvtdatetime(sysdate)
+  )
+ ,(left join orders o
+     on o.order_id = emad.order_id
+  )
+  ,(left join order_action oa
+     on oa.order_id = o.order_id
+    and oa.action_type_cd = CS6003ORDER
+  )
+ ,(left join prsnl pauthoa
+     on pauthoa.person_id = oa.order_provider_id
+  )
+ ,(left join prsnl pauth
+     on pauth.person_id = o.last_update_provider_id
+  )
+ ,eks_dlg ed
+ ,(left join eks_module em
+     on em.module_name = ed.program_name
+    and em.active_flag = "A"
+  )
+ ,(left join eks_modulestorage ems
+     on ems.module_name = em.module_name
+    and ems.version = em.version
+    and ems.data_type = 7
+  )
+plan ema
+  where ema.begin_dt_tm between cnvtdatetime(BDATE) and cnvtdatetime(EDATE)
+    and ema.conclude in (2,4)
+    and parser(LD_EMA_PARSER)
+join emat
+  where emat.module_name = ema.module_name
+join emad
+  where emad.module_audit_id = ema.rec_id
+    and emad.template_number = emat.template_num
+    and emad.template_type = "A"
+    and emad.template_return = 100
+    and emad.template_name in ("EKS_ALERT_HTML_A"
+                              ,"EKS_ALERT_FLEX_A"
+                              ,"EKS_ALERT_FLEX_HISTORY_A"
+                               )
+join mrn
+join fin
+join o
+join oa
+join pauthoa
+join pauth
+join ed
+  where ed.program_name = ema.module_name
+join em
+join ems
+ 
+order ema.end_dt_tm
+ 
+head report
+  cnt = 0
+ 
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 50) = 1)
+    stat = alterlist(output_ema->qual, cnt + 50)
+  endif
+ 
+  output_ema->qual[cnt].encntr_id = emad.encntr_id
+  output_ema->qual[cnt].person_id = emad.person_id
+  output_ema->qual[cnt].encntr_id_hash = enid
+  output_ema->qual[cnt].encntr_id_verify_key = renid
+  output_ema->qual[cnt].person_id_hash = prid
+  output_ema->qual[cnt].person_id_verify_key = rprid
+  output_ema->qual[cnt].fin = cnvtalias(fin.alias,fin.alias_pool_cd)
+  output_ema->qual[cnt].mrn = cnvtalias(mrn.alias,mrn.alias_pool_cd)
+  output_ema->qual[cnt].alert_id = ema.module_name
+  output_ema->qual[cnt].alert_instance_id = ema.rec_id
+  output_ema->qual[cnt].alert_unique_instance_id = concat(trim(cnvtstring(ema.rec_id)),trim(cnvtstring(emad.template_number)))
+  output_ema->qual[cnt].patient_encounter_id = eid
+  output_ema->qual[cnt].patient_encounter_id_verify_key = reid
+  output_ema->qual[cnt].patient_id = pid
+  output_ema->qual[cnt].patient_id_verify_key = rpid
+  output_ema->qual[cnt].alert_name = evaluate(size(trim(ed.title)), 0, ema.module_name, ed.title)
+  output_ema->qual[cnt].alert_date = ema.end_dt_tm
+  output_ema->qual[cnt].maint_validation = em.maint_validation
+  output_ema->qual[cnt].maint_dur_begin_dt_tm = em.maint_dur_begin_dt_tm
+  output_ema->qual[cnt].maint_dur_end_dt_tm = em.maint_dur_end_dt_tm
+  if (o.order_id != 0)
+    output_ema->qual[cnt].authorizing_provider_id = oa.order_provider_id
+    output_ema->qual[cnt].authorizing_provider_name = pauthoa.name_full_formatted
+    output_ema->qual[cnt].last_update_provider_id = o.last_update_provider_id
+    output_ema->qual[cnt].last_update_provider_name = pauth.name_full_formatted
+  endif
+  output_ema->qual[cnt].trigger_order = emad.order_id
+
+  
+  output_ema->qual[cnt].alert_beg_dt_tm = ema.begin_dt_tm
+  output_ema->qual[cnt].alert_logging = emad.logging
+ 
+  pos1 = 1
+  pos2 = 1
+  ecnt = 0
+  while (pos2)
+    pos2 = findstring(char(4), ems.ekm_info, pos1)
+    if (pos2)
+      ecnt = ecnt + 1
+      if (mod(ecnt,5) = 1)
+        stat = alterlist(output_ema->qual[cnt].trigger_events, ecnt + 4)
+      endif
+      output_ema->qual[cnt].trigger_events[ecnt].trigger_event = substring(pos1, pos2-pos1, ems.ekm_info)
+      pos2 = findstring(char(4), ems.ekm_info, pos2+1)
+      pos1 = pos2+1
+    endif
+  endwhile
+  output_ema->qual[cnt].trigger_events_cnt = ecnt
+  stat = alterlist(output_ema->qual[cnt].trigger_events, ecnt)
+ 
+ 
+foot report
+  output_ema->qual_cnt = cnt
+  stat = alterlist(output_ema->qual, cnt)
+ 
+with nocounter, orahintcbo("INDEX( FIN XIE2ENCNTR_ALIAS)", "INDEX( MRN XIE2ENCNTR_ALIAS)")
+ 
+if (output_ema->qual_cnt = 0)
+  go to NO_EMA_DATA
+endif
+ 
+;get the encounter information from another section if it isn't populated in the action section
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+   eid = sqlpassthru("ora_hash(fin.alias)",200)
+  ,pid = sqlpassthru("ora_hash(mrn.alias)",200)
+  ,reid = sqlpassthru("ora_hash(reverse(fin.alias))",200)
+  ,rpid = sqlpassthru("ora_hash(reverse(mrn.alias))",200)
+  ,enid = sqlpassthru("ora_hash(to_char(emad.encntr_id))",200)
+  ,prid = sqlpassthru("ora_hash(to_char(emad.person_id))",200)
+  ,renid = sqlpassthru("ora_hash(reverse(to_char(emad.encntr_id)))",200)
+  ,rprid = sqlpassthru("ora_hash(reverse(to_char(emad.person_id)))",200)
+from
+   eks_module_audit ema
+  ,eks_module_audit_temp emat
+  ,eks_module_audit_det emad
+ ,(left join encntr_alias mrn
+     on mrn.encntr_id = emad.encntr_id
+    and mrn.encntr_id != 0
+    and mrn.encntr_alias_type_cd = CS319MRN
+    and mrn.active_ind = 1
+    and mrn.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and mrn.end_effective_dt_tm >= cnvtdatetime(sysdate)
+  )
+ ,(left join encntr_alias fin
+     on fin.encntr_id = emad.encntr_id
+    and fin.encntr_id != 0
+    and fin.encntr_alias_type_cd = CS319FINNBR
+    and fin.active_ind = 1
+    and fin.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fin.end_effective_dt_tm >= cnvtdatetime(sysdate)
+  )
+ ,(left join orders o
+     on o.order_id = emad.order_id
+  )
+ ,(left join order_action oa
+     on oa.order_id = o.order_id
+    and oa.action_type_cd = CS6003ORDER
+  )
+ ,(left join prsnl pauthoa
+     on pauthoa.person_id = oa.order_provider_id
+  )
+ ,(left join prsnl pauth
+     on pauth.person_id = o.last_update_provider_id
+  )
+plan ema
+  where expand(idx,1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+join emat
+  where emat.module_name = ema.module_name
+join emad
+  where emad.module_audit_id = ema.rec_id
+    and emad.template_number = emat.template_num
+    and (emad.encntr_id != 0
+         or emad.order_id != 0
+         )
+join mrn
+join fin
+join o
+join oa
+join pauthoa
+join pauth
+order
+   ema.rec_id
+  ,emad.template_number
+head report
+  null
+head ema.rec_id
+  foundeid = 0
+  foundoid = 0
+ 
+head emad.template_number
+  null
+detail
+  pos = locateval(idx,1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+  if (foundeid = 0 and emad.encntr_id != 0 and output_ema->qual[pos].encntr_id = 0)
+    while (pos > 0)
+      output_ema->qual[pos].encntr_id = emad.encntr_id
+      output_ema->qual[pos].person_id = emad.person_id
+      output_ema->qual[pos].encntr_id_hash = enid
+      output_ema->qual[pos].encntr_id_verify_key = renid
+      output_ema->qual[pos].person_id_hash = prid
+      output_ema->qual[pos].person_id_verify_key = rprid
+      output_ema->qual[pos].fin = cnvtalias(fin.alias, fin.alias_pool_cd)
+      output_ema->qual[pos].mrn = cnvtalias(mrn.alias, mrn.alias_pool_cd)
+      output_ema->qual[pos].patient_encounter_id = eid
+      output_ema->qual[pos].patient_encounter_id_verify_key = reid
+      output_ema->qual[pos].patient_id = pid
+      output_ema->qual[pos].patient_id_verify_key = rpid
+      pos = locateval(idx,pos+1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+    endwhile
+    foundeid = 1
+  endif
+ 
+  pos = locateval(idx,1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+  if (foundoid = 0 and emad.order_id != 0 and output_ema->qual[pos].trigger_order = 0)
+    while (pos > 0)
+      output_ema->qual[pos].trigger_order = emad.order_id
+      if (o.order_id != 0)
+        output_ema->qual[pos].authorizing_provider_id = oa.order_provider_id
+        output_ema->qual[pos].authorizing_provider_name = pauthoa.name_full_formatted
+        output_ema->qual[pos].last_update_provider_id = o.last_update_provider_id
+        output_ema->qual[pos].last_update_provider_name = pauth.name_full_formatted
+      endif
+      pos = locateval(idx,pos+1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+    endwhile
+    foundoid = 1
+  endif
+ 
+foot emad.template_number
+  null
+foot ema.rec_id
+  null
+foot report
+  null
+ 
+with nocounter, expand = 2, orahintcbo("INDEX( FIN XIE2ENCNTR_ALIAS)", "INDEX( MRN XIE2ENCNTR_ALIAS)")
+ 
+;resort the trigger_events and populate the final string
+select into "nl:"
+from
+   (dummyt d1 with seq = output_ema->qual_cnt)
+  ,(dummyt d2 with seq = 1)
+plan d1
+  where maxrec(d2, output_ema->qual[d1.seq].trigger_events_cnt)
+join d2
+order
+   d1.seq
+  ,cnvtupper(output_ema->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+ 
+head d1.seq
+  cnt = 0
+  tevent_str = " "
+ 
+head d2.seq
+  null
+ 
+detail
+  cnt = cnt + 1
+  if (cnt = 1)
+    tevent_str = output_ema->qual[d1.seq].trigger_events[d2.seq].trigger_event
+  else
+    tevent_str = concat(tevent_str, ",", output_ema->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+  endif
+ 
+foot d2.seq
+  null
+ 
+foot d1.seq
+  output_ema->qual[d1.seq].trigger_event_str = tevent_str
+ 
+with nocounter
+ 
+;patient's location at the time of the alert
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_module_audit ema
+  ,eks_module_audit_temp emat
+  ,eks_module_audit_det emad
+  ,encntr_loc_hist elh
+plan ema
+  where expand(idx,1,output_ema->qual_cnt,ema.rec_id,output_ema->qual[idx].alert_instance_id)
+join emat
+  where emat.module_name = ema.module_name
+join emad
+  where emad.module_audit_id = ema.rec_id
+    and emad.template_number = emat.template_num
+    and emad.template_type = "A"
+    and emad.template_return = 100
+    and emad.template_name in ("EKS_ALERT_HTML_A"
+                              ,"EKS_ALERT_FLEX_A"
+                              ,"EKS_ALERT_FLEX_HISTORY_A"
+                               )
+    and emad.encntr_id != 0
+join elh
+  where elh.encntr_id = emad.encntr_id
+    and elh.beg_effective_dt_tm <= ema.begin_dt_tm
+    and elh.end_effective_dt_tm > ema.begin_dt_tm
+    and elh.active_ind = 1
+ 
+detail
+  pos = locateval(idx,1,output_ema->qual_cnt,ema.rec_id,output_ema->qual[idx].alert_instance_id)
+  while (pos > 0)
+    output_ema->qual[pos].department_disp = uar_get_code_display(elh.loc_nurse_unit_cd)
+    output_ema->qual[pos].department_id = elh.loc_nurse_unit_cd
+    pos = locateval(idx,pos+1,output_ema->qual_cnt,ema.rec_id,output_ema->qual[idx].alert_instance_id)
+  endwhile
+ 
+with nocounter, expand = 2
+ 
+;patient's location at the time of the alert if the encounter_id came from another section - not populated in the action section
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_module_audit ema
+  ,eks_module_audit_temp emat
+  ,eks_module_audit_det emad
+  ,encntr_loc_hist elh
+plan ema
+  where expand(idx,1,output_ema->qual_cnt,ema.rec_id,output_ema->qual[idx].alert_instance_id)
+join emat
+  where emat.module_name = ema.module_name
+join emad
+  where emad.module_audit_id = ema.rec_id
+    and emad.template_number = emat.template_num
+    and emad.encntr_id != 0
+join elh
+  where elh.encntr_id = emad.encntr_id
+    and elh.beg_effective_dt_tm <= ema.begin_dt_tm
+    and elh.end_effective_dt_tm > ema.begin_dt_tm
+    and elh.active_ind = 1
+order
+   ema.rec_id
+  ,emad.template_number
+head ema.rec_id
+  foundeid = 0
+  pos = locateval(idx,1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+detail
+  if (foundeid = 0 and emad.encntr_id != 0 and output_ema->qual[pos].department_id = 0)
+    while (pos > 0)
+      output_ema->qual[pos].department_disp = uar_get_code_display(elh.loc_nurse_unit_cd)
+      output_ema->qual[pos].department_id = elh.loc_nurse_unit_cd
+      pos = locateval(idx,pos+1,output_ema->qual_cnt, ema.rec_id, output_ema->qual[idx].alert_instance_id)
+    endwhile
+    foundeid = 1
+  endif
+foot ema.rec_id
+  null
+ 
+with nocounter, expand = 2
+
+;add PHI information if sending
+if ($SENDPHI = 1)
+  select if(EXPAND_CONTROL = 1)
+           with expand = 1
+         endif
+  into "nl:"
+     person_id = output_ema->qual[d1.seq].person_id
+    ,encntr_id = output_ema->qual[d1.seq].encntr_id
+  from
+  (dummyt d1 with seq = output_ema->qual_cnt)
+  plan d1
+    where not expand(idx,1,output_phi->qual_cnt,output_ema->qual[d1.seq].encntr_id,output_phi->qual[idx].encntr_id
+                                               ,output_ema->qual[d1.seq].person_id,output_phi->qual[idx].person_id)
+  order
+     output_ema->qual[d1.seq].person_id
+    ,output_ema->qual[d1.seq].encntr_id
+    
+  head report
+    cnt = output_phi->qual_cnt
+  
+  head person_id
+    null
+  
+  head encntr_id
+    cnt = cnt + 1
+    if (mod(cnt,10000) = 1)
+      stat = alterlist(output_phi->qual, cnt + 9999)
+    endif
+    
+    output_phi->qual[cnt].encntr_id                       = output_ema->qual[d1.seq].encntr_id
+    output_phi->qual[cnt].person_id                       = output_ema->qual[d1.seq].person_id
+    output_phi->qual[cnt].fin                             = output_ema->qual[d1.seq].fin
+    output_phi->qual[cnt].mrn                             = output_ema->qual[d1.seq].mrn
+    output_phi->qual[cnt].patient_encounter_id            = output_ema->qual[d1.seq].patient_encounter_id
+    output_phi->qual[cnt].patient_encounter_id_verify_key = output_ema->qual[d1.seq].patient_encounter_id_verify_key
+    output_phi->qual[cnt].patient_id                      = output_ema->qual[d1.seq].patient_id
+    output_phi->qual[cnt].patient_id_verify_key           = output_ema->qual[d1.seq].patient_id_verify_key
+    output_phi->qual[cnt].encntr_id_hash                  = output_ema->qual[d1.seq].encntr_id_hash
+    output_phi->qual[cnt].encntr_id_verify_key            = output_ema->qual[d1.seq].encntr_id_verify_key
+    output_phi->qual[cnt].person_id_hash                  = output_ema->qual[d1.seq].person_id_hash
+    output_phi->qual[cnt].person_id_verify_key            = output_ema->qual[d1.seq].person_id_verify_key
+  
+  detail
+    null
+  
+  foot encntr_id
+    null
+    
+  foot person_id
+    null
+  
+  foot report
+    output_phi->qual_cnt = cnt
+    ;leave record structure open for next select
+  
+  with nocounter, expand = 2
+endif
+ 
+/*****
+Alerts EMA output
+*****/
+select into "nl:"
+from
+   (dummyt   d1  with seq = output_ema->qual_cnt)
+head report
+  frec->file_name = FILE_ALERTSEMA
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSEMA))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "alert_id", QUOTE
+    ,DELIMITER, QUOTE, "alert_instance_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "patient_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "alert_name", QUOTE
+    ,DELIMITER, QUOTE, "alert_date", QUOTE
+    ,DELIMITER, QUOTE, "maint_validation", QUOTE
+    ,DELIMITER, QUOTE, "maint_dur_begin_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "maint_dur_end_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "trigger_event", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "department", QUOTE
+    ,DELIMITER, QUOTE, "department_id", QUOTE
+    ,DELIMITER, QUOTE, "trigger_order", QUOTE
+    ,DELIMITER, QUOTE, "alert_beg_date", QUOTE
+    ,DELIMITER, QUOTE, "alert_logging", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "person_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "person_id_verify_key", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_EMA, QUOTE
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].alert_id)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].alert_unique_instance_id)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].patient_encounter_id)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].patient_encounter_id_verify_key)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].patient_id)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].patient_id_verify_key)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].alert_name)
+    ,DELIMITER, DisplayText(trim(format(output_ema->qual[d1.seq].alert_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].maint_validation)
+    ,DELIMITER, DisplayText(trim(format(output_ema->qual[d1.seq].maint_dur_begin_dt_tm, DISP_DATE)))
+    ,DELIMITER, DisplayText(trim(format(output_ema->qual[d1.seq].maint_dur_end_dt_tm, DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].trigger_event_str)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].authorizing_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_ema->qual[d1.seq].authorizing_provider_id))
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].department_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ema->qual[d1.seq].department_id))
+    ,DELIMITER, DisplayText(DisplayInt(output_ema->qual[d1.seq].trigger_order))
+    ,DELIMITER, DisplayText(trim(format(output_ema->qual[d1.seq].alert_beg_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].alert_logging)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].last_update_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_ema->qual[d1.seq].last_update_provider_id))
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].encntr_id_hash)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].encntr_id_verify_key)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].person_id_hash)
+    ,DELIMITER, DisplayText(output_ema->qual[d1.seq].person_id_verify_key)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSEMA))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_EMA_DATA
+if (output_ema->qual_cnt = 0)
+  select into FILE_ALERTSEMA
+  from (dummyt d with seq = 1)
+  detail
+  call print(build2("No EMA alerts found for ", format(BDATE,"@SHORTDATETIME"), " to ", format(EDATE,"@SHORTDATETIME")))
+  with nocounter
+endif
+
+call echo(build2("EMA Data Row Count: ", trim(cnvtstring(output_ema->qual_cnt))))
+free record output_ema
+ 
+call echo(build2("End Get EMA Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+ 
+ 
+/*********************************************************************************************************************************
+Alerts Med
+*********************************************************************************************************************************/
+call echo(build2("Begin Get MED Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Alerts Med Record Structures
+*****/
+record output_med (
+  1 qual_cnt                                 = i4
+  1 qual[*]
+    2 alert_id                               = vc
+    2 alert_type                             = vc
+    2 alert_sub_type                         = vc
+    2 alert_instance_id                      = f8
+    2 interaction_order_id                   = vc
+    2 interaction_catalog_id                 = vc
+    2 interaction_catalog_disp               = vc
+    2 interaction_allergen_id                = vc
+    2 interaction_allergen_disp              = vc
+    2 interaction_allergen_type              = vc
+    2 interaction_severity_level             = vc
+    2 interaction_major_contraindicated_ind  = vc
+    2 trigger_order_id                       = f8
+    2 alert_date                             = dq8
+)
+ 
+/*****
+Alerts Med Data Processing
+*****/
+;main Med data
+select into "nl:"
+from
+  eks_dlg_event ede
+ ,eks_dlg_event_attr edea
+ ,(left join order_catalog oc
+     on oc.catalog_cd = edea.attr_id
+    and edea.attr_name = "CATALOG_CD"
+  )
+ ,(left join nomenclature n
+     on n.nomenclature_id = edea.attr_id
+    and edea.attr_name = "NOMENCLATURE_ID"
+  )
+plan ede
+  where ede.dlg_dt_tm between cnvtdatetime(BDATE) and cnvtdatetime(EDATE)
+    and ede.active_ind = 1
+    and parser(LD_MED_PARSER)
+join edea
+  where edea.dlg_event_id = ede.dlg_event_id
+    and edea.active_ind = 1
+join oc
+join n
+order
+   ede.dlg_event_id
+  ,edea.attr_name
+ 
+head report
+  cnt = 0
+ 
+head ede.dlg_event_id
+  order_id_str       = " "
+  catalog_id_str     = " "
+  catalog_disp_str   = " "
+  allergen_id_str    = " "
+  allergen_disp_str  = " "
+  allergen_nomen_str = " "
+  severity_str       = " "
+  major_cont_str     = " "
+ 
+head edea.attr_name
+  null
+ 
+detail
+ 
+  case(edea.attr_name)
+    of "ORDER_ID"                  : if (size(order_id_str) = 0)
+                                       order_id_str = trim(cnvtstring(edea.attr_id))
+                                     else
+                                       order_id_str = build2(order_id_str,", ",trim(cnvtstring(edea.attr_id)))
+                                     endif
+    of "CATALOG_CD"                : if (size(catalog_id_str) = 0)
+                                       catalog_id_str = trim(cnvtstring(edea.attr_id))
+                                     else
+                                       catalog_id_str = build2(catalog_id_str,", ",trim(cnvtstring(edea.attr_id)))
+                                     endif
+                                     if (size(catalog_disp_str) = 0)
+                                       catalog_disp_str = trim(oc.primary_mnemonic)
+                                     else
+                                       catalog_disp_str = build2(catalog_disp_str,", ",trim(oc.primary_mnemonic))
+                                     endif
+    of "NOMENCLATURE_ID"           : if (size(allergen_id_str) = 0)
+                                       allergen_id_str = trim(n.source_identifier)
+                                     else
+                                       allergen_id_str = build2(allergen_id_str,", ",trim(n.source_identifier))
+                                     endif
+                                     if (size(allergen_disp_str) = 0)
+                                       allergen_disp_str = trim(n.source_string)
+                                     else
+                                       allergen_disp_str = build2(allergen_disp_str,", ",trim(n.source_string))
+                                     endif
+                                     if (size(allergen_nomen_str) = 0)
+                                       allergen_nomen_str = trim(uar_get_code_display(n.source_vocabulary_cd))
+                                     else
+                                       allergen_nomen_str = build2(allergen_nomen_str,", "
+                                                                  ,trim(uar_get_code_display(n.source_vocabulary_cd)))
+                                     endif
+    of "SEVERITY_LEVEL"            : if (size(severity_str) = 0)
+                                       severity_str = trim(edea.attr_value)
+                                     else
+                                       severity_str = build2(severity_str,", ",trim(edea.attr_value))
+                                     endif
+    of "MAJOR_CONTRAINDICATED_IND" : if (size(major_cont_str) = 0)
+                                       major_cont_str = edea.attr_value
+                                     else
+                                       major_cont_str = build2(major_cont_str,", ",trim(edea.attr_value))
+                                     endif
+  endcase
+ 
+foot edea.attr_name
+  null
+ 
+foot ede.dlg_event_id
+  cnt = cnt + 1
+  if (mod(cnt, 1000) = 1)
+    stat = alterlist(output_med->qual, cnt + 999)
+  endif
+ 
+  output_med->qual[cnt].alert_date        = ede.dlg_dt_tm
+  output_med->qual[cnt].alert_id          = "MUL_MED" ;vc
+  output_med->qual[cnt].alert_type        = evaluate(piece(ede.dlg_name,"!",1,ede.dlg_name),"MUL_MED","MED"," ") ;vc
+  output_med->qual[cnt].alert_sub_type    = evaluate(output_med->qual[cnt].alert_type
+                                                     ,"MED"
+                                                     ,piece(ede.dlg_name,"!",2,ede.dlg_name)
+                                                     ," "
+                                                     ) ;vc
+  output_med->qual[cnt].alert_instance_id = ede.dlg_event_id ;f8
+ 
+  output_med->qual[cnt].interaction_order_id                   = order_id_str ;f8
+  output_med->qual[cnt].interaction_catalog_id                 = catalog_id_str ;f8
+  output_med->qual[cnt].interaction_catalog_disp               = catalog_disp_str ;vc
+  output_med->qual[cnt].interaction_allergen_id                = allergen_id_str ;vc
+  output_med->qual[cnt].interaction_allergen_disp              = allergen_disp_str ;vc
+  output_med->qual[cnt].interaction_allergen_type              = allergen_nomen_str ;vc
+  output_med->qual[cnt].interaction_severity_level             = severity_str ;vc
+  output_med->qual[cnt].interaction_major_contraindicated_ind  = major_cont_str ;vc
+  output_med->qual[cnt].trigger_order_id                       = ede.trigger_order_id
+ 
+foot report
+  output_med->qual_cnt = cnt
+  stat = alterlist(output_med->qual, cnt)
+ 
+with nocounter
+ 
+if (output_med->qual_cnt = 0)
+  go to NO_MED_DATA
+endif
+ 
+/*****
+Alerts Med Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_med->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_ALERTSMED
+  frec->file_buf = "a"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSMED))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "alert_id", QUOTE
+    ,DELIMITER, QUOTE, "alert_type", QUOTE
+    ,DELIMITER, QUOTE, "alert_sub_type", QUOTE
+    ,DELIMITER, QUOTE, "alert_instance_id", QUOTE
+    ,DELIMITER, QUOTE, "interaction_order_id", QUOTE
+    ,DELIMITER, QUOTE, "interaction_catalog_id", QUOTE
+    ,DELIMITER, QUOTE, "interaction_catalog_disp", QUOTE
+    ,DELIMITER, QUOTE, "interaction_allergen_id", QUOTE
+    ,DELIMITER, QUOTE, "interaction_allergen_disp", QUOTE
+    ,DELIMITER, QUOTE, "interaction_allergen_type", QUOTE
+    ,DELIMITER, QUOTE, "interaction_severity_level", QUOTE
+    ,DELIMITER, QUOTE, "interaction_major_contraindicated_ind", QUOTE
+    ,DELIMITER, QUOTE, "trigger_order_id", QUOTE
+    ,DELIMITER, QUOTE, "alert_date", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_MED, QUOTE
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].alert_id)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].alert_type)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].alert_sub_type)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].alert_instance_id))
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_order_id)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_catalog_id)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_catalog_disp)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_allergen_id)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_allergen_id)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_allergen_type)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_severity_level)
+    ,DELIMITER, DisplayText(output_med->qual[d1.seq].interaction_major_contraindicated_ind)
+    ,DELIMITER, DisplayText(DisplayInt(output_med->qual[d1.seq].trigger_order_id))
+    ,DELIMITER, DisplayText(trim(format(output_med->qual[d1.seq].alert_date,DISP_DATE)))
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTSMED))
+  endif
+ 
+with nocounter
+
+ 
+#NO_MED_DATA
+if (output_med->qual_cnt = 0)
+  select into FILE_ALERTSMED
+  from (dummyt d with seq = 1)
+  detail
+  call print(build2("No MED alerts found for ", format(BDATE,"@SHORTDATETIME"), " to ", format(EDATE,"@SHORTDATETIME")))
+  with nocounter
+endif
+
+call echo(build2("Med Data Row Count: ", trim(cnvtstring(output_med->qual_cnt))))
+free record output_med
+ 
+call echo(build2("End Get MED Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+ 
+/*********************************************************************************************************************************
+Orders
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Orders Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Orders record structures
+*****/
+record output_ord (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 encntr_id                       = f8
+    2 person_id                       = f8
+    2 fin                             = vc
+    2 mrn                             = vc
+    2 order_instance_id               = f8
+    2 patient_id                      = vc
+    2 patient_id_verify_key           = vc
+    2 patient_encounter_id            = vc
+    2 patient_encounter_id_verify_key = vc
+    2 catalog_term_disp               = vc
+    2 catalog_term_id                 = f8
+    2 order_date                      = dq8
+    2 order_venue                     = vc
+    2 order_frequency_disp            = vc
+    2 order_frequency_id              = f8
+    2 order_route_disp                = vc
+    2 order_route_id                  = f8
+    2 authorizing_provider_disp       = vc
+    2 authorizing_provider_id         = f8
+    2 entering_provider_disp          = vc
+    2 entering_provider_id            = f8
+    2 department_disp                 = vc
+    2 department_id                   = f8
+    2 order_source_type_name          = vc
+    2 order_source_name               = vc
+    2 order_status                    = vc
+    2 cs_flag                         = i2
+    2 cs_order_id                     = f8
+    2 iv_set_synonym_id               = f8
+    2 pathway_catalog_id              = f8
+    2 order_start_dt_tm               = dq8
+    2 catalog_type_name               = vc
+    2 catalog_type_code               = f8
+    2 order_source_code               = vc
+    2 order_source_type_code          = vc
+    2 synonym_id                      = f8
+    2 synonym_disp                    = vc
+    2 encntr_type_cd                  = f8
+    2 encntr_type_disp                = vc
+    2 encntr_type_class_cd            = f8
+    2 encntr_type_class_disp          = vc
+    2 order_action_date               = dq8
+    2 last_update_provider_name       = vc
+    2 last_update_provider_id         = f8
+    2 action_initiated_dt_tm          = dq8
+    2 discontinue_dt_tm               = dq8
+    2 discontinue_provider_id         = f8
+    2 discontinue_provider_name       = vc
+    2 cancel_dt_tm                    = dq8
+    2 cancel_provider_id              = f8
+    2 cancel_provider_name            = vc
+    2 deleted_dt_tm                   = dq8
+    2 deleted_provider_id             = f8
+    2 deleted_provider_name           = vc
+    2 encntr_id_hash                  = vc
+    2 encntr_id_verify_key            = vc
+    2 person_id_hash                  = vc
+    2 person_id_verify_key            = vc
+)
+ 
+/*****
+Orders Data Processing
+*****/
+;loop through data in 1 hour increments (seems to be more efficient than getting all 24 hours at once)
+for (x = 1 to 24)
+ 
+;increment the begin date
+if (x > 1)
+  set OBDATE = cnvtlookahead("1,H", cnvtdatetime(OBDATE))
+  set OEDATE = cnvtlookahead("1,H", cnvtdatetime(OEDATE))
+endif
+ 
+call echo(build2("OBDATE = ", format(OBDATE,"@SHORTDATETIME"), " OEDATE = ", format(OEDATE,"@SHORTDATETIME")))
+ 
+;main select
+select into "nl:"
+   eid = sqlpassthru("ora_hash(fin.alias)",200)
+  ,pid = sqlpassthru("ora_hash(mrn.alias)",200)
+  ,reid = sqlpassthru("ora_hash(reverse(fin.alias))",200)
+  ,rpid = sqlpassthru("ora_hash(reverse(mrn.alias))",200)
+  ,enid = sqlpassthru("ora_hash(to_char(o.encntr_id))",200)
+  ,prid = sqlpassthru("ora_hash(to_char(o.person_id))",200)
+  ,renid = sqlpassthru("ora_hash(reverse(to_char(o.encntr_id)))",200)
+  ,rprid = sqlpassthru("ora_hash(reverse(to_char(o.person_id)))",200)
+from
+  order_action oa
+ ,(left join prsnl pr
+    on pr.person_id = oa.action_personnel_id
+  )
+ ,(left join prsnl pauthoa
+    on pauthoa.person_id = oa.order_provider_id
+  )
+ ,(left join order_detail od
+     on od.order_id = oa.order_id
+    and od.action_sequence <= oa.action_sequence
+    and od.oe_field_meaning_id in (OFMFREQUENCY, OFMROUTE)
+   )
+ ,(left join order_action dc
+     on dc.order_id = oa.order_id
+    and dc.action_type_cd = CS6003DISCONTINUE
+   )
+ ,(left join prsnl pdc
+     on pdc.person_id = dc.order_provider_id
+   )
+ ,(left join order_action cx
+     on cx.order_id = oa.order_id
+    and cx.action_type_cd = CS6003CANCEL
+   )
+ ,(left join prsnl pcx
+     on pcx.person_id = cx.order_provider_id
+   )
+ ,(left join order_action dl
+     on dl.order_id = oa.order_id
+    and dl.action_type_cd = CS6003DELETE
+   )
+ ,(left join prsnl pdl
+     on pdl.person_id = dl.order_provider_id
+   )
+ ,orders o
+ ,(left join encntr_alias mrn
+     on mrn.encntr_id = o.encntr_id
+    and mrn.encntr_alias_type_cd = CS319MRN
+    and mrn.active_ind = 1
+    and mrn.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and mrn.end_effective_dt_tm >= cnvtdatetime(sysdate)
+   )
+ ,(left join encntr_alias fin
+     on fin.encntr_id = o.encntr_id
+    and fin.encntr_alias_type_cd = CS319FINNBR
+    and fin.active_ind = 1
+    and fin.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fin.end_effective_dt_tm >= cnvtdatetime(sysdate)
+   )
+ ,order_catalog_synonym ocs1
+ ,encounter e
+ ,prsnl p
+ ,pathway_catalog pc
+ ,orders o1
+ ,order_catalog_synonym ocs
+plan oa
+  where oa.action_dt_tm between cnvtdatetime(OBDATE) and cnvtdatetime(OEDATE)
+    and oa.action_type_cd = CS6003ORDER
+    and parser(LD_ORD_PARSER)
+join o
+  where o.order_id = oa.order_id
+    and o.template_order_flag in (0,1)
+    and o.contributor_system_cd = CS89POWERCHART
+    and o.cs_flag in (0,2)
+    and o.orig_ord_as_flag in (0,1,2)
+    and o.active_ind = 1
+join ocs1
+  where ocs1.synonym_id = o.synonym_id
+join pr
+join pauthoa
+join od
+join dc
+join pdc
+join cx
+join pcx
+join dl
+join pdl
+join e
+  where e.encntr_id = o.encntr_id
+join mrn
+join fin
+join p
+  where p.person_id = o.last_update_provider_id
+join pc
+  where pc.pathway_catalog_id = o.pathway_catalog_id
+join o1
+  where o1.order_id = o.cs_order_id
+join ocs
+  where ocs.synonym_id = o.iv_set_synonym_id
+order
+  o.order_id, oa.action_sequence, od.oe_field_meaning_id, od.action_sequence desc
+head report
+  cnt = output_ord->qual_cnt
+  if (x = 1)
+    oexp_start = 1
+  else
+    oexp_start = output_ord->qual_cnt
+  endif
+ 
+head o.order_id
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_ord->qual, cnt + 9999)
+  endif
+ 
+  output_ord->qual[cnt].encntr_id                       = o.encntr_id
+  output_ord->qual[cnt].person_id                       = o.person_id
+  if (o.encntr_id != 0)
+    output_ord->qual[cnt].encntr_id_hash                  = enid
+    output_ord->qual[cnt].encntr_id_verify_key            = renid
+  endif
+  output_ord->qual[cnt].person_id_hash                  = prid
+  output_ord->qual[cnt].person_id_verify_key            = rprid
+  output_ord->qual[cnt].fin                             = cnvtalias(fin.alias,fin.alias_pool_cd)
+  output_ord->qual[cnt].mrn                             = cnvtalias(mrn.alias,mrn.alias_pool_cd)
+  output_ord->qual[cnt].order_instance_id               = o.order_id ;f8
+  output_ord->qual[cnt].patient_id                      = pid ;vc
+  output_ord->qual[cnt].patient_id_verify_key           = rpid ;vc
+  output_ord->qual[cnt].patient_encounter_id            = eid ;vc
+  output_ord->qual[cnt].patient_encounter_id_verify_key = reid ;vc
+  output_ord->qual[cnt].catalog_term_disp               = o.hna_order_mnemonic ;vc
+  output_ord->qual[cnt].catalog_term_id                 = o.catalog_cd ;f8
+  output_ord->qual[cnt].order_date                      = o.orig_order_dt_tm ;dq8
+  output_ord->qual[cnt].order_venue                     = uar_get_code_display(e.encntr_type_class_cd)
+  output_ord->qual[cnt].authorizing_provider_disp       = pauthoa.name_full_formatted
+  output_ord->qual[cnt].authorizing_provider_id         = oa.order_provider_id ;f8
+  output_ord->qual[cnt].entering_provider_disp          = pr.name_full_formatted
+  output_ord->qual[cnt].entering_provider_id            = oa.action_personnel_id
+  output_ord->qual[cnt].department_disp                 = uar_get_code_display(e.loc_nurse_unit_cd)
+  output_ord->qual[cnt].department_id                   = e.loc_nurse_unit_cd
+  output_ord->qual[cnt].order_status                    = uar_get_code_display(o.order_status_cd)
+  output_ord->qual[cnt].order_start_dt_tm               = o.current_start_dt_tm
+  output_ord->qual[cnt].catalog_type_name               = uar_get_code_display(o.catalog_type_cd)
+  output_ord->qual[cnt].catalog_type_code               = o.catalog_type_cd
+  output_ord->qual[cnt].synonym_id                      = o.synonym_id
+  output_ord->qual[cnt].synonym_disp                    = ocs1.mnemonic
+  output_ord->qual[cnt].encntr_type_cd                  = e.encntr_type_cd
+  output_ord->qual[cnt].encntr_type_disp                = uar_get_code_display(e.encntr_type_cd)
+  output_ord->qual[cnt].encntr_type_class_cd            = e.encntr_type_class_cd
+  output_ord->qual[cnt].encntr_type_class_disp          = uar_get_code_display(e.encntr_type_class_cd)
+  output_ord->qual[cnt].order_action_date               = oa.action_dt_tm
+  output_ord->qual[cnt].last_update_provider_name       = p.name_full_formatted
+  output_ord->qual[cnt].last_update_provider_id         = o.last_update_provider_id ;f8
+  output_ord->qual[cnt].action_initiated_dt_tm          = oa.action_initiated_dt_tm
+  output_ord->qual[cnt].discontinue_dt_tm               = dc.action_dt_tm
+  output_ord->qual[cnt].discontinue_provider_id         = dc.order_provider_id
+  output_ord->qual[cnt].discontinue_provider_name       = pdc.name_full_formatted
+  output_ord->qual[cnt].cancel_dt_tm                    = cx.action_dt_tm
+  output_ord->qual[cnt].cancel_provider_id              = cx.order_provider_id
+  output_ord->qual[cnt].cancel_provider_name            = pcx.name_full_formatted
+  output_ord->qual[cnt].deleted_dt_tm                   = dl.action_dt_tm
+  output_ord->qual[cnt].deleted_provider_id             = dl.order_provider_id
+  output_ord->qual[cnt].deleted_provider_name           = pdl.name_full_formatted
+ 
+  ord_src = " "
+  ord_srcn = " "
+  ord_srcc = " "
+  ord_srct = " "
+ 
+  if (o.pathway_catalog_id > 0)
+      ord_src = "PowerPlan"
+      ord_srcn = pc.description
+      ord_srcc = trim(cnvtstring(pc.pathway_catalog_id))
+      ord_srct = "1"
+  endif
+  if (o.cs_flag = 2)
+    if(size(ord_src) = 0)
+      ord_src = "Care Set"
+      ord_srcn = o1.hna_order_mnemonic
+      ord_srcc = trim(cnvtstring(o1.catalog_cd))
+      ord_srct = "2"
+    else
+      ord_src = build2(ord_src,", Care Set")
+      ord_srcn = build2(ord_srcn,", ",trim(o1.hna_order_mnemonic))
+      ord_srcc = build2(ord_srcc,", ",trim(cnvtstring(o1.catalog_cd)))
+      ord_srct = build2(ord_srct,", 2")
+    endif
+  endif
+  if (o.iv_set_synonym_id > 0)
+    if(size(ord_src) = 0)
+      ord_src = "IV Set"
+      ord_srcn = ocs.mnemonic
+      ord_srcc = trim(cnvtstring(ocs.catalog_cd))
+      ord_srct = "3"
+    else
+      ord_src = build2(ord_src,", IV Set")
+      ord_srcn = build2(ord_srcn,", ",trim(ocs.mnemonic))
+      ord_srcc = build2(ord_srcc,", ",trim(cnvtstring(ocs.catalog_cd)))
+      ord_srct = build2(ord_srct,", 3")
+    endif
+  endif
+ 
+  output_ord->qual[cnt].order_source_type_name = ord_src
+  output_ord->qual[cnt].order_source_name      = ord_srcn
+  output_ord->qual[cnt].order_source_code      = ord_srcc
+  output_ord->qual[cnt].order_source_type_code = ord_srct
+  output_ord->qual[cnt].cs_flag                = o.cs_flag
+  output_ord->qual[cnt].cs_order_id            = o.cs_order_id
+  output_ord->qual[cnt].iv_set_synonym_id      = o.iv_set_synonym_id
+  output_ord->qual[cnt].pathway_catalog_id     = o.pathway_catalog_id
+
+head oa.action_sequence
+  null
+
+head od.oe_field_meaning_id
+  case(od.oe_field_meaning_id)
+    of OFMFREQUENCY : output_ord->qual[cnt].order_frequency_disp            = od.oe_field_display_value ;vc
+                      output_ord->qual[cnt].order_frequency_id              = od.oe_field_value ;f8
+    of OFMROUTE     : output_ord->qual[cnt].order_route_disp                = od.oe_field_display_value ;vc
+                      output_ord->qual[cnt].order_route_id                  = od.oe_field_value ;f8
+  endcase
+
+head od.action_sequence
+  null
+  
+detail
+  null
+  
+foot od.action_sequence
+  null
+  
+foot od.oe_field_meaning_id
+  null
+  
+foot oa.action_sequence
+  null
+
+foot o.order_id
+  null
+ 
+foot report
+  output_ord->qual_cnt = cnt
+ 
+with nocounter, orahintcbo("INDEX( FIN XIE2ENCNTR_ALIAS)", "INDEX( MRN XIE2ENCNTR_ALIAS)")
+ 
+;get the encounter location and venue at the time of the order if available
+if (output_ord->qual_cnt > 0)
+call echo(build2("Getting encntr_loc_hist for OBDATE = "
+                , format(OBDATE,"@SHORTDATETIME"), " OEDATE = ", format(OEDATE,"@SHORTDATETIME")))
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   orders o
+  ,encntr_loc_hist elh
+plan o
+  where expand(idx,oexp_start,output_ord->qual_cnt,o.order_id,output_ord->qual[idx].order_instance_id)
+    and o.encntr_id != 0
+join elh
+  where elh.encntr_id = o.encntr_id
+    and elh.active_ind = 1
+    and elh.beg_effective_dt_tm <= o.orig_order_dt_tm
+    and elh.end_effective_dt_tm > o.orig_order_dt_tm
+order
+   o.order_id
+  ,elh.encntr_loc_hist_id desc
+ 
+head o.order_id
+  null
+head elh.encntr_loc_hist_id
+  pos = locateval(idx,oexp_start,output_ord->qual_cnt,o.order_id,output_ord->qual[idx].order_instance_id)
+  output_ord->qual[pos].order_venue     = uar_get_code_display(elh.encntr_type_class_cd)
+  output_ord->qual[pos].department_disp = uar_get_code_display(elh.loc_nurse_unit_cd)
+  output_ord->qual[pos].department_id   = elh.loc_nurse_unit_cd
+  output_ord->qual[pos].encntr_type_cd                  = elh.encntr_type_cd
+  output_ord->qual[pos].encntr_type_disp                = uar_get_code_display(elh.encntr_type_cd)
+  output_ord->qual[pos].encntr_type_class_cd            = elh.encntr_type_class_cd
+  output_ord->qual[pos].encntr_type_class_disp          = uar_get_code_display(elh.encntr_type_class_cd)
+ 
+detail
+  null
+foot elh.encntr_loc_hist_id
+  null
+foot o.order_id
+  null
+ 
+with nocounter, expand = 2
+endif
+ 
+endfor
+ 
+set stat = alterlist(output_ord->qual, output_ord->qual_cnt)
+ 
+ 
+if (output_ord->qual_cnt = 0)
+  go to NO_ORDERS_DATA
+endif
+
+;add PHI information if sending
+if ($SENDPHI = 1)
+  select if(EXPAND_CONTROL = 1)
+           with expand = 1
+         endif
+  into "nl:"
+     person_id = output_ord->qual[d1.seq].person_id
+    ,encntr_id = output_ord->qual[d1.seq].encntr_id
+  from
+  (dummyt d1 with seq = output_ord->qual_cnt)
+  plan d1
+    where not expand(idx,1,output_phi->qual_cnt,output_ord->qual[d1.seq].encntr_id,output_phi->qual[idx].encntr_id
+                                               ,output_ord->qual[d1.seq].person_id,output_phi->qual[idx].person_id)
+  order
+     output_ord->qual[d1.seq].person_id
+    ,output_ord->qual[d1.seq].encntr_id
+    
+  head report
+    cnt = output_phi->qual_cnt
+  
+  head person_id
+    null
+  
+  head encntr_id
+    cnt = cnt + 1
+    if (mod(cnt,10000) = 1)
+      stat = alterlist(output_phi->qual, cnt + 9999)
+    endif
+    
+    output_phi->qual[cnt].encntr_id                       = output_ord->qual[d1.seq].encntr_id
+    output_phi->qual[cnt].person_id                       = output_ord->qual[d1.seq].person_id
+    output_phi->qual[cnt].fin                             = output_ord->qual[d1.seq].fin
+    output_phi->qual[cnt].mrn                             = output_ord->qual[d1.seq].mrn
+    output_phi->qual[cnt].patient_encounter_id            = output_ord->qual[d1.seq].patient_encounter_id
+    output_phi->qual[cnt].patient_encounter_id_verify_key = output_ord->qual[d1.seq].patient_encounter_id_verify_key
+    output_phi->qual[cnt].patient_id                      = output_ord->qual[d1.seq].patient_id
+    output_phi->qual[cnt].patient_id_verify_key           = output_ord->qual[d1.seq].patient_id_verify_key
+    output_phi->qual[cnt].encntr_id_hash                  = output_ord->qual[d1.seq].encntr_id_hash
+    output_phi->qual[cnt].encntr_id_verify_key            = output_ord->qual[d1.seq].encntr_id_verify_key
+    output_phi->qual[cnt].person_id_hash                  = output_ord->qual[d1.seq].person_id_hash
+    output_phi->qual[cnt].person_id_verify_key            = output_ord->qual[d1.seq].person_id_verify_key
+  
+  detail
+    null
+  
+  foot encntr_id
+    null
+    
+  foot person_id
+    null
+  
+  foot report
+    output_phi->qual_cnt = cnt
+    ;leave record structure open for next select
+  
+  with nocounter, expand = 2
+  
+endif 
+ 
+/*****
+Orders Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_ord->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_ORDERS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ORDERS))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "order_instance_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "catalog_term_disp", QUOTE
+    ,DELIMITER, QUOTE, "catalog_term_id", QUOTE
+    ,DELIMITER, QUOTE, "order_date", QUOTE
+    ,DELIMITER, QUOTE, "order_venue", QUOTE
+    ,DELIMITER, QUOTE, "order_frequency_disp", QUOTE
+    ,DELIMITER, QUOTE, "order_frequency_id", QUOTE
+    ,DELIMITER, QUOTE, "order_route_disp", QUOTE
+    ,DELIMITER, QUOTE, "order_route_id", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "entering_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "entering_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "department_disp", QUOTE
+    ,DELIMITER, QUOTE, "department_id", QUOTE
+    ,DELIMITER, QUOTE, "order_source_type_name", QUOTE
+    ,DELIMITER, QUOTE, "order_source_name", QUOTE
+    ,DELIMITER, QUOTE, "order_status", QUOTE
+    ,DELIMITER, QUOTE, "order_start_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_name", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_code", QUOTE
+    ,DELIMITER, QUOTE, "order_source_code", QUOTE
+    ,DELIMITER, QUOTE, "order_source_type_code", QUOTE
+    ,DELIMITER, QUOTE, "synonym_id", QUOTE
+    ,DELIMITER, QUOTE, "synonym_disp", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_cd", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_disp", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_class_cd", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_class_disp", QUOTE 
+    ,DELIMITER, QUOTE, "order_action_date", QUOTE 
+    ,DELIMITER, QUOTE, "last_update_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "action_initiated_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "cancel_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "cancel_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "cancel_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "deleted_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "deleted_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "deleted_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "person_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "person_id_verify_key", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_ORD, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].order_instance_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].patient_id)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].patient_id_verify_key)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].patient_encounter_id)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].patient_encounter_id_verify_key)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].catalog_term_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].catalog_term_id))
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].order_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_venue)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_frequency_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].order_frequency_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_route_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].order_route_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].authorizing_provider_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].authorizing_provider_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].entering_provider_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].entering_provider_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].department_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].department_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_source_type_name)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_source_name)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_status)
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].order_start_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].catalog_type_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].catalog_type_code))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_source_code)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].order_source_type_code)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].synonym_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].synonym_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].encntr_type_cd))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].encntr_type_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].encntr_type_class_cd))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].encntr_type_class_disp)
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].order_action_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].last_update_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].last_update_provider_id))
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].action_initiated_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].discontinue_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].discontinue_provider_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].discontinue_provider_name)
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].cancel_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].cancel_provider_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].cancel_provider_name)
+    ,DELIMITER, DisplayText(trim(format(output_ord->qual[d1.seq].deleted_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_ord->qual[d1.seq].deleted_provider_id))
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].deleted_provider_name)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].encntr_id_hash)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].encntr_id_verify_key)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].person_id_hash)
+    ,DELIMITER, DisplayText(output_ord->qual[d1.seq].person_id_verify_key)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ORDERS))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_ORDERS_DATA
+if (output_ord->qual_cnt = 0)
+  select into FILE_ORDERS
+  from (dummyt d with seq = 1)
+  detail
+  call print(build2("No Orders found for ", format(BDATE,"@SHORTDATETIME"), " to ", format(EDATE,"@SHORTDATETIME")))
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("Orders Data Row Count: ", trim(cnvtstring(output_ord->qual_cnt)))) 
+free record output_ord
+ 
+call echo(build2("End Get Orders Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+ 
+
+/*********************************************************************************************************************************
+Modified Orders
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Modified Orders Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Orders record structures
+*****/
+record output_mord (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 encntr_id                       = f8
+    2 person_id                       = f8
+    2 fin                             = vc
+    2 mrn                             = vc
+    2 order_instance_id               = f8
+    2 patient_id                      = vc
+    2 patient_id_verify_key           = vc
+    2 patient_encounter_id            = vc
+    2 patient_encounter_id_verify_key = vc
+    2 catalog_term_disp               = vc
+    2 catalog_term_id                 = f8
+    2 order_date                      = dq8
+    2 order_venue                     = vc
+    2 order_frequency_disp            = vc
+    2 order_frequency_id              = f8
+    2 order_route_disp                = vc
+    2 order_route_id                  = f8
+    2 authorizing_provider_disp       = vc
+    2 authorizing_provider_id         = f8
+    2 entering_provider_disp          = vc
+    2 entering_provider_id            = f8
+    2 department_disp                 = vc
+    2 department_id                   = f8
+    2 order_source_type_name          = vc
+    2 order_source_name               = vc
+    2 order_status                    = vc
+    2 cs_flag                         = i2
+    2 cs_order_id                     = f8
+    2 iv_set_synonym_id               = f8
+    2 pathway_catalog_id              = f8
+    2 order_start_dt_tm               = dq8
+    2 catalog_type_name               = vc
+    2 catalog_type_code               = f8
+    2 order_source_code               = vc
+    2 order_source_type_code          = vc
+    2 synonym_id                      = f8
+    2 synonym_disp                    = vc
+    2 encntr_type_cd                  = f8
+    2 encntr_type_disp                = vc
+    2 encntr_type_class_cd            = f8
+    2 encntr_type_class_disp          = vc
+    2 order_action_date               = dq8
+    2 last_update_provider_name       = vc
+    2 last_update_provider_id         = f8
+    2 action_initiated_dt_tm          = dq8
+    2 discontinue_dt_tm               = dq8
+    2 discontinue_provider_id         = f8
+    2 discontinue_provider_name       = vc
+    2 cancel_dt_tm                    = dq8
+    2 cancel_provider_id              = f8
+    2 cancel_provider_name            = vc
+    2 deleted_dt_tm                   = dq8
+    2 deleted_provider_id             = f8
+    2 deleted_provider_name           = vc
+    2 encntr_id_hash                  = vc
+    2 encntr_id_verify_key            = vc
+    2 person_id_hash                  = vc
+    2 person_id_verify_key            = vc
+)
+ 
+/*****
+Modified Orders Data Processing
+*****/
+;reset OBDATE and OEDATE
+set OBDATE = GetPromptDate($BEG_DATE, CURDATE, 000000)
+set OEDATE = GetPromptDate($BEG_DATE, CURDATE, 005959)
+
+;loop through data in 1 hour increments (seems to be more efficient than getting all 24 hours at once)
+for (x = 1 to 24)
+ 
+;increment the begin date
+if (x > 1)
+  set OBDATE = cnvtlookahead("1,H", cnvtdatetime(OBDATE))
+  set OEDATE = cnvtlookahead("1,H", cnvtdatetime(OEDATE))
+endif
+ 
+call echo(build2("OBDATE = ", format(OBDATE,"@SHORTDATETIME"), " OEDATE = ", format(OEDATE,"@SHORTDATETIME")))
+ 
+;main select
+select into "nl:"
+   eid = sqlpassthru("ora_hash(fin.alias)",200)
+  ,pid = sqlpassthru("ora_hash(mrn.alias)",200)
+  ,reid = sqlpassthru("ora_hash(reverse(fin.alias))",200)
+  ,rpid = sqlpassthru("ora_hash(reverse(mrn.alias))",200)
+  ,enid = sqlpassthru("ora_hash(to_char(o.encntr_id))",200)
+  ,prid = sqlpassthru("ora_hash(to_char(o.person_id))",200)
+  ,renid = sqlpassthru("ora_hash(reverse(to_char(o.encntr_id)))",200)
+  ,rprid = sqlpassthru("ora_hash(reverse(to_char(o.person_id)))",200)
+from
+  order_action oa
+ ,(left join prsnl pr
+    on pr.person_id = oa.action_personnel_id
+  )
+ ,(left join prsnl pauthoa
+    on pauthoa.person_id = oa.order_provider_id
+  )
+ ,(left join order_detail od
+     on od.order_id = oa.order_id
+    and oa.action_sequence <= oa.action_sequence
+    and od.oe_field_meaning_id in (OFMFREQUENCY, OFMROUTE)
+   )
+ ,(left join order_action dc
+     on dc.order_id = oa.order_id
+    and dc.action_type_cd = CS6003DISCONTINUE
+   )
+ ,(left join prsnl pdc
+     on pdc.person_id = dc.order_provider_id
+   )
+ ,(left join order_action cx
+     on cx.order_id = oa.order_id
+    and cx.action_type_cd = CS6003CANCEL
+   )
+ ,(left join prsnl pcx
+     on pcx.person_id = cx.order_provider_id
+   )
+ ,(left join order_action dl
+     on dl.order_id = oa.order_id
+    and dl.action_type_cd = CS6003DELETE
+   )
+ ,(left join prsnl pdl
+     on pdl.person_id = dl.order_provider_id
+   )
+ ,orders o
+ ,(left join encntr_alias mrn
+     on mrn.encntr_id = o.encntr_id
+    and mrn.encntr_alias_type_cd = CS319MRN
+    and mrn.active_ind = 1
+    and mrn.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and mrn.end_effective_dt_tm >= cnvtdatetime(sysdate)
+   )
+ ,(left join encntr_alias fin
+     on fin.encntr_id = o.encntr_id
+    and fin.encntr_alias_type_cd = CS319FINNBR
+    and fin.active_ind = 1
+    and fin.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fin.end_effective_dt_tm >= cnvtdatetime(sysdate)
+   )
+ ,order_catalog_synonym ocs1
+ ,encounter e
+ ,prsnl p
+ ,pathway_catalog pc
+ ,orders o1
+ ,order_catalog_synonym ocs
+plan oa
+  where oa.action_dt_tm between cnvtdatetime(OBDATE) and cnvtdatetime(OEDATE)
+    and oa.action_type_cd = CS6003MODIFY
+    and parser(LD_ORD_PARSER)
+join o
+  where o.order_id = oa.order_id
+    and o.template_order_flag in (0,1)
+    and o.contributor_system_cd = CS89POWERCHART
+    and o.cs_flag in (0,2)
+    and o.orig_ord_as_flag in (0,1,2)
+    and o.active_ind = 1
+join ocs1
+  where ocs1.synonym_id = o.synonym_id
+join pr
+join pauthoa
+join od
+join dc
+join pdc
+join cx
+join pcx
+join dl
+join pdl
+join e
+  where e.encntr_id = o.encntr_id
+join mrn
+join fin
+join p
+  where p.person_id = o.last_update_provider_id
+join pc
+  where pc.pathway_catalog_id = o.pathway_catalog_id
+join o1
+  where o1.order_id = o.cs_order_id
+join ocs
+  where ocs.synonym_id = o.iv_set_synonym_id
+order
+  o.order_id, oa.action_sequence, od.oe_field_meaning_id, od.action_sequence desc
+head report
+  cnt = output_mord->qual_cnt
+  if (x = 1)
+    oexp_start = 1
+  else
+    oexp_start = output_mord->qual_cnt
+  endif
+ 
+head o.order_id
+  null
+
+head oa.action_sequence
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_mord->qual, cnt + 9999)
+  endif
+ 
+  output_mord->qual[cnt].encntr_id                       = o.encntr_id
+  output_mord->qual[cnt].person_id                       = o.person_id
+  if (o.encntr_id != 0)
+    output_mord->qual[cnt].encntr_id_hash                  = enid
+    output_mord->qual[cnt].encntr_id_verify_key            = renid
+  endif
+  output_mord->qual[cnt].person_id_hash                  = prid
+  output_mord->qual[cnt].person_id_verify_key            = rprid
+  output_mord->qual[cnt].fin                             = cnvtalias(fin.alias,fin.alias_pool_cd)
+  output_mord->qual[cnt].mrn                             = cnvtalias(mrn.alias,mrn.alias_pool_cd)
+  output_mord->qual[cnt].order_instance_id               = o.order_id ;f8
+  output_mord->qual[cnt].patient_id                      = pid ;vc
+  output_mord->qual[cnt].patient_id_verify_key           = rpid ;vc
+  output_mord->qual[cnt].patient_encounter_id            = eid ;vc
+  output_mord->qual[cnt].patient_encounter_id_verify_key = reid ;vc
+  output_mord->qual[cnt].catalog_term_disp               = o.hna_order_mnemonic ;vc
+  output_mord->qual[cnt].catalog_term_id                 = o.catalog_cd ;f8
+  output_mord->qual[cnt].order_date                      = o.orig_order_dt_tm ;dq8
+  output_mord->qual[cnt].order_venue                     = uar_get_code_display(e.encntr_type_class_cd)
+  output_mord->qual[cnt].authorizing_provider_disp       = pauthoa.name_full_formatted
+  output_mord->qual[cnt].authorizing_provider_id         = oa.order_provider_id
+  output_mord->qual[cnt].entering_provider_disp          = pr.name_full_formatted
+  output_mord->qual[cnt].entering_provider_id            = oa.action_personnel_id
+  output_mord->qual[cnt].department_disp                 = uar_get_code_display(e.loc_nurse_unit_cd)
+  output_mord->qual[cnt].department_id                   = e.loc_nurse_unit_cd
+  output_mord->qual[cnt].order_status                    = uar_get_code_display(o.order_status_cd)
+  output_mord->qual[cnt].order_start_dt_tm               = o.current_start_dt_tm
+  output_mord->qual[cnt].catalog_type_name               = uar_get_code_display(o.catalog_type_cd)
+  output_mord->qual[cnt].catalog_type_code               = o.catalog_type_cd
+  output_mord->qual[cnt].synonym_id                      = o.synonym_id
+  output_mord->qual[cnt].synonym_disp                    = ocs1.mnemonic
+  output_mord->qual[cnt].encntr_type_cd                  = e.encntr_type_cd
+  output_mord->qual[cnt].encntr_type_disp                = uar_get_code_display(e.encntr_type_cd)
+  output_mord->qual[cnt].encntr_type_class_cd            = e.encntr_type_class_cd
+  output_mord->qual[cnt].encntr_type_class_disp          = uar_get_code_display(e.encntr_type_class_cd)
+  output_mord->qual[cnt].order_action_date               = oa.action_dt_tm
+  output_mord->qual[cnt].last_update_provider_name       = p.name_full_formatted
+  output_mord->qual[cnt].last_update_provider_id         = o.last_update_provider_id ;f8
+  output_mord->qual[cnt].action_initiated_dt_tm          = oa.action_initiated_dt_tm
+  output_mord->qual[cnt].discontinue_dt_tm               = dc.action_dt_tm
+  output_mord->qual[cnt].discontinue_provider_id         = dc.order_provider_id
+  output_mord->qual[cnt].discontinue_provider_name       = pdc.name_full_formatted
+  output_mord->qual[cnt].cancel_dt_tm                    = cx.action_dt_tm
+  output_mord->qual[cnt].cancel_provider_id              = cx.order_provider_id
+  output_mord->qual[cnt].cancel_provider_name            = pcx.name_full_formatted
+  output_mord->qual[cnt].deleted_dt_tm                   = dl.action_dt_tm
+  output_mord->qual[cnt].deleted_provider_id             = dl.order_provider_id
+  output_mord->qual[cnt].deleted_provider_name           = pdl.name_full_formatted
+ 
+  ord_src = " "
+  ord_srcn = " "
+  ord_srcc = " "
+  ord_srct = " "
+ 
+  if (o.pathway_catalog_id > 0)
+      ord_src = "PowerPlan"
+      ord_srcn = pc.description
+      ord_srcc = trim(cnvtstring(pc.pathway_catalog_id))
+      ord_srct = "1"
+  endif
+  if (o.cs_flag = 2)
+    if(size(ord_src) = 0)
+      ord_src = "Care Set"
+      ord_srcn = o1.hna_order_mnemonic
+      ord_srcc = trim(cnvtstring(o1.catalog_cd))
+      ord_srct = "2"
+    else
+      ord_src = build2(ord_src,", Care Set")
+      ord_srcn = build2(ord_srcn,", ",trim(o1.hna_order_mnemonic))
+      ord_srcc = build2(ord_srcc,", ",trim(cnvtstring(o1.catalog_cd)))
+      ord_srct = build2(ord_srct,", 2")
+    endif
+  endif
+  if (o.iv_set_synonym_id > 0)
+    if(size(ord_src) = 0)
+      ord_src = "IV Set"
+      ord_srcn = ocs.mnemonic
+      ord_srcc = trim(cnvtstring(ocs.catalog_cd))
+      ord_srct = "3"
+    else
+      ord_src = build2(ord_src,", IV Set")
+      ord_srcn = build2(ord_srcn,", ",trim(ocs.mnemonic))
+      ord_srcc = build2(ord_srcc,", ",trim(cnvtstring(ocs.catalog_cd)))
+      ord_srct = build2(ord_srct,", 3")
+    endif
+  endif
+ 
+  output_mord->qual[cnt].order_source_type_name = ord_src
+  output_mord->qual[cnt].order_source_name      = ord_srcn
+  output_mord->qual[cnt].order_source_code      = ord_srcc
+  output_mord->qual[cnt].order_source_type_code = ord_srct
+  output_mord->qual[cnt].cs_flag                = o.cs_flag
+  output_mord->qual[cnt].cs_order_id            = o.cs_order_id
+  output_mord->qual[cnt].iv_set_synonym_id      = o.iv_set_synonym_id
+  output_mord->qual[cnt].pathway_catalog_id     = o.pathway_catalog_id
+
+head od.oe_field_meaning_id
+  case(od.oe_field_meaning_id)
+    of OFMFREQUENCY : output_mord->qual[cnt].order_frequency_disp            = od.oe_field_display_value ;vc
+                      output_mord->qual[cnt].order_frequency_id              = od.oe_field_value ;f8
+    of OFMROUTE     : output_mord->qual[cnt].order_route_disp                = od.oe_field_display_value ;vc
+                      output_mord->qual[cnt].order_route_id                  = od.oe_field_value ;f8
+  endcase
+  
+head od.action_sequence
+  null
+  
+detail
+  null
+
+foot od.action_sequence
+  null
+  
+foot od.oe_field_meaning_id
+  null
+
+foot oa.action_sequence
+  null
+
+foot o.order_id
+  null
+ 
+foot report
+  output_mord->qual_cnt = cnt
+ 
+with nocounter, orahintcbo("INDEX( FIN XIE2ENCNTR_ALIAS)", "INDEX( MRN XIE2ENCNTR_ALIAS)")
+ 
+;get the encounter location and venue at the time of the order if available
+if (output_mord->qual_cnt > 0)
+call echo(build2("Getting encntr_loc_hist for OBDATE = "
+                , format(OBDATE,"@SHORTDATETIME"), " OEDATE = ", format(OEDATE,"@SHORTDATETIME")))
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   orders o
+  ,encntr_loc_hist elh
+plan o
+  where expand(idx,oexp_start,output_mord->qual_cnt,o.order_id,output_mord->qual[idx].order_instance_id)
+    and o.encntr_id != 0
+join elh
+  where elh.encntr_id = o.encntr_id
+    and elh.active_ind = 1
+    and elh.beg_effective_dt_tm <= o.orig_order_dt_tm
+    and elh.end_effective_dt_tm > o.orig_order_dt_tm
+order
+   o.order_id
+  ,elh.encntr_loc_hist_id desc
+ 
+head o.order_id
+  null
+head elh.encntr_loc_hist_id
+  pos = locateval(idx,oexp_start,output_mord->qual_cnt,o.order_id,output_mord->qual[idx].order_instance_id)
+  output_mord->qual[pos].order_venue     = uar_get_code_display(elh.encntr_type_class_cd)
+  output_mord->qual[pos].department_disp = uar_get_code_display(elh.loc_nurse_unit_cd)
+  output_mord->qual[pos].department_id   = elh.loc_nurse_unit_cd
+  output_mord->qual[pos].encntr_type_cd                  = elh.encntr_type_cd
+  output_mord->qual[pos].encntr_type_disp                = uar_get_code_display(elh.encntr_type_cd)
+  output_mord->qual[pos].encntr_type_class_cd            = elh.encntr_type_class_cd
+  output_mord->qual[pos].encntr_type_class_disp          = uar_get_code_display(elh.encntr_type_class_cd)
+ 
+detail
+  null
+foot elh.encntr_loc_hist_id
+  null
+foot o.order_id
+  null
+ 
+with nocounter, expand = 2
+endif
+ 
+endfor
+ 
+set stat = alterlist(output_mord->qual, output_mord->qual_cnt)
+ 
+ 
+if (output_mord->qual_cnt = 0)
+  go to NO_MORDERS_DATA
+endif
+
+;add PHI information if sending
+if ($SENDPHI = 1)
+  select if(EXPAND_CONTROL = 1)
+           with expand = 1
+         endif
+  into "nl:"
+    person_id = output_mord->qual[d1.seq].person_id
+   ,encntr_id = output_mord->qual[d1.seq].encntr_id
+  from
+  (dummyt d1 with seq = output_mord->qual_cnt)
+  plan d1
+    where not expand(idx,1,output_phi->qual_cnt,output_mord->qual[d1.seq].encntr_id,output_phi->qual[idx].encntr_id
+                                               ,output_mord->qual[d1.seq].encntr_id,output_phi->qual[idx].encntr_id)
+  order
+     output_mord->qual[d1.seq].person_id
+    ,output_mord->qual[d1.seq].encntr_id
+    
+  head report
+    cnt = output_phi->qual_cnt
+  
+  head person_id
+    null
+  
+  head encntr_id
+    cnt = cnt + 1
+    if (mod(cnt,10000) = 1)
+      stat = alterlist(output_phi->qual, cnt + 9999)
+    endif
+    
+    output_phi->qual[cnt].encntr_id                       = output_mord->qual[d1.seq].encntr_id
+    output_phi->qual[cnt].person_id                       = output_mord->qual[d1.seq].person_id
+    output_phi->qual[cnt].fin                             = output_mord->qual[d1.seq].fin
+    output_phi->qual[cnt].mrn                             = output_mord->qual[d1.seq].mrn
+    output_phi->qual[cnt].patient_encounter_id            = output_mord->qual[d1.seq].patient_encounter_id
+    output_phi->qual[cnt].patient_encounter_id_verify_key = output_mord->qual[d1.seq].patient_encounter_id_verify_key
+    output_phi->qual[cnt].patient_id                      = output_mord->qual[d1.seq].patient_id
+    output_phi->qual[cnt].patient_id_verify_key           = output_mord->qual[d1.seq].patient_id_verify_key
+    output_phi->qual[cnt].encntr_id_hash                  = output_mord->qual[d1.seq].encntr_id_hash
+    output_phi->qual[cnt].encntr_id_verify_key            = output_mord->qual[d1.seq].encntr_id_verify_key
+    output_phi->qual[cnt].person_id_hash                  = output_mord->qual[d1.seq].person_id_hash
+    output_phi->qual[cnt].person_id_verify_key            = output_mord->qual[d1.seq].person_id_verify_key
+  
+  detail
+    null
+  
+  foot encntr_id
+    null
+  
+  foot person_id
+    null
+  
+  foot report
+    output_phi->qual_cnt = cnt
+    ;leave record structure open for next select
+  
+  with nocounter, expand = 2
+  
+endif 
+ 
+/*****
+Modified Orders Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_mord->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_MORDERS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MORDERS))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "order_instance_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "catalog_term_disp", QUOTE
+    ,DELIMITER, QUOTE, "catalog_term_id", QUOTE
+    ,DELIMITER, QUOTE, "order_date", QUOTE
+    ,DELIMITER, QUOTE, "order_venue", QUOTE
+    ,DELIMITER, QUOTE, "order_frequency_disp", QUOTE
+    ,DELIMITER, QUOTE, "order_frequency_id", QUOTE
+    ,DELIMITER, QUOTE, "order_route_disp", QUOTE
+    ,DELIMITER, QUOTE, "order_route_id", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "authorizing_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "entering_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "entering_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "department_disp", QUOTE
+    ,DELIMITER, QUOTE, "department_id", QUOTE
+    ,DELIMITER, QUOTE, "order_source_type_name", QUOTE
+    ,DELIMITER, QUOTE, "order_source_name", QUOTE
+    ,DELIMITER, QUOTE, "order_status", QUOTE
+    ,DELIMITER, QUOTE, "order_start_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_name", QUOTE
+    ,DELIMITER, QUOTE, "catalog_type_code", QUOTE
+    ,DELIMITER, QUOTE, "order_source_code", QUOTE
+    ,DELIMITER, QUOTE, "order_source_type_code", QUOTE
+    ,DELIMITER, QUOTE, "synonym_id", QUOTE
+    ,DELIMITER, QUOTE, "synonym_disp", QUOTE
+    ,DELIMITER, QUOTE, "encounter_type_cd", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_disp", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_class_cd", QUOTE    
+    ,DELIMITER, QUOTE, "encounter_type_class_disp", QUOTE 
+    ,DELIMITER, QUOTE, "order_action_date", QUOTE 
+    ,DELIMITER, QUOTE, "last_update_provider_disp", QUOTE
+    ,DELIMITER, QUOTE, "last_update_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "action_initiated_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "discontinue_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "cancel_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "cancel_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "cancel_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "deleted_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "deleted_provider_id", QUOTE
+    ,DELIMITER, QUOTE, "deleted_provider_name", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "person_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "person_id_verify_key", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_MORD, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].order_instance_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].patient_id)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].patient_id_verify_key)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].patient_encounter_id)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].patient_encounter_id_verify_key)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].catalog_term_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].catalog_term_id))
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].order_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_venue)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_frequency_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].order_frequency_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_route_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].order_route_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].authorizing_provider_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].authorizing_provider_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].entering_provider_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].entering_provider_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].department_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].department_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_source_type_name)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_source_name)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_status)
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].order_start_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].catalog_type_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].catalog_type_code))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_source_code)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].order_source_type_code)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].synonym_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].synonym_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].encntr_type_cd))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].encntr_type_disp)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].encntr_type_class_cd))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].encntr_type_class_disp)
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].order_action_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].last_update_provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].last_update_provider_id))
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].action_initiated_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].discontinue_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].discontinue_provider_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].discontinue_provider_name)
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].cancel_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].cancel_provider_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].cancel_provider_name)
+    ,DELIMITER, DisplayText(trim(format(output_mord->qual[d1.seq].deleted_dt_tm,DISP_DATE)))
+    ,DELIMITER, DisplayText(DisplayInt(output_mord->qual[d1.seq].deleted_provider_id))
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].deleted_provider_name)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].encntr_id_hash)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].encntr_id_verify_key)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].person_id_hash)
+    ,DELIMITER, DisplayText(output_mord->qual[d1.seq].person_id_verify_key)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_MORDERS))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_MORDERS_DATA
+if ($SENDPHI = 1)
+  set stat = alterlist(output_phi->qual, output_phi->qual_cnt)
+endif
+if (output_mord->qual_cnt = 0)
+  select into FILE_MORDERS
+  from (dummyt d with seq = 1)
+  detail
+  call print(build2("No Modified Orders found for ", format(BDATE,"@SHORTDATETIME"), " to ", format(EDATE,"@SHORTDATETIME")))
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("MOrders Data Row Count: ", trim(cnvtstring(output_mord->qual_cnt))))
+free record output_mord
+ 
+call echo(build2("End Get MOrders Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+ 
+/*********************************************************************************************************************************
+Providers
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Providers Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Providers record structures
+*****/
+record output_prv (
+  1 qual_cnt                  = i4
+  1 qual[*]
+    2 provider_id             = f8
+    2 provider_name           = vc
+    2 provider_type           = f8
+    2 provider_type_name      = vc
+    2 provider_specialty      = vc
+    2 provider_specialty_text = vc
+    2 provider_title          = vc
+    2 provider_npi            = vc
+)
+ 
+ 
+/*********************************************************************************************************************************
+Providers Data Processing
+*********************************************************************************************************************************/
+;main provider data
+select into "nl:"
+from
+   prsnl p
+  ,prsnl_alias pa
+plan p
+  where p.active_ind = 1
+    and p.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and p.end_effective_dt_tm >= cnvtdatetime(sysdate)
+    and p.person_id != 0
+    and parser(LD_PRV_PARSER)
+join pa
+  where pa.person_id = outerjoin(p.person_id)
+    and pa.prsnl_alias_type_cd = outerjoin(CS320NPI)
+    and pa.active_ind = outerjoin(1)
+    and pa.beg_effective_dt_tm <= outerjoin(cnvtdatetime(sysdate))
+    and pa.end_effective_dt_tm >= outerjoin(cnvtdatetime(sysdate))
+order p.person_id
+head report
+  cnt = 0
+ 
+head p.person_id
+  if (size(trim(p.name_full_formatted)) != 0)
+    cnt = cnt + 1
+    if (mod(cnt, 10000) = 1)
+      stat = alterlist(output_prv->qual, cnt + 9999)
+    endif
+ 
+    output_prv->qual[cnt].provider_id        = p.person_id
+    output_prv->qual[cnt].provider_name      = check(p.name_full_formatted,CHAR(32),CHAR(126))
+    output_prv->qual[cnt].provider_type      = p.position_cd
+    output_prv->qual[cnt].provider_type_name = uar_get_code_display(p.position_cd)
+    output_prv->qual[cnt].provider_npi       = pa.alias
+  endif
+ 
+detail
+  null
+ 
+foot p.person_id
+  null
+ 
+foot report
+  output_prv->qual_cnt = cnt
+  stat = alterlist(output_prv->qual, cnt)
+ 
+with nocounter
+ 
+if (output_prv->qual_cnt = 0)
+  go to NO_PRV_DATA
+endif
+ 
+;get the provider specialties
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   prsnl_group_reltn pgr
+  ,prsnl_group pg
+plan pgr
+  where expand(idx,1,output_prv->qual_cnt,pgr.person_id,output_prv->qual[idx].provider_id)
+    and pgr.active_ind = 1
+    and pgr.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and pgr.end_effective_dt_tm >= cnvtdatetime(sysdate)
+join pg
+  where pg.prsnl_group_id = pgr.prsnl_group_id
+    and pg.prsnl_group_class_cd in (CS19189DEPARTMENT, CS19189SERVICE)
+    and pg.active_ind = 1
+    and pg.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and pg.end_effective_dt_tm >= cnvtdatetime(sysdate)
+ 
+order
+   pgr.person_id
+  ,pg.prsnl_group_name
+ 
+head pgr.person_id
+  pos = locatevalsort(idx,1,output_prv->qual_cnt,pgr.person_id,output_prv->qual[idx].provider_id)
+  cnt = 0
+detail
+  cnt = cnt + 1
+  if (cnt = 1)
+    special_str     = trim(cnvtstring(pg.prsnl_group_id))
+    special_str_txt = trim(pg.prsnl_group_name)
+  else
+    special_str     = concat(special_str,";",trim(cnvtstring(pg.prsnl_group_id)))
+    special_str_txt = concat(special_str_txt,";",trim(pg.prsnl_group_name))
+  endif
+ 
+foot pgr.person_id
+  output_prv->qual[pos].provider_specialty      = special_str
+  output_prv->qual[pos].provider_specialty_text = special_str_txt
+ 
+with nocounter, expand = 2
+ 
+/*****
+Providers Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_prv->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_PROVIDERS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERS))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "provider_id", QUOTE
+    ,DELIMITER, QUOTE, "provider_name", QUOTE
+    ,DELIMITER, QUOTE, "provider_type", QUOTE
+    ,DELIMITER, QUOTE, "provider_type_name", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty", QUOTE
+    ,DELIMITER, QUOTE, "provider_specialty_text", QUOTE
+    ,DELIMITER, QUOTE, "provider_title", QUOTE
+    ,DELIMITER, QUOTE, "provider_npi", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PRV, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_prv->qual[d1.seq].provider_id))
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_prv->qual[d1.seq].provider_type))
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_type_name)
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_specialty)
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_specialty_text)
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_title)
+    ,DELIMITER, DisplayText(output_prv->qual[d1.seq].provider_npi)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PROVIDERS))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_PRV_DATA
+if (output_prv->qual_cnt = 0)
+  select into FILE_PROVIDERS
+  from (dummyt d with seq = 1)
+  detail
+  call print("No providers found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("Providers Data Row Count: ", trim(cnvtstring(output_prv->qual_cnt))))
+free record output_prv
+ 
+call echo(build2("End Get Providers Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+ 
+ 
+/*********************************************************************************************************************************
+Facilities
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Facilities Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Facilities record structures
+*****/
+record output_fac (
+  1 qual_cnt = i4
+  1 qual[*]
+    2 department_id             = f8
+    2 department_name           = vc
+    2 external_name             = vc
+    2 specialty_code            = f8
+    2 specialty_name            = vc
+    2 revenue_location_id       = f8
+    2 revenue_location_name     = vc
+    2 service_area_id           = f8
+    2 service_area_name         = vc
+    2 adt_unit_type_code        = f8
+    2 adt_unit_type_name        = vc
+    2 periop_department_flag    = vc
+    2 inpatient_department_flag = vc
+    2 building_id               = f8
+    2 building_name             = vc
+)
+ 
+/*****
+Facilities Data Processing
+*****/
+select into "nl:"
+from
+   location fac
+  ,location_group building
+  ,location_group unit
+  ,location l
+plan fac
+  where fac.location_type_cd = CS222FACILITY
+    and fac.patcare_node_ind = 1
+    and fac.active_ind = 1
+    and fac.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and fac.end_effective_dt_tm >= cnvtdatetime(sysdate)
+    and parser(LD_FAC_PARSER)
+join building
+  where building.parent_loc_cd = fac.location_cd
+    and building.active_ind = 1
+    and building.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and building.end_effective_dt_tm >= cnvtdatetime(sysdate)
+    and building.root_loc_cd = 0
+join unit
+  where unit.parent_loc_cd = building.child_loc_cd
+    and unit.active_ind = 1
+    and unit.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and unit.end_effective_dt_tm >= cnvtdatetime(sysdate)
+    and unit.root_loc_cd = 0
+join l
+  where l.location_cd = unit.child_loc_cd
+    and l.location_type_cd in (CS222AMBULATORY, CS222NURSEUNIT, CS222ANCILSURG)
+    and l.active_ind = 1
+    and l.beg_effective_dt_tm <= cnvtdatetime(sysdate)
+    and l.end_effective_dt_tm >= cnvtdatetime(sysdate)
+order
+   cnvtupper(uar_get_code_display(fac.location_cd))
+  ,building.sequence
+  ,unit.sequence
+head report
+  cnt = 0
+ 
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_fac->qual, cnt + 9999)
+  endif
+ 
+  output_fac->qual[cnt].department_id             = l.location_cd
+  output_fac->qual[cnt].department_name           = check(uar_get_code_display(l.location_cd),CHAR(32),CHAR(126))
+  output_fac->qual[cnt].external_name             = check(uar_get_code_description(l.location_cd),CHAR(32),CHAR(126))
+  output_fac->qual[cnt].revenue_location_id       = fac.location_cd
+  output_fac->qual[cnt].revenue_location_name     = check(uar_get_code_display(fac.location_cd),CHAR(32),CHAR(126))
+  output_fac->qual[cnt].service_area_id           = _SERVICE_AREA_ID
+  output_fac->qual[cnt].service_area_name         = _SERVICE_AREA_NAME
+  if (l.location_type_cd = CS222ANCILSURG)
+    output_fac->qual[cnt].periop_department_flag    = "Y"
+  elseif (l.location_type_cd = CS222NURSEUNIT)
+    output_fac->qual[cnt].inpatient_department_flag = "Y"
+  endif
+  output_fac->qual[cnt].building_id  = building.child_loc_cd
+  output_fac->qual[cnt].building_name = check(uar_get_code_display(building.child_loc_cd),CHAR(32),CHAR(126))
+ 
+foot report
+  output_fac->qual_cnt = cnt
+  stat = alterlist(output_fac->qual, cnt)
+ 
+with nocounter
+ 
+if (output_fac->qual_cnt = 0)
+  go to NO_FAC_DATA
+endif
+ 
+ 
+/*****
+Facilities Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_fac->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_FACILITIES
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FACILITIES))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "department_id", QUOTE
+    ,DELIMITER, QUOTE, "department_name", QUOTE
+    ,DELIMITER, QUOTE, "external_name", QUOTE
+    ,DELIMITER, QUOTE, "revenue_location_id", QUOTE
+    ,DELIMITER, QUOTE, "revenue_location_name", QUOTE
+    ,DELIMITER, QUOTE, "service_area_id", QUOTE
+    ,DELIMITER, QUOTE, "service_area_name", QUOTE
+    ,DELIMITER, QUOTE, "periop_department_flag", QUOTE
+    ,DELIMITER, QUOTE, "inpatient_department_flag", QUOTE
+    ,DELIMITER, QUOTE, "building_id", QUOTE
+    ,DELIMITER, QUOTE, "building_name", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_FAC, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_fac->qual[d1.seq].department_id))
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].department_name)
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].external_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_fac->qual[d1.seq].revenue_location_id))
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].revenue_location_name)
+    ,DELIMITER, DisplayText(DisplayInt(output_fac->qual[d1.seq].service_area_id))
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].service_area_name)
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].periop_department_flag)
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].inpatient_department_flag)
+    ,DELIMITER, DisplayText(DisplayInt(output_fac->qual[d1.seq].building_id))
+    ,DELIMITER, DisplayText(output_fac->qual[d1.seq].building_name)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FACILITIES))
+  endif
+ 
+with nocounter
+ 
+ 
+#NO_FAC_DATA
+if (output_fac->qual_cnt = 0)
+  select into FILE_FACILITIES
+  from (dummyt d with seq = 1)
+  detail
+  call print("No facilities found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("Facilities Data Row Count: ", trim(cnvtstring(output_fac->qual_cnt))))
+free record output_fac
+ 
+call echo(build2("End Get Facilities Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+ 
+/*********************************************************************************************************************************
+Future Appt
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Future Appt Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*****
+Future Appt record structures
+*****/
+free record output_fut_appt
+record output_fut_appt (
+   1 qual_cnt                  = i4
+   1 qual[*]
+      2 appt_person_id         = vc
+      2 appt_mrn               = vc
+      2 appt_pat_age           = vc
+      2 appt_encounter_id      = vc
+      2 appt_payor             = vc
+      2 appt_payor_type        = vc
+      2 appt_start_dttm        = vc
+      2 appt_end_dttm          = vc
+      2 appt_duration          = vc
+      2 appt_location          = vc
+      2 appt_location_key      = vc
+      2 appt_type              = vc
+      2 appt_req_doc           = vc
+      2 appt_req_doc_id        = vc
+      2 appt_resource          = vc
+      2 appt_resource_id       = vc
+      2 appt_state             = vc 
+)
+
+
+/*****
+Future Appt Data Processing
+*****/
+
+SELECT DISTINCT INTO "NL:"
+	P.NAME_FULL_FORMATTED
+	, S.PERSON_ID
+	, MRN = PA.ALIAS
+	, age = cnvtage(p.birth_dt_tm)
+	, S.ENCNTR_ID
+	, H.plan_name
+	, H_PLAN_TYPE_DISP = UAR_GET_CODE_DISPLAY(H.PLAN_TYPE_CD)
+	, S.BEG_DT_TM "@SHORTDATETIME"
+	, S.END_DT_TM "@SHORTDATETIME"
+	, S.DURATION
+	, S_APPT_LOCATION_DISP = UAR_GET_CODE_DISPLAY(S.APPT_LOCATION_CD)
+	, S.APPT_LOCATION_CD
+	, APPT_TYPE = se.appt_synonym_free
+	, REQ_DOCTOR = ed2.disp_display
+	, REQ_DOCTORID = cnvtstring(prs.person_id)
+	, RESOURCE = ed.disp_display
+	, RESOURCEID = cnvtstring(pr.person_id)
+	, S_SCH_STATE_DISP = UAR_GET_CODE_DISPLAY(S.SCH_STATE_CD)
+	;, E.REASON_FOR_VISIT
+	, S_APPT_LOCATION_Desc = UAR_GET_CODE_DESCRIPTION(S.APPT_LOCATION_CD)
+
+
+FROM
+	SCH_APPT   S
+	, LOCATION   L
+	, PERSON   P
+	, PERSON_ALIAS   PA
+	, ENCOUNTER   E
+	, SCH_EVENT   SE
+	, SCH_EVENT_DISP   ED
+	, SCH_EVENT_DISP   ED2
+	, SCH_RESOURCE   SR
+	, SCH_RESOURCE   SRC
+	, PRSNL   PR
+	, PRSNL   PRS
+	, ENCNTR_PLAN_RELTN   EP
+	, HEALTH_PLAN   H
+	, PERSON   P2
+	, ENCNTR_ALIAS   EA
+	, PERSON_PLAN_RELTN   PP
+
+plan s where s.beg_dt_tm >= CNVTLOOKBEHIND("7,D")
+			and s.beg_dt_tm < CNVTLOOKAHEAD("7,D")
+			and s.sch_state_cd =   (dSCH_STATE_CONF);confirmed  4538.00
+			and s.role_meaning = "PATIENT"
+			and s.version_dt_tm >sysdate
+join l where l.location_cd = s.appt_location_cd
+			and l.active_ind = 1
+			and l.end_effective_dt_tm >sysdate
+			and l.location_type_cd = dLOC_TYPE_AMB;	Ambulatory 772.00
+join p where p.person_id = s.person_id
+join pa where pa.person_id = p.person_id
+		and pa.person_alias_type_cd = dPA_MRN_TYPE ;10.00;	MRN	MRN Codeset 4
+		and pa.end_effective_dt_tm >sysdate
+		and pa.active_ind = 1 
+join se where se.sch_event_id = s.sch_event_id
+join ed where ed.sch_event_id = se.sch_event_id     and
+			ed.schedule_id = s.schedule_id     and
+			ed.disp_field_id = 5 
+join sr where sr.resource_cd = ed.disp_value
+join pr where pr.person_id = sr.person_id
+			and pr.person_id != 0
+join ed2 where
+			ed2.sch_event_id = outerjoin(se.sch_event_id)     and
+			ed2.disp_field_id = outerjoin(8)
+join src where src.resource_cd = outerjoin(ed2.disp_value)
+join prs where prs.person_id = outerjoin(src.person_id) 	
+join e where e.encntr_id = outerjoin(s.encntr_id)
+join EP where EP.encntr_id = outerjoin(e.encntr_id)
+		and ep.active_ind = outerjoin(1)
+		and Ep.END_EFFECTIVE_DT_TM >= outerjoin(e.reg_dt_tm) ;CNVTDATETIME(CURDATE, curtime3)
+		and ep.priority_seq < outerjoin(2)
+join H  where H.HEALTH_PLAN_ID = outerjoin(ep.health_plan_id)
+		and H.plan_name_key = outerjoin("*")
+join P2 where p2.person_id = outerjoin(e.person_id)
+		and p2.active_ind = outerjoin(1)
+join EA where ea.encntr_id = outerjoin(ep.encntr_id)
+		AND EA.ENCNTR_ALIAS_TYPE_CD = outerjoin(1077)
+join PP where  pp.person_plan_reltn_id =outerjoin(ep.person_plan_reltn_id)
+
+ORDER BY
+	S.PERSON_ID
+	, S.BEG_DT_TM
+
+head report
+  cnt = 0
+ 
+detail
+  cnt = cnt + 1
+  if (mod(cnt, 10000) = 1)
+    stat = alterlist(output_fut_appt->qual, cnt + 9999)
+  endif
+  
+  
+  output_fut_appt->qual[cnt].appt_person_id = cnvtstring(s.person_id)
+  output_fut_appt->qual[cnt].appt_mrn = trim(MRN)
+  output_fut_appt->qual[cnt].appt_encounter_id = cnvtstring(s.encntr_id)
+  output_fut_appt->qual[cnt].appt_location = S_APPT_LOCATION_DISP
+  output_fut_appt->qual[cnt].appt_location_key = cnvtstring(S.APPT_LOCATION_CD)
+  output_fut_appt->qual[cnt].appt_start_dttm = 
+  						trim(format(s.beg_dt_tm,DISP_DATE)) 
+  output_fut_appt->qual[cnt].appt_end_dttm = 
+  						trim(format(s.end_dt_tm,DISP_DATE)) 
+  output_fut_appt->qual[cnt].appt_duration = cnvtstring(s.duration)
+  output_fut_appt->qual[cnt].appt_type = APPT_TYPE
+  output_fut_appt->qual[cnt].appt_state = S_SCH_STATE_DISP
+  output_fut_appt->qual[cnt].appt_req_doc = REQ_DOCTOR
+  output_fut_appt->qual[cnt].appt_resource = RESOURCE
+  output_fut_appt->qual[cnt].appt_req_doc_id = REQ_DOCTORID
+  output_fut_appt->qual[cnt].appt_resource_id = RESOURCEID
+  output_fut_appt->qual[cnt].appt_payor = H.plan_name
+  output_fut_appt->qual[cnt].appt_payor_type = H_PLAN_TYPE_DISP 
+;  output_fut_appt->qual[cnt].appt_pat_age = age
+  
+;      ; Convert the age into number of years as an integer
+      lStrAge = trim(age)
+ 
+      lStrAge = cnvtupper(trim(age))
+       
+      if(findstring("YEARS", lStrAge) = 0)
+        output_fut_appt->qual[cnt].appt_pat_age = "0"
+      else
+		
+	
+		
+        output_fut_appt->qual[cnt].appt_pat_age = 
+        	substring(2,(findstring("Y",lStrAge)-3),lStrAge)
+        ;substring(1,textlen(lStrAge),lStrAge)
+        
+      endif
+      
+foot report
+  output_fut_appt->qual_cnt = cnt
+  stat = alterlist(output_fut_appt->qual, cnt)
+
+WITH nocounter
+ 
+if (output_fut_appt->qual_cnt = 0)
+  go to NO_FUT_APPT_DATA
+endif
+
+
+/*****
+Future Appt Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_fut_appt->qual, 5)))
+ 
+head report
+  frec->file_name = FILE_FUT_APPT
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FUT_APPT))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "person_id", QUOTE
+    ,DELIMITER, QUOTE, "mrn", QUOTE
+    ,DELIMITER, QUOTE, "age", QUOTE
+    ,DELIMITER, QUOTE, "encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "payor_plan", QUOTE
+    ,DELIMITER, QUOTE, "payor_type", QUOTE
+    ,DELIMITER, QUOTE, "appt_location", QUOTE
+    ,DELIMITER, QUOTE, "appt_location_key", QUOTE
+    ,DELIMITER, QUOTE, "appt_start_dttm", QUOTE
+    ,DELIMITER, QUOTE, "appt_end_dttm", QUOTE
+    ,DELIMITER, QUOTE, "appt_duration", QUOTE
+    ,DELIMITER, QUOTE, "appt_type", QUOTE
+    ,DELIMITER, QUOTE, "appt_state", QUOTE
+    ,DELIMITER, QUOTE, "appt_req_doc", QUOTE
+    ,DELIMITER, QUOTE, "appt_req_doc_id", QUOTE
+    ,DELIMITER, QUOTE, "appt_resource", QUOTE
+    ,DELIMITER, QUOTE, "appt_resource_id", QUOTE
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_APPT, QUOTE
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_person_id)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_mrn)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_pat_age)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_encounter_id)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_payor)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_payor_type)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_location)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_location_key)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_start_dttm)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_end_dttm)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_duration)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_type)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_state)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_req_doc)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_req_doc_id)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_resource)
+    ,DELIMITER, DisplayText(output_fut_appt->qual[d1.seq].appt_resource_id)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_FUT_APPT))
+  endif
+ 
+with nocounter
+
+
+#NO_FUT_APPT_DATA
+if (output_fut_appt->qual_cnt = 0)
+  select into FILE_FUT_APPT
+  from (dummyt d with seq = 1)
+  detail
+  call print("No Future Appt found.")
+  with nocounter, maxcol = 110
+endif
+
+call echo(build2("Future Appt Data Row Count: ", trim(cnvtstring(output_fut_appt->qual_cnt))))
+free record output_fut_appt
+ 
+call echo(build2("End Get Future Appt Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+ 
+/*********************************************************************************************************************************
+Alert Definitions
+*********************************************************************************************************************************/
+call echo(build2("Begin Get Alert Definitions Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+/*****
+Alert Definitions record structures
+*****/
+record output_alt(
+  1 qual_cnt              = i4
+  1 qual[*]
+    2 alert_id            = vc
+    2 alert_name          = vc
+    2 creation_date       = dq8
+    2 release_date        = dq8
+    2 maint_validation    = vc
+    2 maint_dur_begin_dt_tm = dq8
+    2 maint_dur_end_dt_tm = dq8
+    2 stop_mode           = vc
+    2 title               = vc
+    2 text                = vc
+    2 html_file           = vc
+    2 cancel_label        = vc
+    2 ignore_label        = vc
+    2 override_reason     = vc
+    2 modify_label        = vc
+    2 default_label       = vc
+    2 orders              = vc
+    2 default_first_order = vc
+    2 url_button_name     = vc
+    2 url_address         = vc
+    2 ok_button_name      = vc
+    2 form                = vc
+    2 form_button_name    = vc
+    2 force_form          = vc
+    2 template_text       = vc
+    2 trigger_event_str   = vc
+    2 trigger_events_cnt  = i2
+    2 trigger_events[*]
+      3 trigger_event     = vc
+    2 key_words           = vc
+    2 last_update_dt_tm   = dq8
+    2 last_update_user    = vc
+    2 alert_version       = vc
+)
+ 
+/*****
+Alert Definitions Data Processing
+*****/
+;main alert definition data
+select into "nl"
+  ekm_info_len = textlen(es.ekm_info)
+from
+   eks_module em
+  ,eks_dlg ed
+  ,eks_modulestorage es
+  ,prsnl p
+  ,dummyt d1
+plan em
+  where em.active_flag = "A"
+    ;and em.maint_validation in ("PRODUCTION","TESTING")
+    and em.maint_dur_begin_dt_tm <= cnvtdatetime(systimestamp)
+    and em.maint_dur_end_dt_tm >= cnvtdatetime(systimestamp)
+join ed
+  where ed.program_name = em.module_name
+join es
+  where es.module_name = em.module_name
+    and es.version = em.version
+    and es.data_type = 9
+join p
+  where p.person_id = em.updt_id
+join d1
+  where es.ekm_info = "*EKS_ALERT_FLEX_A*"
+     or es.ekm_info = "*EKS_ALERT_FLEX_HISTORY_A*"
+     or es.ekm_info = "*EKS_ALERT_HTML_A*"
+order by
+   em.module_name
+ 
+head report
+  cnt = 0
+ 
+head em.module_name
+  null
+ 
+detail
+ 
+  if (ekm_info_len > 31999)
+    rlen = 32000
+    offset = 0
+    outbuf = fillstring(32000, " ")
+    ncnt = 0
+    while (rlen > 0)
+      rlen = blobget(outbuf, offset, es.ekm_info)
+      offset = offset + rlen
+ 
+      if (rlen > 0)
+        ekm_info =
+           notrim(concat(notrim(ekm_info), notrim(substring(1, rlen,outbuf))))
+        ncnt = ncnt + 1
+      endif
+    endwhile
+ 
+  else
+    ekm_info = es.ekm_info
+  endif
+ 
+  tbegpos = 0
+  tendpos = 0
+  tbegpos = findstring("EKS_ALERT_FLEX_",ekm_info,1,0)
+ 
+  while (tbegpos != 0)
+    tendpos = findstring(char(3),ekm_info,tbegpos,0)
+ 
+    for (tsize = 1 to 48)
+      tendpos = findstring(char(3),ekm_info,tendpos+1,0)
+ 
+      if (tendpos = 0)
+        call echo(build2("failed to parse template parameters for ", trim(em.module_name)))
+      endif
+    endfor
+ 
+    cnt = cnt + 1
+    if (mod(cnt,100) = 1)
+      stat = alterlist(output_alt->qual, cnt + 99)
+    endif
+ 
+    tstr = substring(tbegpos,tendpos-tbegpos,ekm_info)
+    
+    output_alt->qual[cnt].last_update_dt_tm = em.updt_dt_tm
+    output_alt->qual[cnt].last_update_user = p.name_full_formatted
+    output_alt->qual[cnt].alert_version = em.version
+    output_alt->qual[cnt].alert_id = em.module_name
+    output_alt->qual[cnt].alert_name = evaluate(size(trim(ed.title)), 0, em.module_name, ed.title)
+    output_alt->qual[cnt].maint_validation = em.maint_validation
+    output_alt->qual[cnt].maint_dur_begin_dt_tm = em.maint_dur_begin_dt_tm
+    output_alt->qual[cnt].maint_dur_end_dt_tm = em.maint_dur_end_dt_tm
+ 
+    title = check(piece(tstr,char(3),2,"notfound"),char(14),char(126))
+    title = substring(2,size(trim(title)) - 1, title)
+ 
+    output_alt->qual[cnt].title               = title
+    output_alt->qual[cnt].text                = check(piece(tstr,char(3), 5,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].cancel_label        = check(piece(tstr,char(3), 8,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].ignore_label        = check(piece(tstr,char(3),11,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].override_reason     = check(piece(tstr,char(3),14,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].modify_label        = check(piece(tstr,char(3),17,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].default_label       = check(piece(tstr,char(3),20,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].orders              = check(piece(tstr,char(3),23,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].default_first_order = check(piece(tstr,char(3),26,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].url_button_name     = check(piece(tstr,char(3),29,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].url_address         = check(piece(tstr,char(3),32,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].ok_button_name      = check(piece(tstr,char(3),35,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].form                = check(piece(tstr,char(3),38,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].form_button_name    = check(piece(tstr,char(3),41,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].force_form          = check(piece(tstr,char(3),44,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].template_text       = tstr
+ 
+    cancel_ind = evaluate(size(output_alt->qual[cnt].cancel_label),0,0,1)
+    ignore_ind = evaluate(size(output_alt->qual[cnt].ignore_label),0,0,1)
+    reason_ind = evaluate(size(output_alt->qual[cnt].override_reason),0,0,1)
+    modify_ind = evaluate(size(output_alt->qual[cnt].modify_label),0,0,1)
+    form_ind   = evaluate(size(output_alt->qual[cnt].form),0,0,1)
+ 
+    if (form_ind = 1)
+      case(output_alt->qual[cnt].force_form)
+        of "ENABLED"                : force_form = 1
+        of "DIABLED"                : force_form = 0
+        of "FORCE SIGN"             : force_form = 1
+        of "ENABLED AND DISMISS"    : force_form = 1
+        of "DISABLED AND DISMISS"   : force_form = 0
+        of "FORCE SIGN AND DISMISS" : force_form = 1
+        else                          force_form = 0
+      endcase
+ 
+    else
+      force_form = 0
+    endif
+ 
+    case(output_alt->qual[cnt].default_label)
+      of "OPT_CANCEL_LABEL" : default = 1
+      of "OPT_IGNORE_LABEL" : default = 2
+      of "OPT_MODIFY_LABEL" : default = 1
+      of "NONE"             : default = 0
+      else                    default = 0
+    endcase
+ 
+    if (force_form = 1) ;alert required intervention
+      output_alt->qual[cnt].stop_mode = "medium stop"
+    else ;futher evaluation is needed
+ 
+      if (default = 0 and cancel_ind + ignore_ind + modify_ind != 0) ;no default, at least one thing to select
+        output_alt->qual[cnt].stop_mode = "medium stop"
+      elseif (default = 2 and reason_ind = 1) ;default is ignore and override reasons are present
+        output_alt->qual[cnt].stop_mode = "medium stop"
+      else
+        output_alt->qual[cnt].stop_mode = "soft stop"
+      endif
+ 
+    endif
+ 
+    tbegpos = findstring("EKS_ALERT_FLEX_",ekm_info,tbegpos+1,0)
+ 
+  endwhile
+ 
+  tbegpos = 0
+  tendpos = 0
+  tbegpos = findstring("EKS_ALERT_HTML_",ekm_info,1,0)
+ 
+  while (tbegpos != 0)
+    tendpos = findstring(char(3),ekm_info,tbegpos,0)
+ 
+    for (tsize = 1 to 33)
+      tendpos = findstring(char(3),ekm_info,tendpos+1,0)
+      if (tendpos = 0)
+        call echo(build2("failed to parse template parameters for ", trim(em.module_name)))
+      endif
+    endfor
+ 
+    cnt = cnt + 1
+    if (mod(cnt,100) = 1)
+      stat = alterlist(output_alt->qual, cnt + 99)
+    endif
+ 
+    tstr = substring(tbegpos,tendpos-tbegpos,ekm_info)
+
+    output_alt->qual[cnt].last_update_dt_tm = em.updt_dt_tm
+    output_alt->qual[cnt].last_update_user = p.name_full_formatted
+    output_alt->qual[cnt].alert_version = em.version 
+    output_alt->qual[cnt].alert_id = em.module_name
+    output_alt->qual[cnt].alert_name = evaluate(size(trim(ed.title)), 0, em.module_name, ed.title)
+    output_alt->qual[cnt].maint_validation = em.maint_validation
+    output_alt->qual[cnt].maint_dur_begin_dt_tm = em.maint_dur_begin_dt_tm
+    output_alt->qual[cnt].maint_dur_end_dt_tm = em.maint_dur_end_dt_tm
+ 
+    title = check(piece(tstr,char(3),2,"notfound"),char(14),char(126))
+    title = substring(2,size(trim(title)) - 1, title)
+ 
+    output_alt->qual[cnt].title               = title
+    output_alt->qual[cnt].html_file           = check(piece(tstr,char(3), 5,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].override_reason     = check(piece(tstr,char(3), 8,"notfound"),char(14),char(126))
+    output_alt->qual[cnt].template_text       = tstr
+ 
+;logic for stop mode cannot be determined for html alerts
+ 
+    tbegpos = findstring("EKS_ALERT_HTML_",ekm_info,tbegpos+1,0)
+ 
+  endwhile
+ 
+foot em.module_name
+  null
+ 
+foot report
+  output_alt->qual_cnt = cnt
+  stat = alterlist(output_alt->qual, cnt)
+ 
+with nocounter
+ 
+if(output_alt->qual_cnt = 0)
+  go to NO_ALT_DATA
+endif
+ 
+;get the keywords
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_module em
+  ,eks_modulestorage ems
+plan em
+  where expand(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+    and em.active_flag = "A"
+join ems
+  where ems.module_name = em.module_name
+    and ems.version = em.version
+    and ems.data_type = 3
+    and ems.data_seq = 1
+ 
+detail
+ 
+  keywords = check(ems.ekm_info,char(14),char(126))
+ 
+  pos = locateval(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  while (pos != 0)
+    output_alt->qual[pos].key_words = keywords
+    pos = locateval(idx,pos+1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  endwhile
+ 
+with nocounter, expand = 2
+ 
+;get the trigger events
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_module em
+  ,eks_modulestorage ems
+plan em
+  where expand(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+    and em.active_flag = "A"
+join ems
+  where ems.module_name = em.module_name
+    and ems.version = em.version
+    and ems.data_type = 7
+order
+  em.module_name
+ 
+detail
+  pos = locateval(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  while (pos != 0)
+ 
+    pos1 = 1
+    pos2 = 1
+    ecnt = 0
+    while (pos2)
+      pos2 = findstring(char(4), ems.ekm_info, pos1)
+      if (pos2)
+        ecnt = ecnt + 1
+        if (mod(ecnt,5) = 1)
+          stat = alterlist(output_alt->qual[pos].trigger_events, ecnt + 4)
+        endif
+        output_alt->qual[pos].trigger_events[ecnt].trigger_event = substring(pos1, pos2-pos1, ems.ekm_info)
+        pos2 = findstring(char(4), ems.ekm_info, pos2+1)
+        pos1 = pos2+1
+      endif
+    endwhile
+    output_alt->qual[pos].trigger_events_cnt = ecnt
+    stat = alterlist(output_alt->qual[pos].trigger_events, ecnt)
+ 
+    pos = locateval(idx,pos+1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  endwhile
+ 
+with nocounter, expand = 2
+ 
+;resort the trigger_events and populate the final string
+select into "nl:"
+from
+   (dummyt d1 with seq = output_alt->qual_cnt)
+  ,(dummyt d2 with seq = 1)
+plan d1
+  where maxrec(d2, output_alt->qual[d1.seq].trigger_events_cnt)
+join d2
+order
+   d1.seq
+  ,cnvtupper(output_alt->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+ 
+head d1.seq
+  cnt = 0
+  tevent_str = " "
+ 
+head d2.seq
+  null
+ 
+detail
+  cnt = cnt + 1
+  if (cnt = 1)
+    tevent_str = output_alt->qual[d1.seq].trigger_events[d2.seq].trigger_event
+  else
+    tevent_str = concat(tevent_str, ",", output_alt->qual[d1.seq].trigger_events[d2.seq].trigger_event)
+  endif
+ 
+foot d2.seq
+  null
+ 
+foot d1.seq
+  output_alt->qual[d1.seq].trigger_event_str = tevent_str
+ 
+with nocounter
+ 
+;get alert version dates
+select if(EXPAND_CONTROL = 1)
+         with expand = 1
+       endif
+into "nl:"
+from
+   eks_module em
+plan em
+  where expand(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+order by
+  em.module_name
+ ,em.version
+ 
+head em.module_name
+  creation_date = em.maint_date
+  frelease = 0
+ 
+head em.version
+  null
+ 
+detail
+  if (    em.maint_validation = "PRODUCTION"
+      and frelease = 0
+      and em.maint_dur_begin_dt_tm <= em.maint_date
+      and em.maint_dur_end_dt_tm >= em.maint_date
+      )
+    release_date = em.maint_date
+    frelease = 1
+  endif
+ 
+foot em.version
+  null
+ 
+foot em.module_name
+  pos = locateval(idx,1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  while (pos != 0)
+    output_alt->qual[pos].creation_date = creation_date
+    if (frelease = 1)
+      output_alt->qual[pos].release_date = release_date
+    endif
+    pos = locateval(idx,pos+1,output_alt->qual_cnt,em.module_name,output_alt->qual[idx].alert_id)
+  endwhile
+ 
+with nocounter, expand = 2
+ 
+/*****
+Alert Definition Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_alt->qual, 5)))
+ 
+plan d1
+order by output_alt->qual[d1.seq].alert_id
+head report
+  frec->file_name = FILE_ALERTDEFINITIONS
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTDEFINITIONS))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "alert_id", QUOTE
+    ,DELIMITER, QUOTE, "alert_name", QUOTE
+    ,DELIMITER, QUOTE, "creation_date", QUOTE
+    ,DELIMITER, QUOTE, "release_date", QUOTE
+    ,DELIMITER, QUOTE, "maint_validation", QUOTE
+    ,DELIMITER, QUOTE, "maint_dur_begin_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "maint_dur_end_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "stop_mode", QUOTE
+    ,DELIMITER, QUOTE, "title", QUOTE
+    ,DELIMITER, QUOTE, "html_file", QUOTE
+    ,DELIMITER, QUOTE, "text", QUOTE
+    ,DELIMITER, QUOTE, "cancel_label", QUOTE
+    ,DELIMITER, QUOTE, "ignore_label", QUOTE
+    ,DELIMITER, QUOTE, "override_reason", QUOTE
+    ,DELIMITER, QUOTE, "modify_label", QUOTE
+    ,DELIMITER, QUOTE, "default_label", QUOTE
+    ,DELIMITER, QUOTE, "orders", QUOTE
+    ,DELIMITER, QUOTE, "default_first_order", QUOTE
+    ,DELIMITER, QUOTE, "url_button_name", QUOTE
+    ,DELIMITER, QUOTE, "url_address", QUOTE
+    ,DELIMITER, QUOTE, "ok_button_name", QUOTE
+    ,DELIMITER, QUOTE, "form", QUOTE
+    ,DELIMITER, QUOTE, "force_form", QUOTE
+    ,DELIMITER, QUOTE, "key_words", QUOTE
+    ,DELIMITER, QUOTE, "trigger_event", QUOTE
+    ,DELIMITER, QUOTE, "updt_dt_tm", QUOTE
+    ,DELIMITER, QUOTE, "updt_user", QUOTE
+    ,DELIMITER, QUOTE, "alert_version", QUOTE
+
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_ALT, QUOTE
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].alert_id)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].alert_name)
+    ,DELIMITER, DisplayText(trim(format(output_alt->qual[d1.seq].creation_date,DISP_DATE)))
+    ,DELIMITER, DisplayText(trim(format(output_alt->qual[d1.seq].release_date, DISP_DATE)))
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].maint_validation)
+    ,DELIMITER, DisplayText(trim(format(output_alt->qual[d1.seq].maint_dur_begin_dt_tm, DISP_DATE)))
+    ,DELIMITER, DisplayText(trim(format(output_alt->qual[d1.seq].maint_dur_end_dt_tm, DISP_DATE)))
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].stop_mode)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].title)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].html_file)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].text)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].cancel_label)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].ignore_label)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].override_reason)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].modify_label)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].default_label)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].orders)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].default_first_order)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].url_button_name)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].url_address)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].ok_button_name)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].form)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].force_form)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].key_words)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].trigger_event_str)
+    ,DELIMITER, DisplayText(trim(format(output_alt->qual[d1.seq].last_update_dt_tm, DISP_DATE)))
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].last_update_user)
+    ,DELIMITER, DisplayText(output_alt->qual[d1.seq].alert_version)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_ALERTDEFINITIONS))
+  endif
+ 
+with nocounter
+ 
+#NO_ALT_DATA
+if (output_alt->qual_cnt = 0)
+  select into FILE_ALERTDEFINITIONS
+  from (dummyt d with seq = 1)
+  detail
+  call print("No alert definitions found.")
+  with nocounter
+endif
+
+call echo(build2("Alert Definitions Data Row Count: ", trim(cnvtstring(output_alt->qual_cnt))))
+free record output_alt
+ 
+call echo(build2("End Get Alert Definitions Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+
+/*********************************************************************************************************************************
+PHI - Optional section only sent if the $SENDPHI prompt = 1
+*********************************************************************************************************************************/
+if ($SENDPHI = 1) ;PHI if
+  call echo(build2("Begin Get PHI ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+if(output_phi->qual_cnt > 0) ;PHI Data present, proceed with PHI Output
+ 
+/*****
+PHI Output
+*****/
+select into "nl:"
+from
+  (dummyt   d1  with seq = value(size(output_phi->qual, 5)))
+ 
+plan d1
+head report
+  frec->file_name = FILE_PHI
+  frec->file_buf = "w"
+  if(cclio("OPEN", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PHI))
+  endif
+ 
+  frec->file_buf = build(
+                QUOTE, "org_code", QUOTE
+    ,DELIMITER, QUOTE, "script_version", QUOTE
+    ,DELIMITER, QUOTE, "version", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id", QUOTE
+    ,DELIMITER, QUOTE, "person_id", QUOTE
+    ,DELIMITER, QUOTE, "fin", QUOTE
+    ,DELIMITER, QUOTE, "mrn", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_encounter_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "patient_id", QUOTE
+    ,DELIMITER, QUOTE, "patient_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "activity_date", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "encntr_id_verify_key", QUOTE
+    ,DELIMITER, QUOTE, "person_id_hash", QUOTE
+    ,DELIMITER, QUOTE, "person_id_verify_key", QUOTE   
+    )
+  file_size = cclio("WRITE", frec)
+ 
+ 
+detail
+  frec->file_buf = build(
+                EOL
+              , QUOTE, ORG_CODE, QUOTE
+    ,DELIMITER, QUOTE, SCRIPT_VERSION, QUOTE
+    ,DELIMITER, QUOTE, VERSION_PHI, QUOTE
+    ,DELIMITER, DisplayText(DisplayInt(output_phi->qual[d1.seq].encntr_id))
+    ,DELIMITER, DisplayText(DisplayInt(output_phi->qual[d1.seq].person_id))
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].fin)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].mrn)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].patient_encounter_id)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].patient_encounter_id_verify_key)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].patient_id)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].patient_id_verify_key)
+    ,DELIMITER, DisplayText(trim(format(BDATE,DISP_DATE)))
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].encntr_id_hash)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].encntr_id_verify_key)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].person_id_hash)
+    ,DELIMITER, DisplayText(output_phi->qual[d1.seq].person_id_verify_key)
+    )
+  file_size = file_size + cclio("WRITE", frec)
+ 
+foot report
+  if(cclio("CLOSE", frec) = 0)
+    call echo(build2("Failed to create file: ", FILE_PHI))
+  endif
+ 
+with nocounter
+ 
+else ;no PHI data
+  select into FILE_PHI
+  from (dummyt d with seq = 1)
+  detail
+  call print("No phi found.")
+  with nocounter
+endif ;end PHI data check
+
+call echo(build2("PHI Data Row Count: ", trim(cnvtstring(output_phi->qual_cnt))))
+free record output_phi
+ 
+call echo(build2("End Get PHI Data ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+
+else ;do not send PHI
+  call echo(build2("PHI data not being sent ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+endif ;PHI if
+ 
+ 
+/*********************************************************************************************************************************
+Zip all files and remove the individual files
+*********************************************************************************************************************************/
+set dclstat = 0
+call dcl(ZIP_COMMAND, size(ZIP_COMMAND), dclstat)
+set dclstat = 0
+call dcl(RM_COMMAND, size(RM_COMMAND), dclstat)
+ 
+ 
+#EXIT_PROGRAM
+set reply->status_data->status = status
+set reply->status_data.subeventstatus[1].OperationName     = OperationName
+set reply->status_data.subeventstatus[1].OperationStatus   = OperationStatus
+set reply->status_data.subeventstatus[1].TargetObjectName  = TargetObjectName
+set reply->status_data.subeventstatus[1].TargetObjectValue = TargetObjectValue
+call echo(build2("END ", trim(CURPROG), " ", format(cnvtdatetime(SYSTIMESTAMP),"@SHORTDATETIME")))
+set lastmod = "023 12/12/18 Mark Anderson"
+ 
+/*********************************************************************************************************************************
+Subroutines (keep all programming above this point)
+*********************************************************************************************************************************/
+subroutine DeclareRoutines(null)
+  declare GetPromptDate(date_str = vc, default_date = vc, time = i4) = dq8
+  declare _EvaluateDateStr(date_str = vc) = i4
+  declare _GetDate(date_str = vc) = i4
+  declare DisplayInt(dnum = vc) = vc
+  declare DisplayText(tstring = vc) = vc
+  declare isLogicalDomainsActive(null) = i2
+  declare column_exists(sTable = vc, sColumn = vc) = i4
+  declare getLDConceptParser (pConcept=i2, pField=vc, pLogicalDomainID=f8) = vc
+end ;subroutine DeclareRoutines
+ 
+ 
+/**
+ * Returns a dq8 for the date string and time passed in.  If a valid dq8 can not be created, the default date will be used.
+ *
+ * @param date_str [vc] - A string representation of your date such as "03-JAN-2009" or "01032009".  Integer representations, such
+   as 01032009 or CURDATE, are also handled.
+ * @param default_date [vc] - If the date_str cannot be properly parsed into a date, the default_date will be returned.  This too
+   should be a string or integer representation of a date.  Additionally, default_date can handle a dq8 data type.
+ * @param beg_end_ind [i4] - An integer representing the time in which you would like appended to your date.  Valid input can be
+   formatted as 0, 000000, 123000 or 235959.
+ * @returns [dq8] representing time on date_str.  If date_str is empty or invalid the return will be time on default_date.
+ */
+subroutine GetPromptDate(date_str, default_date, time)
+    declare _return_val = dq8 with noconstant(0),private
+ 
+    declare _time = i4 with constant(cnvtint(time)),private
+    declare _date = i4 with constant(_GetDate(date_str)),private
+ 
+    if (_date = 0.0)
+        ;Did not parse a valid date, so set to default
+        ;call echo("Setting Default")
+        case (substring(1, 1, reflect(default_date)))
+            of "F":
+                set _return_val = cnvtdatetime(cnvtdate(default_date), _time)
+            of "C":
+                set _return_val = cnvtdatetime(_EvaluateDateStr(default_date), _time)
+            of "I":
+                set _return_val = cnvtdatetime(default_date, _time)
+            else
+                set _return_val = 0
+        endcase
+    else
+        set _return_val = cnvtdatetime(_date, _time)
+    endif
+ 
+    return (_return_val)
+end  ;subroutine GetPromptDate
+ 
+/** Called from GetPromptDate */
+subroutine _GetDate(date_str)
+    declare _return_val = dq8 with noconstant(0),private
+    declare _time = i4 with constant(0),private
+ 
+    if (isnumeric(date_str))
+        ;call echo("Is numeric")
+        declare _date = vc with constant(trim(cnvtstring(date_str))),private
+        set _return_val = cnvtdatetime(cnvtdate(_date), _time)
+ 
+        if (_return_val = 0.0)
+            set _return_val = cnvtdatetime(cnvtint(_date), _time)
+        endif
+    else
+        ;call echo("Is not numeric")
+        declare _date = vc with constant(trim(date_str)),private
+        ;call echo(build2("textlen = ", textlen(trim(_date))))
+        if (textlen(trim(_date)) = 0)
+            ;call echo("No Start Date Passed")
+            set _return_val = 0
+        else
+            if (_date in ("*CURDATE*"))
+                set _return_val = cnvtdatetime(_EvaluateDateStr(_date), _time)
+            else
+                set _return_val = cnvtdatetime(cnvtdate2(_date, "DD-MMM-YYYY"), _time)
+            endif
+        endif
+    endif
+ 
+    return (cnvtdate(_return_val))
+end ;subroutine _GetDate
+ 
+/** Called from GetPromptDate */
+subroutine _EvaluateDateStr(date_str)
+    declare _dq8 = dq8 with private
+    declare _parse = vc with constant(concat("set _dq8 = cnvtdatetime(", date_str, ", 0) go")),private
+    call parser(_parse)
+    return (cnvtdate(_dq8))
+end ;subroutine _EvaluateDateStr
+ 
+ 
+/**
+ * Returns a blank string if the number is zero or the integer formatted as text if it is nonzero
+ *
+ * @param dnum the number to evaluate
+ * @returns the number formatted as an integer
+ */
+subroutine DisplayInt(dnum)
+    declare return_val = vc with private, noconstant(" ")
+ 
+    if (dnum != 0)
+      set return_val = trim(format(dnum,DISP_INT),3)
+    endif
+ 
+    return (return_val)
+ 
+end  ;subroutine DisplayInt
+ 
+/**
+ * Returns the file delimiter if the file text string is empty, else returns the string with quotes
+ *
+ * @param tstring the text to evaluate
+ * @returns text with quotes
+ */
+subroutine DisplayText(tstring)
+    declare return_val = vc with private, noconstant(" ")
+    declare CRLF       = vc with private, constant(build(char(13),char(10)))
+    declare CR         = vc with private, constant(char(13))
+    declare LF         = vc with private, constant(char(10))
+ 
+    if (size(tstring) > 0)
+      set tstring = replace(tstring, "|", " ")
+      set tstring = replace(tstring, CRLF, " ")
+      set tstring = replace(tstring, CR, " ")
+      set tstring = replace(tstring, LF, " ")
+      set return_val = concat(QUOTE, tstring, QUOTE)
+    endif
+ 
+    return (return_val)
+ 
+end  ;subroutine DisplayText
+
+
+
+/**
+ * Validate that a column exists on the table.
+ *
+ * @param sTable  table name in caps
+ * @param sColumn column name in caps
+ * @return        true (1) if column exists
+ *                false (0) if column does not exist
+ */
+subroutine column_exists(sTable, sColumn)
+    declare return_val = i4 with noconstant(0),protect
+    declare ce_temp = vc with noconstant(""),protect
+ 
+    set sTable  = cnvtupper(sTable)
+    set sColumn = cnvtupper(sColumn)
+ 
+    ;If CCL version is new enough, use checkdic()
+    if ((currev = 8 and currevminor = 2 and currevminor2 >= 4)
+     or (currev = 8 and currevminor > 2) or currev > 8)
+        set ce_temp = build('"', sTable, '.', sColumn, '"')
+ 
+        ;Example of what this would like
+        ;set stat = checkdic("PERSON.PERSON_ID","A",0)
+        set stat = checkdic(parser(ce_temp), "A", 0)
+ 
+        if (stat > 0)
+            set return_val = 1
+        endif
+    else
+        select into "nl:" l.attr_name
+        from dtableattr a, dtableattrl l
+        where a.table_name = sTable
+            and l.attr_name = sColumn
+            and l.structtype = "F"
+            and btest(l.stat, 11) = 0
+        detail
+            return_val = 1
+        with nocounter
+    endif
+ 
+    return(return_val)
+end    ;subroutine column_exists
+
+/**
+ * Validate that logical domains are active and present in the domain.
+ *
+ * @return        true (1) if domains are present and active
+ *                false (0) if domains are not present or active
+ */
+subroutine isLogicalDomainsActive(null)
+    declare return_val = i4 with noconstant(0),protect
+    declare b_LogicalDomain = i4 with noconstant(column_exists("LOGICAL_DOMAIN", "LOGICAL_DOMAIN_ID")),protect
+    declare ld_id = f8 with noconstant(0.0),protect
+    declare cnt = i4 with noconstant(0),protect
+ 
+    if(b_LogicalDomain)
+        select into "nl:"
+        from logical_domain ld
+        plan ld where ld.logical_domain_id > 0.0
+            and ld.active_ind = 1
+        order by ld.logical_domain_id
+        head ld.logical_domain_id
+            return_val = 1
+        with nocounter
+    endif
+ 
+    return(return_val)
+end ;subroutine isLogicalDomainsActive
+
+/**************************************************************************************************
+Name:
+    getLDConceptParser()
+Description:
+    The getLDConceptParser subroutine builds a parser string to validate the current logical domain.
+Parameters:
+    pConcept:
+            Concept                                       Field
+            LD_CONCEPT_PRSNL (Personnel)                  person_id
+            LD_CONCEPT_LOCATION (Location)                location_cd
+    pField: table.field
+    pLogicalDomainID: current logical_domain_id
+Returns:
+     A parser string to validate the logical domain ID.
+**************************************************************************************************/
+subroutine getLDConceptParser(pConcept, pField, pLogicalDomainID)
+    declare return_val = vc with private, noconstant("1=1")
+    if (LDACTIVE = 1)
+      case (pConcept)
+        of LD_CONCEPT_PRSNL:
+ 
+            if(column_exists("PRSNL", "LOGICAL_DOMAIN_ID"))
+                set return_val = build2(return_val,
+                                        " and exists",
+                                        " (select 1",
+                                        " from prsnl p_ld",
+                                        " where p_ld.person_id = ", pField,
+                                        " and p_ld.logical_domain_id = ", pLogicalDomainId, ")")
+            endif
+ 
+        of LD_CONCEPT_LOCATION:
+ 
+            if(column_exists("ORGANIZATION", "LOGICAL_DOMAIN_ID"))
+                set return_val = build2(return_val,
+                                        " and exists",
+                                        " (select 1",
+                                        " from location l_ld, organization o_ld",
+                                        " where l_ld.location_cd = ", pField,
+                                        " and o_ld.organization_id = l_ld.organization_id",
+                                        " and o_ld.logical_domain_id = ", pLogicalDomainId, ")")
+            endif
+ 
+        else
+ 
+            set return_val = "0=1"
+ 
+      endcase
+ 
+    endif
+    
+    return(return_val)
+ 
+end ;getLDConceptParser ()
+ 
+/*********************************************************************************************************************************
+End of Subroutines
+*********************************************************************************************************************************/
+end go
