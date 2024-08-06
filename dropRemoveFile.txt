@@ -1,0 +1,5 @@
+;removes the object file
+drop program 1_abc_testing go
+
+;removes the .prg file from specific directory
+SET STAT = REMOVE("cust_wh:1_abc_testing.prg") GO
