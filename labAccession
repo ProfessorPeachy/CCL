@@ -1,0 +1,12 @@
+select a.accession
+,cnvtacc(a.accession)
+,* from orders o
+;,accession a
+,ACCESSION_ORDER_R AOR
+,accession	a
+plan o
+where o.order_id = 1740356151
+join aOR
+where aOR.order_id = o.order_id
+join a
+where a.accession_id = aor.accession_id
