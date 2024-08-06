@@ -1,0 +1,29 @@
+select *from dm_columns_doc dm
+plan dm
+where dm.table_name  = "*CCL_PROMPT*"
+AND OPERATOR(DM.table_name,"REGEXPLIKE","([^0-9]$)")
+;AND  OPERATOR(N.source_identifier,"REGEXPLIKE","(S\d\d\....A)")   
+
+SELECT * 
+FROM 
+CCL_PROMPT_DEFINITIONS d
+,CCL_PROMPT_PROPERTIES p
+PLAN d
+WHERE d.prompt_name = "*UNIT*"
+join p
+where p.prompt_id = d.prompt_id
+order by d.prompt_id
+
+
+
+select *from dm_columns_doc dm
+plan dm
+where dm.table_name  = "*ENC*PRSNL*"
+
+
+select distinct year
+from omf_date
+where year >= 2018
+and year <= datetimepart(sysdate,1)
+order by year asc
+with maxrec = 1000
