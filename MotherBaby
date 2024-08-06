@@ -1,0 +1,92 @@
+drop program 1_ch_834549_mat_dx_rpt_080524 go
+create program 1_ch_834549_mat_dx_rpt_080524
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+;	, "Discharge Date (from):" = "CURDATE"
+;	, "Discharge Date (to):" = "CURDATE" 
+
+with OUTDEV;, start, stop
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+;execute the ccl_get_username_sub program to make the get_username subroutine available in this program.
+execute 1_ch_834549_ccl_get_bp_sub
+declare yes_or_blank_var = vc with protect, constant(get_eval_first_bp(bp_event_cd) = f8, (mom_encntr_id) = f8)
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+DECLARE SBP_cuff_cd_var = f8 WITH constant(uar_get_code_by("displaykey",72,"SYSTOLICBLOODPRESSURECUFF")),PROTECT;703501.00
+DECLARE DBP_cuff_cd_var = f8 WITH constant(uar_get_code_by("displaykey",72,"DIASTOLICBLOODPRESSURECUFF")),PROTECT;703506.00
+
+DECLARE fin_cd_var = f8 WITH constant(uar_get_code_by("DISPLAY_KEY", 319, "FINNBR")),PROTECT  ;1077
+DECLARE mrn_cd_var = f8 WITH constant(uar_get_code_by("DISPLAY_KEY", 319, "MRN")),PROTECT     ;1079
+;Used description below since code values table has same display_key fpr DATETIMEOFBIRTH and DATETIMEOFBIRTH: 
+declare deliv_dt_var = f8 WITH constant(uar_get_code_by("Description", 72, "Date, Time of Birth")),PROTECT;21102688.00 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ select distinct into $outdev
+      mom_person_id = pmom.person_id
+    , reg_dt = emom.reg_dt_tm "mm/dd/yy hh:mm"
+	, disch_dt = emom.disch_dt_tm "mm/dd/yy hh:mm"
+	, depart_dt = emom.depart_dt_tm "mm/dd/yy hh:mm"
+	, mom_encntr_id = emom.encntr_id
+	, mom_ln = pmom.name_last
+	, mom_fn = pmom.name_first
+	, mom_dob = pmom.birth_dt_tm
+	, mrn = eamommrn.alias
+	, fin = eamomfin.alias ;UAR_GET_CODE_BY("displaykey",code set = 319,eamomfin.encntr_alias_type_cd)
+	, pmom_race_disp = uar_get_code_display(pmom.race_cd)
+	, pmom_ethnic_grp_disp = uar_get_code_display(pmom.ethnic_grp_cd)
+	, pmom_lang_disp = uar_get_code_display(pmom.language_cd)
+	;, delivery_dt_unf = cebaby.result_val  ;has to be formatted properly since it's not stored as a string, not a date value
+	, delivery_dt = format(cnvtdatetime(cnvtdate2(substring(3,8,cebaby.result_val),"yyyymmdd"),cnvttime2(substring(11,6,
+cebaby.result_val),"HHMMSS")),"mm/dd/yyyy hh:mm:ss;;d")
+    , los_days = datetimediff(emom.depart_dt_tm,emom.reg_dt_tm)   /*LOS = Length of stay*/
+    , SBP_cuff_cd_var
+;	, SBP_first_instance_GTE_160 = if(select min(
+    , DBP_cuff_cd_var
+ FROM
+	person   pmom
+	, encounter   emom
+	, encntr_mother_child_reltn   emcr
+	, encounter   ebaby
+   , (LEFT JOIN clinical_event cebaby ON (ebaby.encntr_id = cebaby.encntr_id and cebaby.event_cd = deliv_dt_var))
+	, encntr_alias   eamomfin
+	, encntr_alias   eamommrn
+
+ plan pmom  
+ join emom where pmom.person_id = emom.person_id 
+        ;   and (emom.disch_dt_tm between (CNVTDATETIME($START)) AND (CNVTDATETIME($STOP)))
+          and emom.disch_dt_tm between CNVTDATETIME("20-JUL-2024 00:00:00") 
+          AND CNVTDATETIME("26-JUL-2024 23:59:59")
+ join emcr where emcr.mother_encntr_id = emom.encntr_id
+ join ebaby where ebaby.encntr_id = emcr.child_encntr_id
+ JOIN eamomfin where eamomfin.encntr_id = emom.encntr_id
+                 and eamomfin.encntr_ALIAS_TYPE_CD = fin_cd_var	
+                 and eamomfin.active_ind = 1             
+ join eamommrn where eamommrn.encntr_id = emom.encntr_id                  ; and eamommrn.alias_pool_cd = 21268802.00   
+                 and eamommrn.encntr_ALIAS_TYPE_CD = mrn_cd_var
+                  and eamomfin.active_ind = 1    
+ join cebaby  ;all tables must be joined under PLAN that are in a left join above plan
+                                 
+ ORDER BY
+   pmom.person_id
+;	emom.disch_dt_tm
+;	, fin
+
+ WITH MAXREC = 55, nocounter, separator=" ", format, time=30
+ ; ,(LEFT JOIN ce_baby_deliv_dt ON (ce_baby_deliv_dt.encntr_id = ebaby.encntr_id
+;                             AND ce_baby_deliv_dt.event_cd = 21102688))
+ ;left join so don't lose moms if no mrn or fin entered? why does example from oracle health use alias_pool_cd for MRN 
+ ;https://community.oracle.com/oraclehealth/discussion/comment/
+ ;405245#Comment_405245?utm_source=community-search&utm_medium=organic-search&utm_term=vital+signs+clinical_event
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
