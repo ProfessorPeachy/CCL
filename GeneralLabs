@@ -1,0 +1,263 @@
+ select distinct  into "nl:"
+
+ oa.action_dt_tm,
+
+ o.catalog_cd,
+
+ pat_name    = p.name_full_formatted,
+
+;001
+
+ ssn         = pa.alias,
+
+;  mrn         = pa.alias,
+
+ age         = cnvtage(p.birth_dt_tm),
+
+ gender       = uar_get_code_display(p.sex_cd),
+
+ dob         = p.birth_dt_tm,
+
+ location    = build(uar_get_code_display(e.loc_facility_cd), "/",
+
+                     uar_get_code_display(e.loc_building_cd), "/",
+
+                     uar_get_code_display(e.loc_nurse_unit_cd), "/",
+
+                     uar_get_code_display(e.loc_room_cd), "/",
+
+                     uar_get_code_display(e.loc_bed_cd)),
+
+ accession   = cnvtacc (a.accession),
+
+ priority    = uar_get_code_display (ol.report_priority_cd),
+
+ order_doc   = p2.name_full_formatted,
+
+ order_dt_tm = o.orig_order_dt_tm,
+
+ test        = uar_get_code_display (o.catalog_cd),
+
+ coll_dt_tm  = c.drawn_dt_tm,
+
+ inlab_dt_tm = c.received_dt_tm,
+
+ spec_type   = uar_get_code_display (c.specimen_type_cd),
+
+ comp_dt_tm  = oa.action_dt_tm,
+
+ service_resource = uar_get_code_display (osrc.service_resource_cd)
+
+ from order_action oa,
+
+   orders o,
+
+   order_serv_res_container osrc,
+
+   container c,
+
+   order_laboratory ol,
+
+   person p,
+
+;001
+
+   person_alias pa,
+
+   encounter e,
+
+   accession_order_r aor,
+
+   accession a,
+
+   person p2,
+
+   clinical_event ce,
+
+   (dummyt d1 with seq = value(qual_orders->qual))
+
+ plan (d1 where (d1.seq > 0) )
+
+ and (oa
+
+   where (oa.order_action_id = qual_orders->rec[d1.seq].order_action_id))
+
+ and (o
+
+   where (o.order_id = oa.order_id))
+
+ and (osrc
+
+   where (osrc.order_id = oa.order_id) and
+
+; ADDED THIS LINE TO FIX MULTIPLE CONTAINER ORDERS
+
+     (osrc.container_id=(
+
+       select max (osrc.container_id)
+
+         from (order_serv_res_container osrc)
+
+         where (osrc.order_id = oa.order_id))))
+
+ and (c
+
+   where (c.container_id=osrc.container_id))
+
+ and (ol
+
+   where (ol.order_id=oa.order_id))
+
+ and (p
+
+   where (p.person_id=o.person_id))
+
+;001
+
+ and (pa
+
+ where (p.person_id=pa.person_id)
+
+   and (pa.alias_pool_cd in (ssn_cd))
+
+and (pa.active_ind= 1)
+
+;gets the most recently updated SSN or pseudo SSN
+
+and (pa.updt_dt_tm=(
+
+     select max (pa2.updt_dt_tm)
+
+       from (person_alias pa2)
+
+       where (pa2.person_id = p.person_id)
+
+ and (pa2.active_ind = 1)
+
+ and (pa2.alias_pool_cd in (ssn_cd)))))
+
+ and (e
+
+   where (e.encntr_id = o.encntr_id)
+
+;    and ((loc_parser_string = 1 and e.organization_id = $facility)
+
+;         or
+
+;         (loc_parser_string = 2 and e.loc_nurse_unit_cd = $nurse_unit_cd)
+
+;         or
+
+;         (loc_parser_string = 0 and 1 = 1))
+
+        )
+
+ and (aor
+
+   where (aor.order_id = oa.order_id))
+
+ and (a
+
+   where (a.accession_id = aor.accession_id))
+
+ and (p2
+
+   where (p2.person_id = oa.order_provider_id))
+
+ and (ce
+
+   where (ce.order_id = oa.order_id)
+
+ and (ce.valid_until_dt_tm > cnvtdatetime(curdate, curtime3))
+
+     and (ce.publish_flag = 1)
+
+ and (ce.event_reltn_cd = ce_root_cd)
+
+ and (ce.view_level = 0))
+
+ head report
+
+   rec_ctr = 0
+
+  
+
+ detail
+
+   rec_ctr =(rec_ctr + 1),
+
+  ; if((mod(rec_ctr, 100) = 1))
+
+     stat = alterlist(lab_records->rec, REC_CTR)
+
+   ;endif
+
+   ,
+
+;001
+
+;    if (pa.alias_pool_cd = ssn_cd)
+
+;      lab_records->rec[rec_ctr].ssn = ssn
+
+;    else
+
+;      lab_records->rec[rec_ctr].ssn = substring((findstring(":", ssn, 1)+ 1), 10, ssn)
+
+;    endif
+
+;    ,
+
+   lab_records->rec[rec_ctr].catalog_cd   = o.catalog_cd,
+
+   lab_records->rec[rec_ctr].order_id     = o.order_id,
+
+   lab_records->rec[rec_ctr].patient_name = pat_name,
+
+   lab_records->rec[rec_ctr].person_id    = p.person_id,
+
+   lab_records->rec[rec_ctr].encntr_id    = e.encntr_id,
+
+   lab_records->rec[rec_ctr].age          = age,
+
+   lab_records->rec[rec_ctr].gender       = gender,
+
+   lab_records->rec[rec_ctr].dob          = dob,
+
+   lab_records->rec[rec_ctr].location     = location,
+
+   lab_records->rec[rec_ctr].accession    = accession,
+
+   lab_records->rec[rec_ctr].priority     = priority,
+
+   lab_records->rec[rec_ctr].order_doc    = order_doc,
+
+   lab_records->rec[rec_ctr].order_doc_id = p2.person_id,
+
+   lab_records->rec[rec_ctr].order_dt_tm  = order_dt_tm,
+
+   lab_records->rec[rec_ctr].test         = test,
+
+   lab_records->rec[rec_ctr].coll_dt_tm   = coll_dt_tm,
+
+   lab_records->rec[rec_ctr].inlab_dt_tm  = inlab_dt_tm,
+
+   lab_records->rec[rec_ctr].spec_type    = spec_type,
+
+   lab_records->rec[rec_ctr].comp_dt_tm   = comp_dt_tm,
+
+   lab_records->rec[rec_ctr].order_loc    = e.loc_facility_cd, ;0.0,
+
+   lab_records->rec[rec_ctr].service_resource    = service_resource,
+
+   lab_records->rec[rec_ctr].service_resource_cd = osrc.service_resource_cd
+
+ foot report
+
+   lab_records->qual = rec_ctr,
+
+   stat = alterlist(lab_records->rec, rec_ctr)
+
+with nocounter, separator =" ", format
+
+
