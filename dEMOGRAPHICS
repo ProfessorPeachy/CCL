@@ -1,0 +1,307 @@
+drop program   1_TN_HCI_PATIENT_DEMOG:DBA  go
+create program  1_TN_HCI_PATIENT_DEMOG:DBA
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Beginning Date" = CURDATE
+	, "End Date" = CURDATE
+ 
+with OUTDEV, BEG_DATE, END_DATE
+ 
+
+
+;001  9/26/18	vmeola		added ",protect" on declare statements to eliminate error
+declare home_phone_cd = f8 with constant(uar_get_code_by("DISPLAYKEY",43,"HOME")), protect
+declare home_address_cd = f8 with constant(uar_get_code_by("DISPLAYKEY",212,"HOME")), protect
+declare pat_cnt = i4
+declare record_cnt = i4
+set pat_cnt = 0
+set record_cnt = 0
+ 
+;call echo(d_cnt)
+     SET FIELD_SEP = '|'
+	 free record frec
+     RECORD FREC(
+      1 FILE_DESC = I4
+      1 FILE_OFFSET = I4
+      1 FILE_DIR = I4
+      1 FILE_NAME = VC
+      1 FILE_BUF = VC)
+     ;Open a file
+     SET FREC->FILE_NAME = $outdev; "PatientDemographics.txt"
+ 
+;     SET FREC->FILE_BUF = "w"   ;case sensitive must be lowercase
+ 
+;002 9/26/18 vmeola  removed check for append_ind as it is not being passed from the driver prg
+;if (enc->append_ind = 1)  ;pel99	;002
+;     SET FREC->FILE_BUF = "a"   ;case sensitive must be lowercase	;002
+;else	;002
+     SET FREC->FILE_BUF = "w"   ;case sensitive must be lowercase
+;endif	;002
+     SET STAT = CCLIO("OPEN",FREC)
+ 
+SELECT  into "nl:"  ;$outdev
+ pe_encntr_id = enc->qual[d.seq].pe_encntr_id
+ , PROVIDERID = SUBSTRING(1,20,TRIM(enc->qual[d.seq].provider))
+, patientid = substring(1,20,trim(enc->qual[d.seq].PatientId))
+, client_key = substring(1,20,trim(enc->qual[d.seq].ClientKey))
+, FIRSTNAME = SUBSTRING(1,50,TRIM(concat(trim(PER.name_first)," ",substring(1,1,per.name_middle))))
+, LASTNAME = SUBSTRING(1,50,TRIM(PER.name_last))
+, SEXID =	 SUBSTRING(1,1,TRIM(UAR_GET_CODE_DISPLAY(PER.sex_cd)))
+, MARITALSTATUS =  ;SUBSTRING(1,20,TRIM(uar_get_code_display(PER.marital_type_cd)))
+					substring(1,20,trim(cnvtstring(PER.marital_type_cd)))
+;,maritalstatus_disp = UAR_GET_CODE_DISPLAY(PER.marital_type_cd)
+, SSN = SUBSTRING(1,11,FORMAT(TRIM(PA.ALIAS),"#########;p0"));alias_pool_cd for SSN from the alias_pool table'
+, DOB = IF(PER.birth_dt_tm = NULL)
+					fillstring(19," ")
+  			ELSE
+					concat(trim(format(PER.birth_dt_tm, "mm/dd/yyyy;;d"))," ",cnvtupper(format(PER.birth_dt_tm, "hh:mm;;s")))
+				ENDIF ;CHAR(19)
+, AGE = if (findstring("Y",cnvtage(PER.birth_dt_tm, ENC.reg_dt_tm,0),1) > 0)
+					SUBSTRING(1,10,TRIM(substring(1,3,(cnvtage(PER.birth_dt_tm, ENC.reg_dt_tm,0)))))
+				else
+				 SUBSTRING(1,10,"1")
+				endif
+, CITY = SUBSTRING(1,50,TRIM(AD.city))
+;006	 5/8/19		vmeola		add state code to county
+;, COUNTY = SUBSTRING(1,50,TRIM(UAR_GET_CODE_DISPLAY(AD.county_cd)))	;006
+, COUNTY =	IF ( AD.STATE_CD = 0 )
+				build(trim(uar_get_code_display(AD.COUNTY_CD ) ),
+					" (", trim(AD.STATE ), ")" )
+			ELSE
+				build(trim(uar_get_code_display(AD.COUNTY_CD ) ),
+				" (", trim(uar_get_code_display(AD.STATE_CD ) ), ")" )
+			ENDIF
+;006 end
+, COUNTYID = SUBSTRING(1,20,TRIM(CNVTSTRING(AD.county_cd)))
+, STATE = if (ad.state_cd = 0)
+					  SUBSTRING(1,2,TRIM(ad.state))
+					else
+						SUBSTRING(1,2,TRIM(UAR_GET_CODE_DISPLAY(AD.state_cd)))
+					endif
+, ZIP = SUBSTRING(1,20,TRIM(substring(1,5,AD.zipcode)))
+, ZIP9 = SUBSTRING(1,20,ad.zipcode)
+, RACE = ;substring(1,50,uar_get_code_display(per.race_cd))
+		substring(1,20,trim(cnvtstring(per.race_cd)))
+;if (per.race_cd in ( 309315.00,5330622.00, 660609.00))
+;					substring(1,50,"Black or African American")
+;				 elseif (per.race_cd in (309317.00, 660610.00))
+;				   substring(1,50,"Asian")
+;				 elseif (per.race_cd in (309316.00,660611.00,660612.00,660613.00))
+;				   substring(1,50,"White")
+;				 elseif (per.race_cd in (660614.00,    5330623.00))
+;				   substring(1,50,"Native Hawaiian or Pacific Islander")
+;				 elseif (per.race_cd in (660617.00, 660615.00))
+;				   substring(1,50,"Other")
+;				 elseif (per.race_cd in (309318.00, 660616.00))
+;				   substring(1,50,"American Indian or Alaska Native")
+;				 else
+;				   substring(1,50,uar_get_code_display(per.race_cd))
+;				 endif
+, RELIGION = SUBSTRING(1,50,cnvtstring(PER.religion_cd))
+, RELIGIONNAME = SUBSTRING(1,50,TRIM(UAR_GET_CODE_DISPLAY(PER.religion_cd)))
+, EMPLOYERNAME = SUBSTRING(1,50,TRIM(O.org_name))
+, EMPLOYERID = SUBSTRING(1,20,TRIM(CNVTSTRING(O.organization_id)))
+, PATIENTOCCUPATION = if (por.empl_occupation_cd > 0)
+			  SUBSTRING(1,50,TRIM(UAR_GET_CODE_DISPLAY(POR.empl_occupation_cd)))
+			else
+			  SUBSTRING(1,50,TRIM(por.empl_occupation_text))
+			endif
+, ADDRESS1 = SUBSTRING(1,50,TRIM(AD.street_addr))
+, ADDRESS2 = SUBSTRING(1,50,TRIM(AD.street_addr2))
+, PHONE = SUBSTRING(1,20,TRIM(ph.phone_num))
+, EMPLOYERCITY = SUBSTRING(1,50,TRIM(ADR.city))
+, EMPLOYERSTATE = SUBSTRING(1,2,TRIM(UAR_GET_CODE_DISPLAY(ADR.state_cd)))
+, EMPLOYERZIP = SUBSTRING(1,20,TRIM(ADR.zipcode))
+, EMPLOYMENTSTATUS = SUBSTRING(1,20,TRIM(UAR_GET_CODE_DISPLAY(POR.empl_status_cd)))
+;003  9/26/18	vmeola		change fields to use code value instead of display
+;, ethnicity = uar_get_code_display(per.ethnic_grp_cd)	;003
+, ethnicity = cnvtstring(per.ethnic_grp_cd)				;003
+ 
+FROM
+ (dummyt d with seq = size(enc->qual,5)),
+	PERSON   PER
+	, ENCOUNTER   ENC
+;	, ENCNTR_ALIAS   EA
+	, PERSON_ALIAS   PA
+	, ADDRESS AD
+	, phone ph
+	, ORGANIZATION O
+	, PERSON_ORG_RELTN POR
+	, ADDRESS ADR
+ 
+plan d
+ 
+join enc
+where enc.encntr_id = enc->qual[d.seq].encntr_id
+;e.reg_dt_tm between cnvtdatetime(cnvtdate($beg_date), 0) AND cnvtdatetime(cnvtdate($end_date), 235959)
+;005	 02/27/19	vmeola		allow all inactive encounters
+; and enc.active_ind = 1	;005
+ and enc.end_effective_dt_tm >= sysdate
+ 
+join per where per.person_id = enc.person_id
+ and per.active_ind = 1
+ and per.end_effective_dt_tm >= sysdate
+ 
+;join ea
+;where ea.encntr_id = enc.encntr_id
+;and ea.active_ind = 1
+;and ea.alias_pool_cd = 660127 ;crh fin
+;and ea.end_effective_dt_tm > sysdate  ;= cnvtdatetime("31-DEC-2100 0")
+ 
+join pa
+where pa.person_id = outerjoin(enc.person_id)
+and pa.active_ind = outerjoin(1)
+and pa.person_alias_type_cd = outerjoin(18) ;ssn
+and pa.end_effective_dt_tm = outerjoin(cnvtdatetime("31-DEC-2100 0"))
+ 
+join ad where ad.parent_entity_id = outerjoin(per.person_id)
+and ad.active_ind = outerjoin(1)
+and ad.address_type_cd = outerjoin(home_address_cd)
+and ad.end_effective_dt_tm > outerjoin(sysdate)
+and ad.parent_entity_name = outerjoin("PERSON")
+;and ad.address_type_seq = outerjoin(1)
+ 
+join ph
+where ph.parent_entity_id = outerjoin(per.person_id)
+and ph.active_ind = outerjoin(1)
+and ph.phone_type_cd = outerjoin(home_phone_cd)
+and ph.end_effective_dt_tm > outerjoin(sysdate)
+and ph.parent_entity_name = outerjoin("PERSON")
+;and ph.phone_type_seq = outerjoin(1)
+ 
+join por where por.person_id = outerjoin(per.person_id)
+and por.active_ind = outerjoin(1)
+and por.end_effective_dt_tm >= outerjoin(sysdate)
+and por.person_org_reltn_cd = outerjoin(1136)
+and por.priority_seq = outerjoin(1)
+ 
+join o where o.organization_id = outerjoin(por.organization_id)
+ 
+join adr where adr.parent_entity_id = outerjoin(por.person_org_reltn_id)
+and adr.active_ind = outerjoin(1)
+and adr.end_effective_dt_tm >= outerjoin(sysdate)
+and adr.address_type_cd = outerjoin(754)
+and adr.parent_entity_name = outerjoin("PERSON_ORG_RELTN")
+ 
+;004  2/26/19	vmeola		fix problem with program running for hours
+order by per.person_id, pe_encntr_id	;d.seq	;004
+	;per.person_id,PATIENTID
+ 
+head report
+;002  9/26/18	vmeola		removed check for append_ind as it is not being passed from the driver prg
+	;if (enc->append_ind != 1)  ;pel99	;002
+		pat_cnt = 0
+		FREC->FILE_BUF =
+		build("ProviderId",FIELD_SEP,
+		"PatientId",FIELD_SEP,
+		"ClientKey",FIELD_SEP,
+		"FirstName",FIELD_SEP,
+		"LastName",FIELD_SEP,
+		"SexID",FIELD_SEP,
+		"MaritalStatus",FIELD_SEP,
+		"SSN",FIELD_SEP,
+		"DOB",FIELD_SEP,
+		"Age",FIELD_SEP,
+		"City",FIELD_SEP,
+		"County",FIELD_SEP,
+		"CountyID",FIELD_SEP,
+		"State",FIELD_SEP,
+		"Zip",FIELD_SEP,
+		"Zip9",FIELD_SEP,
+		"Race",FIELD_SEP,
+		"Religion",FIELD_SEP,
+		"ReligionName",FIELD_SEP,
+		"EmployerName",FIELD_SEP,
+		"EmployerID",FIELD_SEP,
+		"PatientOccupation",FIELD_SEP,
+		"Address1",FIELD_SEP,
+		"Address2",FIELD_SEP,
+		"Phone",FIELD_SEP,
+		"EmployerCity",FIELD_SEP,
+		"EmployerState",FIELD_SEP,
+		"EmployerZip",FIELD_SEP,
+		"EmploymentStatus",FIELD_SEP,
+		"Ethnicity",FIELD_SEP,
+		     char(13),char(10))
+			STAT = CCLIO("WRITE",FREC)
+	;endif	;002
+ 
+head per.person_id
+	pat_cnt = pat_cnt + 1
+ 
+;004  2/26/19	vmeola		fix problem with program running for hours
+head pe_encntr_id	;d.seq	;004
+record_cnt = record_cnt + 1
+FREC->FILE_BUF =
+build(trim(ProviderId,3),FIELD_SEP,
+trim(PatientId,3),FIELD_SEP,
+trim(Client_Key ,3),FIELD_SEP,
+trim(FIRSTNAME,3),FIELD_SEP,
+trim(LASTNAME,3),FIELD_SEP,
+trim(SEXID,3),FIELD_SEP,
+trim(MARITALSTATUS,3),FIELD_SEP,
+trim(SSN,3),FIELD_SEP,
+trim(DOB,3),FIELD_SEP,
+trim(AGE,3),FIELD_SEP,
+trim(CITY,3),FIELD_SEP,
+trim(COUNTY,3),FIELD_SEP,
+trim(COUNTYID,3),FIELD_SEP,
+trim(STATE,3),FIELD_SEP,
+trim(ZIP,3),FIELD_SEP,
+trim(ZIP9,3),FIELD_SEP,
+trim(RACE,3),FIELD_SEP,
+trim(RELIGION,3),FIELD_SEP,
+trim(RELIGIONNAME,3),FIELD_SEP,
+trim(EMPLOYERNAME,3),FIELD_SEP,
+trim(EMPLOYERID,3),FIELD_SEP,
+trim(PATIENTOCCUPATION,3),FIELD_SEP,
+trim(ADDRESS1,3),FIELD_SEP,
+trim(ADDRESS2,3),FIELD_SEP,
+trim(PHONE,3),FIELD_SEP,
+trim(EMPLOYERCITY,3),FIELD_SEP,
+trim(EMPLOYERSTATE,3),FIELD_SEP,
+trim(EMPLOYERZIP,3),FIELD_SEP,
+trim(EMPLOYMENTSTATUS,3),FIELD_SEP,
+trim(ethnicity,3),FIELD_SEP,
+     char(13),char(10))
+	STAT = CCLIO("WRITE",FREC)
+ 
+;004  2/26/19	vmeola		fix problem with program running for hours
+with ;orahintcbo("leading(enc) index(enc xie5encounter)","index(pa xie2person_alias)"),	;004
+ nocounter,format,noheading  ;, maxcol = 5000
+;  format, separator = " "
+ 
+;close the file
+SET STAT = CCLIO("CLOSE",FREC)
+ 
+ 
+;call echo(curqual)
+ 
+select into ;"hci_valid_counts.dat"
+			value(enc->control_rpt)
+file_name = "PatientDemographics",
+rec_cnt = substring(1,10,cnvtstring(record_cnt)),
+dt = substring(1,17,format(sysdate,"mm/dd/yy hh:mm;;d")),
+patient_cnt = substring(1,10,cnvtstring(pat_cnt)),
+run_date = concat(format(cnvtdate($beg_date),"mm/dd/yy;;d")," - ",format(cnvtdate($end_date),"mm/dd/yy;;d"))
+from
+dummyt d
+detail
+;col 0 file_name
+;col 28 rec_cnt
+;col 42 dt
+;col 60 run_date
+;row + 1
+col 0 file_name
+col 28 rec_cnt
+col 42  patient_cnt
+ 
+col 56 dt
+;col 74 run_date
+row + 1
+with append
+ 
+ 
+end go
+ 
