@@ -1,0 +1,32 @@
+
+select into "nl:"
+	e3.encntr_id
+	, epr2.priority_seq
+	, h2.health_plan_id
+	, h2.plan_name
+ 
+from
+	encounter   e3
+	, encntr_plan_reltn   epr2
+	, health_plan   h2
+ 
+plan e3 where expand(num,1,size(enc->qual,5),e3.encntr_id,enc->qual[num].eid)
+join epr2 where outerjoin(e3.encntr_id) = epr2.encntr_id
+	and epr2.active_ind = outerjoin(1)
+	and epr2.priority_seq = outerjoin(2)
+join h2 where outerjoin(epr2.health_plan_id) = h2.health_plan_id
+	and h2.active_ind = outerjoin(1)
+ 
+head e3.encntr_id
+	pos = locateval(num,1,size(enc->qual,5),e3.encntr_id,enc->qual[num].eid)
+ 
+detail
+ 	if(epr2.priority_seq = 2)
+ 		enc->qual[pos].ins2_code = h2.health_plan_id
+ 		enc->qual[pos].ins2_name = h2.plan_name
+ 	else
+ 		enc->qual[pos].ins2_code = 0
+ 		enc->qual[pos].ins2_name = ""
+ 	endif
+ 
+with nocounter,expand=1
