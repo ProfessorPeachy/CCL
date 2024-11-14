@@ -1,0 +1,947 @@
+drop program maur_bluesight_med_extract_ext go
+create program maur_bluesight_med_extract_ext
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Date/Time" = "CURDATE"
+	, "Select Facility" = 0 
+
+with OUTDEV, DATETIME, FAC
+
+
+;;;;
+;Version	Developer		Date		SR#
+;001 		Amelia Jamison 	08/15/2024	N/A		Fix issue with diluents getting sent since they were not a Med Administration
+
+;ops run
+;Bluesight ControlCheck Daily
+;EXECUTE MAUR_BLUESIGHT_MED_EXTRACT_EXT "MINE", CURDATE-1, 21250403.00  ;maur
+;EXECUTE MAUR_BLUESIGHT_MED_EXTRACT_ext "MINE", CURDATE-1, 21304872.00  ;marshall
+;EXECUTE MAUR_BLUESIGHT_MED_EXTRACT_ext "MINE", CURDATE-1, 21250831.00 ;wayne
+
+
+;EXECUTE MAUR_BLUESIGHT_MED_EXTRACT_ext "MINE", "CURDATE", 21250831.00 go ;wayne
+ 
+
+;**************************************************************
+; DVDev DECLARED RECORD STRUCTURE
+;**************************************************************
+; Structure to populate extract output data
+record bluesight_detail(
+   1 order_cnt = i4
+   1 orders[*]
+     2 order_id = f8
+     2 template_order_id = f8
+     2 catalog_cd = f8
+     2 catalog_type_cd = f8
+     2 event_id = f8
+     2 placerorderno = vc
+     2 synonym_id = f8
+     2 message_seq = vc
+     2 action_code = c1
+     2 administered_per = c20
+     2 amount = c20
+     2 completion_status = c2
+     2 dosageform = c250
+     2 drug_code = c30
+     2 drug_name = c250
+     2 end_date = c20
+     2 route_code = c30
+     2 route_text = c250
+     2 start_date = c20
+     2 strength = c20
+     2 strengthUnits = c20
+     2 sub_id = c10
+     2 units = c250
+     2 last_action_sequence = i4
+     2 last_ingred_action_sequence = i4
+     2 Event_type = c30
+     2 Admin_Date_Time = c20
+     2 Schedule_Date_Time= c20
+	 2 MAE_Nurse_Unit = c80
+     2 OrderDisplay = c40
+     2 item_id = f8
+     2 Form = c20
+     2 encounter
+       3 encntr_id = f8
+       3 account_no = c15
+       3 bed = c50
+       3 facility = c15
+       3 patient_class = c10
+       3 point_of_care = c80
+       3 nurse_unit= c80
+       3 room = c50
+       3 service = c50
+       3 person
+         4 person_id = f8
+         4 dob = c20
+         4 gender = c10
+         4 name_first = c30
+         4 name_last = c30
+         4 name_middle = c30
+         4 patient_id = c15
+         4 patient_suffix = c10
+         4 ssn = c9
+     2 clinical_event[*]
+       3 clinical_event_id = f8
+       3 event_id = f8
+       3 admin_psnl_name_first = c80
+       3 admin_psnl_name_last = c80
+       3 admin_psnl_role = c30
+       3 admin_psnl_id = c20
+       3 event_end_dt = c20
+       3 event_start_dt = c20
+       3 event_admin_dt = c20
+       3 given = c20
+       3 given_units = c20
+)
+ 
+;To store the values from request(Parameter)
+record request_param(
+   1 logical_domain_id = f8
+   1 ld_mnemonic = vc
+   1 isda2 = i2
+   1 end_date = dq8
+   1 start_date = dq8
+)
+ 
+;Structure used by CCLIO to print the extract data into a file
+record outputfrec(
+   1 file_buf = vc
+   1 file_desc = i4
+   1 file_dir = vc
+   1 file_name = vc
+   1 file_offset = i4
+)
+ 
+;Structure used to print the extract data into outputdevice
+free record output_print
+record output_print(
+   1 line_cnt = i4
+   1 lines [*]
+      2 line = vc
+)
+ 
+;**************************************************************
+; DVDev DECLARED VARIABLES
+;**************************************************************
+;CONSTANTS
+declare 4_mrn_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2623"))
+declare 4_ssn_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2626"))
+declare 8_auth_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2628"))
+declare 8_altered_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!16901"))
+declare 8_modified_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2636"))
+declare 48_deleted_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2673"))
+declare 53_med_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2699"))
+declare 71_emergency_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3957"))
+declare 71_inpatient_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3958"))
+declare 71_outpatient_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3959"))
+declare 71_outpatient_bed_cd = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",71,"OUTPATIENTINABED")) 
+declare 213_current_name_type_cd = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",213,"CURRENT"))
+declare 319_fin_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2930"))
+declare 6003_cancel_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3090"))
+declare 6003_modify_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3093"))
+declare 6003_order_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3094"))
+declare 6004_cancelled_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3099"))
+declare 6004_completed_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3100"))
+declare 6004_deleted_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!44311"))
+declare 6004_discont_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3101"))
+declare 6004_future_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!11559"))
+declare 6004_incomplete_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3815"))
+declare 6004_inprocess_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3224"))
+declare 6004_ordered_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3102"))
+declare 6004_suspended_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3104"))
+declare 6004_void_w_results_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2488992")) ;001 
+declare 11000_desc_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3290"))
+declare 11000_ndc_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3295"))
+declare 48_active_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2669"))
+declare 4063_orderable_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2553254"))
+declare 4063_medproduct_cd = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2553258"))
+declare 2050_route = f8 with protect, constant(2050)
+declare 51_start_date = f8 with protect, constant(51)
+declare 2073_end_date = f8 with protect, constant(2073)
+declare 2056_st_amt = f8 with protect, constant(2056)
+declare 2057_st_units = f8 with protect, constant(2057)
+declare 2058_vol_amt = f8 with protect, constant(2058)
+declare 2059_vol_units = f8 with protect, constant(2059)
+declare 2014_dosageform = f8 with protect, constant(2014)
+declare 2069_administered_per = f8 with protect, constant(2069)
+declare 14002_codeset = f8 with protect, constant(14002)
+declare 4500_inpatient_cd =  f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!101131"))
+ 
+declare and_char = c1 with protect, constant(char(38)); ascii and
+declare asterisk_char = c1 with protect, constant(char(42)); ascii asterisk
+declare attherate_char = c1 with protect, constant(char(64)); ascii attherate
+declare carriage_char = c1 with protect, constant(char(13)) ; ascii carriage return
+declare comma_char = c1 with protect, constant(char(44)); comma value
+declare dollar_char = c1 with protect, constant(char(36)); ascii dollar
+declare exclamation_char = c1 with protect, constant(char(33)); ascii exclamation
+declare hash_char = c1 with protect, constant(char(35)); ascii hash
+declare line_feed = c1 with protect, constant(char(10)); ascii newline
+declare percent_char = c1 with protect, constant(char(37)); ascii percent
+declare quote_char = c1 with protect, constant(char(34)); quote value
+declare up_char = c1 with protect, constant(char(94)); ascii up
+ 
+declare completed = vc with protect, constant("CP")
+declare dateFormat = vc with protect, constant("YYYYMMddhhmmss;;d")
+declare dateFormatLong = vc with protect, constant("MM-dd-yyyy HH:mm:ss;;d")
+declare disp_header = vc with protect, constant(trim((build2("FIN",comma_char,"MRN",comma_char,
+                                              "PATIENT_NAME",comma_char,
+                                              "EVENT_ID",comma_char,"EVENT_TYPE",comma_char,"VALID_FROM_DT_TM",comma_char,
+                                              "SCHEDULE_DT_TM",comma_char,"START_DT_TM",comma_char,
+                                              "ADMIN_DT_TM",comma_char,"DRUG_NAME",comma_char,
+                                              "DRUG_CODE_NDC",comma_char,"DRUG_AMOUNT",comma_char,
+                                              "DRUG_UNIT",comma_char,"ORDER_ID",comma_char,
+                                              "ROUTE",comma_char,"FORM",comma_char,
+                                              "CATALOG_CODE",comma_char,
+											  "FACILITY",comma_char, "LOCATION",comma_char,
+;                                              "LOCATION",comma_char,"ROOM",comma_char, "BED",comma_char,
+                                              "ITEM_ID",comma_char,"USER_NAME",comma_char,"USER_ROLE",
+                                              comma_char,"USER_ID",comma_char,"STRENGTH_AMOUNT",comma_char,
+                                              "STRENGTH_UNIT",comma_char, "ORDER_DISPLAY",comma_char,"ADMIN_AMOUNT",comma_char,
+                                              "ADMIN_UNIT",comma_char,"SEQUENCE_NUMBER"
+                                              )),3))
+declare messagetimestamp = vc with protect, constant(format(cnvtdatetime(curdate,curtime3),"YYYYMMDDHHMMSS;;d"))
+declare notAdministered = vc with protect, constant("NA")
+declare OrderActionCancel = vc with protect, constant("D")
+declare OrderActionModify = vc with protect, constant("U")
+declare OrderActionOrder = vc with protect, constant("A")
+declare partiallyAdministered = vc with protect, constant("PA")
+declare refused = vc with protect, constant("RE")
+
+declare cecnt = i4 with protect, noconstant (0)
+declare ecnt = i4 with protect, noconstant (0)
+declare exp_idx = i4 with protect, noconstant(0)
+declare loc_idx = i4 with protect, noconstant(0)
+declare max_event = i4 with protect, noconstant(0)
+declare ocnt = i4 with protect, noconstant (0)
+declare pos = i4 with protect,noconstant(0)
+declare print_line = i4 with protect, noconstant(0)
+ 
+declare startdttm = dq8 with protect, noconstant(0.0)
+declare enddttm = dq8 with protect, noconstant(0.0)
+ 
+declare errorMessage = vc with protect, noconstant(" ")
+declare extract_filename = vc with protect, noconstant(" ")
+declare output_string = vc with protect, noconstant(" ")
+declare temp_mrn = vc with protect, noconstant(" ")
+declare temp_ssn = vc with protect, noconstant(" ")
+declare facility = vc
+;**************************************************************
+; DVDev INPUT PARAM VALIDATION
+;**************************************************************
+;To validate prompt/request param
+call ValidateAndPopulaterequestParam(null)
+;**************************************************************
+; EXTRACT FILE CREATION
+;**************************************************************
+;Calling subroutines to populate the record structure with output
+call GetOrderDetails(null)
+call GetDrugNameInfo(null)
+call GetOrderRelatedDetails(null)
+call GetOrderActionDetails(null)
+call GetEncounterInfo(null)
+call GetPersonInfo(null)
+call GetDrugCode(null)
+call GetDrugstrength(null)
+;if(debugIndExe = 1)
+ ;  call printRecordAsLog(bluesight_detail)
+;endif
+;Populating extract output on to a output_print record structure
+for(pos = 1 to bluesight_detail->order_cnt)
+    call PopulateDataforExtract(pos)
+endfor
+;Generating extract file name
+
+;get the facility passed in for this run to use in the file name
+select into "nl:"
+	cv.display
+from code_value cv
+plan cv
+	where cv.code_value = $fac
+	and cv.active_ind = 1
+detail
+	facility = cnvtlower(cv.display)
+	call echo(build2("facility: ", facility))
+with nocounter
+
+
+call echo(build2("startdttm: ", startdttm))
+
+call echo(build2("format startdttm: ", format (startdttm , "YYYYMMDD;;Q" )))
+
+declare filename = vc
+set filename = (build2(facility,"_cerner_"
+											,format(startdttm , "YYYYMMDD;;Q" ) 
+											,"_"
+											,format (enddttm , "YYYYMMDD;;Q")											
+											,".csv" ))
+call echo(build2("filename :", filename))
+
+
+ Declare SGOC_Environment = C4 With Public,
+  Constant(CnvtLower(Logical("ENVIRONMENT")))
+ SET outputfile = build2 ("/cerner/d_",Trim(SGOC_Environment),"/data/batch_files/ccl_extracts/bluesight/",filename )
+ 
+
+; Declare SGOC_Environment = C4 With Public,
+;  Constant(CnvtLower(Logical("ENVIRONMENT")))
+; SET outputfile = build2 ("/cerner/d_",Trim(SGOC_Environment),"/ccluserdir/bluesight_medadmin_",format (startdttm ,
+;   "YYYYMMDD;;Q" ) ,"_take6.csv" )
+ 
+;if(debugIndExe = 1)
+ ;  call printExecutionLog(build2("Extract File name : ",extract_filename), 2)
+;endif
+;Printing extract data to a file
+;if(request_param->isda2 = 1)
+   call printOutput(extract_filename)
+   ;if(debugIndExe = 1)
+   ;   call printExecutionLog(build2("Extract File : ", extract_filename, " created successfully."), 2)
+   ;endif
+;endif
+call echo(extract_filename)
+call echorecord(request_param)
+
+
+;**************************************************************
+; DVDev DEFINED SUBROUTINES
+;**************************************************************
+;To validate and populate prompt/request params to records structure
+ 
+subroutine (ValidateAndPopulaterequestParam(null) = null)
+
+	IF ($dateTime = cnvtupper("CURDATE*"))
+		call echo(build2("cnvtdatetime dateTime",cnvtdatetime($dateTime,0)))
+		set request_param->start_date = cnvtdatetime($dateTime,0)  ;had to add in the ,0 to make the CURDATE work correctly
+	ELSE
+		call echo(build2("cnvtdatetime dateTime,0",cnvtdatetime($dateTime)))
+		set request_param->start_date = cnvtdatetime($dateTime,0) ;comment in for ops
+		set request_param->start_date = cnvtdatetime($dateTime) ; comment in if running manually
+	ENDIF
+
+;	call echo(build2("cnvtdatetime dateTime",cnvtdatetime($dateTime,0)))
+ ;set request_param->start_date = cnvtdatetime($dateTime,0)  ;had to add in the ,0 to make the date work correctly
+ ;call echo(build2("param :",request_param->start_date))
+       set startdttm = cnvtlookbehind("24,H", request_param->start_date)
+      set enddttm = cnvtdatetime(request_param->start_date)
+      end
+  call echo(startdttm)
+  call echo(enddttm)
+; to get order details
+subroutine(GetOrderDetails(null) = null)
+   select into "nl:"
+   from
+      clinical_event ce,
+      encounter e,
+      person p,
+      orders o,
+      prsnl pl,
+      med_admin_event mae
+;   plan ce where ce.event_end_dt_tm between cnvtdatetime(startdttm)and cnvtdatetime(enddttm)
+   plan ce where ce.event_end_dt_tm >= cnvtdatetime(startdttm)
+   and ce.event_end_dt_tm < cnvtdatetime(enddttm)   
+   ;and ce.event_end_dt_tm < cnvtdatetime(enddttm)
+           and ce.event_class_cd = 53_med_cd
+           and ce.result_status_cd in (8_auth_cd,8_altered_cd,8_modified_cd)
+           and ce.record_status_cd not in(48_deleted_cd)
+           and ce.valid_until_dt_tm > cnvtdatetime(curdate, curtime3)
+     ;and ce.person_id = 14790531
+     ;and ce.event_id =  1074308257.00 
+   join e where e.encntr_id = ce.encntr_id
+   		and e.loc_facility_cd = $fac
+   ;and e.encntr_id =   102489574.00
+          ;and e.encntr_type_cd in(71_inpatient_cd,71_emergency_cd, 71_outpatient_cd,71_outpatient_bed_cd)
+          and cnvtdatetime(curdate,curtime3) between e.beg_effective_dt_tm and e.end_effective_dt_tm
+          and e.active_ind = 1
+   join p where p.person_id = e.person_id
+         ; and p.logical_domain_id = request_param->logical_domain_id
+          and cnvtdatetime(curdate,curtime3) between p.beg_effective_dt_tm and p.end_effective_dt_tm
+          and p.active_ind = 1
+   join o where o.order_id = ce.order_id
+          and o.order_status_cd in(6004_cancelled_cd,6004_completed_cd,6004_deleted_cd,6004_discont_cd,6004_future_cd,
+                                   6004_incomplete_cd,6004_inprocess_cd ,6004_ordered_cd ,6004_suspended_cd
+                                   , 6004_void_w_results_cd
+                                   )
+          and o.active_ind = 1
+   join pl
+   		where pl.person_id = ce.verified_prsnl_id  
+   join mae
+   		where mae.event_id = outerjoin(ce.event_id)
+   order by
+      o.order_id,
+      ce.clinical_event_id
+   head report
+      ocnt = 0
+   head o.order_id
+ ;call echo (o.order_id)
+      ocnt = ocnt+1
+      if(mod(ocnt,10) = 1)
+         stat = alterlist(bluesight_detail->orders, ocnt + 9)
+      endif
+      bluesight_detail->orders[ocnt].order_id = o.order_id
+      bluesight_detail->orders[ocnt].template_order_id = o.template_order_id
+      if(o.template_order_id = 0)
+         bluesight_detail->orders[ocnt].placerorderno = cnvtstring(o.order_id)
+      else
+         bluesight_detail->orders[ocnt].placerorderno = cnvtstring(o.template_order_id)
+      endif
+      bluesight_detail->orders[ocnt].synonym_id = o.synonym_id
+      bluesight_detail->orders[ocnt].catalog_cd = o.catalog_cd
+      bluesight_detail->orders[ocnt].catalog_type_cd = o.catalog_type_cd
+      bluesight_detail->orders[ocnt].event_id = ce.event_id
+      bluesight_detail->orders[ocnt].Event_type  = uar_get_code_display(mae.event_type_cd)
+      bluesight_detail->orders[ocnt].Admin_Date_Time = 
+      trim(datetimezoneformat(mae.beg_dt_tm,mae.scheduled_tz,dateFormatLong),3)
+      bluesight_detail->orders[ocnt].Schedule_Date_Time = 
+      trim(datetimezoneformat(mae.scheduled_dt_tm,mae.scheduled_tz,dateFormatLong),3)
+	  bluesight_detail->orders[ocnt].MAE_Nurse_Unit = uar_get_code_display(mae.nurse_unit_cd)
+      if(o.order_status_cd in(6004_cancelled_cd,6004_discont_cd,6004_suspended_cd))
+         bluesight_detail->orders[ocnt].completion_status = refused
+      elseif(o.order_status_cd in(6004_incomplete_cd,6004_deleted_cd,6004_inprocess_cd))
+         bluesight_detail->orders[ocnt].completion_status = partiallyAdministered
+      elseif(o.order_status_cd in(6004_future_cd,6004_ordered_cd))
+         bluesight_detail->orders[ocnt].completion_status = notAdministered
+      elseif(o.order_status_cd = 6004_completed_cd)
+         bluesight_detail->orders[ocnt].completion_status = completed
+      endif
+      bluesight_detail->orders[ocnt].drug_name = trim(o.order_mnemonic,3)
+      bluesight_detail->orders[ocnt].OrderDisplay = uar_get_code_display(ce.event_cd)
+      bluesight_detail->orders[ocnt].encounter.encntr_id = o.encntr_id
+      bluesight_detail->orders[ocnt].message_seq = trim(cnvtstring(o.order_id,13,2),3)
+      bluesight_detail->orders[ocnt].sub_id = substring(2,10,trim(cnvtstring(o.order_id),3))
+      bluesight_detail->orders[ocnt].last_action_sequence = o.last_action_sequence
+      bluesight_detail->orders[ocnt].last_ingred_action_sequence = o.last_ingred_action_sequence
+      cecnt = 0
+      
+      if( o.iv_ind = 1 )
+      	cecnt = 1
+      	stat = alterlist(bluesight_detail->orders[ocnt].clinical_event, cecnt)
+      	
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].clinical_event_id = ce.clinical_event_id
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].event_end_dt= 
+       	trim(datetimezoneformat(ce.event_end_dt_tm,ce.event_end_tz,dateFormatLong),3)
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].event_start_dt= 
+       	trim(datetimezoneformat(ce.event_start_dt_tm,ce.event_start_tz,dateFormatLong),3)
+     	bluesight_detail->orders[ocnt].clinical_event[cecnt].event_admin_dt= 
+       	trim(datetimezoneformat(ce.verified_dt_tm,ce.verified_tz,dateFormatLong),3)
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].event_id = ce.event_id
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_name_last = pl.name_last_key
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_name_first = pl.name_first_key
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_role = uar_get_code_display(pl.position_cd)
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_id = pl.username
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].given ="1"
+      	bluesight_detail->orders[ocnt].clinical_event[cecnt].given_units = "BAG"
+      endif
+   head ce.clinical_event_id
+   ;call echo (ce.event_id)
+   ;if ( o.iv_ind != 1 and mae.nurse_unit_cd > 0)  ;001
+   if ( o.iv_ind != 1)  ;000
+      cecnt = cecnt+1
+      if(mod(cecnt,10) = 1)
+         stat = alterlist(bluesight_detail->orders[ocnt].clinical_event, cecnt+9)
+      endif
+      ;call echo (ce.clinical_event_id)
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].clinical_event_id = ce.clinical_event_id
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].event_end_dt= 
+       trim(datetimezoneformat(ce.event_end_dt_tm,ce.event_end_tz,dateFormatLong),3)
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].event_start_dt= 
+       trim(datetimezoneformat(ce.event_start_dt_tm,ce.event_start_tz,dateFormatLong),3)
+     bluesight_detail->orders[ocnt].clinical_event[cecnt].event_admin_dt= 
+       trim(datetimezoneformat(ce.verified_dt_tm,ce.verified_tz,dateFormatLong),3)
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].event_id = ce.event_id
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_name_last = pl.name_last_key
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_name_first = pl.name_first_key
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_role = uar_get_code_display(pl.position_cd)
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].admin_psnl_id = pl.username
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].given =ce.result_val
+      bluesight_detail->orders[ocnt].clinical_event[cecnt].given_units = uar_get_code_display(ce.result_units_cd)
+    endif
+   foot ce.clinical_event_id
+      null
+   foot o.order_id
+      stat = alterlist(bluesight_detail->orders[ocnt].clinical_event, cecnt)
+   foot report
+      stat = alterlist(bluesight_detail->orders,ocnt)
+      bluesight_detail->order_cnt = ocnt
+   with nocounter
+   if(ocnt = 0)
+         set errorMessage = build2("No orders qualified")
+         call echo ("No orders qualified")
+         go to exit_script
+   endif
+  ; if(debugIndExe = 1)
+   ;   call printExecutionLog(build2("Order population ends.", line_feed, "Qualified Orders : ", bluesight_detail->order_cnt)
+   ;                          , 1)
+  ; endif
+end
+;To get Drug Name details
+subroutine(GetDrugNameInfo(null) = null)
+   select into "nl:"
+   from
+      order_product op,
+      med_dispense md,
+      med_identifier mi
+   plan op where expand(exp_idx,1,bluesight_detail->order_cnt,op.order_id,bluesight_detail->orders[exp_idx].order_id)
+   join md where md.item_id = op.item_id
+   join mi where mi.item_id = md.item_id
+           and mi.med_identifier_type_cd = 11000_desc_cd
+           and mi.active_ind = 1
+           and textlen(trim(mi.value,3)) > 0
+   order by
+   op.order_id,
+   mi.item_id
+   head op.order_id
+      pos = locatevalsort(loc_idx,1,bluesight_detail->order_cnt,op.order_id,bluesight_detail->orders[loc_idx].order_id)
+      if(pos>0)
+         bluesight_detail->orders[pos].drug_name = trim(mi.value,3)
+         bluesight_detail->orders[pos].item_id = mi.item_id
+      endif
+   foot op.order_id
+      null
+   with nocounter, expand = 1
+  ; if(debugIndExe = 1)
+  ;    call printExecutionLog("Order drug name population ends.", 1)
+ ;  endif
+end
+; To get order related Details
+subroutine(GetOrderRelatedDetails(null) = null)
+   declare tempVolumeDose = vc with protect, noconstant(" ")
+   declare tempVolumeUnit = vc with protect, noconstant(" ")
+   declare tempStrengthDose = vc with protect, noconstant(" ")
+   declare tempStrengthUnit = vc with protect, noconstant(" ")
+   select into "nl:"
+   from
+      order_detail od
+   plan od where expand(exp_idx,1,bluesight_detail->order_cnt,od.order_id,bluesight_detail->orders[exp_idx].order_id)
+           and od.oe_field_meaning_id in (2050_route,51_start_date,2073_end_date,
+                                          2056_st_amt,2057_st_units,2058_vol_amt,2059_vol_units,
+                                          2014_dosageform ,2069_administered_per)
+   order by
+      od.order_id,
+      od.detail_sequence desc
+   head od.order_id
+      pos = locateval(loc_idx,1,bluesight_detail->order_cnt,od.order_id,bluesight_detail->orders[loc_idx].order_id)
+      tempVolumeDose = " "
+      tempVolumeUnit = " "
+      tempStrengthDose = " "
+      tempStrengthUnit = " "
+   head od.oe_field_meaning_id
+      if(pos > 0)
+         case (od.oe_field_meaning_id)
+            of 2050_route:bluesight_detail->orders[pos].route_text = trim(od.oe_field_display_value,3)
+   	                      bluesight_detail->orders[pos].route_code = trim(od.oe_field_display_value,3)
+     	    of 51_start_date:bluesight_detail->orders[pos].start_date =
+     	                                   datetimezoneformat(od.oe_field_dt_tm_value,od.oe_field_tz,"YYYYMMddhhmmss;;q")
+     	    of 2073_end_date:bluesight_detail->orders[pos].end_date =
+     	                                   datetimezoneformat(od.oe_field_dt_tm_value,od.oe_field_tz,"YYYYMMddhhmmss;;q")
+     	    of 2056_st_amt:tempStrengthDose = trim(od.oe_field_display_value,3)
+     	    of 2057_st_units:tempStrengthUnit = trim(od.oe_field_display_value,3)
+     	    of 2058_vol_amt:tempVolumeDose = trim(od.oe_field_display_value,3)
+     	    of 2059_vol_units:tempVolumeUnit = trim(od.oe_field_display_value,3)
+     	    of 2014_dosageform:bluesight_detail->orders[pos].dosageform = trim(od.oe_field_display_value,3)
+     	    of 2069_administered_per:bluesight_detail->orders[pos].administered_per = trim(od.oe_field_display_value,3)
+         endcase
+      endif
+   foot od.oe_field_meaning_id
+      null
+   foot od.order_id
+      if(pos > 0)
+        if(textlen(trim(tempStrengthDose,3)) = 0)
+          bluesight_detail->orders[pos].amount = tempVolumeDose
+          bluesight_detail->orders[pos].units = tempVolumeUnit
+        else
+          bluesight_detail->orders[pos].amount = tempStrengthDose
+          bluesight_detail->orders[pos].units = tempStrengthUnit
+        endif
+     endif
+   with nocounter, expand = 1
+   ;if(debugIndExe = 1)
+   ;   call printExecutionLog("Order Detail Related information population ends.", 1)
+  ; endif
+end
+; To get order action related Details
+subroutine(GetOrderActionDetails(null) = null)
+   select into "nl:"
+   from
+      order_action oa
+   plan oa where expand(exp_idx,1,bluesight_detail->order_cnt,oa.order_id,bluesight_detail->orders[exp_idx].order_id)
+           and oa.action_type_cd in (6003_order_cd,6003_cancel_cd,6003_modify_cd)
+   order by
+      oa.order_id,
+      oa.action_sequence desc
+   head oa.order_id
+      pos = locateval(loc_idx,1,bluesight_detail->order_cnt,oa.order_id,bluesight_detail->orders[loc_idx].order_id)
+         if(pos > 0)
+            if(oa.action_type_cd = 6003_order_cd)
+               bluesight_detail->orders[pos].action_code = OrderActionOrder
+            elseif(oa.action_type_cd = 6003_cancel_cd)
+               bluesight_detail->orders[pos].action_code = OrderActionCancel
+            elseif(oa.action_type_cd = 6003_modify_cd)
+               bluesight_detail->orders[pos].action_code = OrderActionModify
+            endif
+        endif
+   foot oa.order_id
+      null
+   with nocounter, expand = 1
+   ;if(debugIndExe = 1)
+   ;   call printExecutionLog("Order action Related information population ends.", 1)
+   ;endif
+end
+; To get encounter details
+subroutine (GetEncounterInfo(null)= null)
+   select into "nl:"
+   from
+      encounter e,
+      encntr_alias ea
+   plan e where expand(exp_idx,1,bluesight_detail->order_cnt,e.encntr_id,bluesight_detail->orders[exp_idx].encounter.encntr_id)
+   join ea where ea.encntr_id = e.encntr_id
+           and ea.encntr_alias_type_cd = 319_fin_cd
+           and ea.data_status_cd = 8_auth_cd
+           and cnvtdatetime(curdate,curtime3) between ea.beg_effective_dt_tm and ea.end_effective_dt_tm
+           and ea.active_ind = 1
+   order by
+      e.encntr_id,
+      ea.encntr_alias_id
+   head e.encntr_id
+      pos = locateval(loc_idx,1,bluesight_detail->order_cnt,e.encntr_id,bluesight_detail->orders[loc_idx].encounter.encntr_id)
+      while(pos>0)
+         bluesight_detail->orders[pos].encounter.account_no = trim(ea.alias,3)
+         bluesight_detail->orders[pos].encounter.facility = trim(uar_get_code_display(e.loc_facility_cd),3)
+         bluesight_detail->orders[pos].encounter.bed = trim(uar_get_code_display(e.loc_bed_cd),3)
+         bluesight_detail->orders[pos].encounter.room = trim(uar_get_code_display(e.loc_room_cd),3)
+         bluesight_detail->orders[pos].encounter.service = trim(uar_get_code_display(e.med_service_cd),3)
+         bluesight_detail->orders[pos].encounter.patient_class = substring(1,1,trim(uar_get_code_display(e.encntr_type_cd),3))
+         bluesight_detail->orders[pos].encounter.point_of_care = trim(uar_get_code_display(e.loc_facility_cd),3)
+         bluesight_detail->orders[pos].encounter.nurse_unit= trim(uar_get_code_display(e.loc_nurse_unit_cd),3)
+         bluesight_detail->orders[pos].encounter.person.person_id = e.person_id
+    pos = locateval(loc_idx,pos + 1,bluesight_detail->order_cnt,e.encntr_id,bluesight_detail->orders[loc_idx].encounter.encntr_id)
+      endwhile
+   foot e.encntr_id
+      null
+   with nocounter, expand = 1
+ ;  if(debugIndExe = 1)
+  ;    call printExecutionLog("Encounter and person population ends.", 1)
+  ; endif
+end
+ 
+; To get person Details
+subroutine (GetPersonInfo(null)= null)
+select into "nl:"
+   from
+      person p,
+      (left join person_alias pa on(pa.person_id = p.person_id
+                                    and pa.person_alias_type_cd in (4_mrn_cd, 4_ssn_cd)
+                                    and pa.data_status_cd = 8_auth_cd
+                                    and cnvtdatetime(curdate, curtime3) between pa.beg_effective_dt_tm and pa.end_effective_dt_tm
+                                    and pa.active_ind = 1)),
+      (left join person_name pn on(pn.person_id = p.person_id
+                                   and pn.name_type_cd = 213_current_name_type_cd
+                                   and cnvtdatetime(curdate, curtime3) between pn.beg_effective_dt_tm and pn.end_effective_dt_tm
+                                   and pn.active_ind = 1))
+plan p where expand(exp_idx,1,bluesight_detail->order_cnt,p.person_id,bluesight_detail->orders[exp_idx].encounter.person.person_id)
+   join pa
+   join pn
+   order by
+      p.person_id,
+      pa.person_alias_id,
+      pn.person_name_id
+   head p.person_id
+      temp_mrn = " "
+      temp_ssn = " "
+   head pa.person_alias_id
+      if(pa.person_alias_type_cd = 4_mrn_cd)
+         temp_mrn = trim(pa.alias,3)
+      elseif(pa.person_alias_type_cd = 4_ssn_cd)
+         temp_ssn = trim(pa.alias,3)
+      endif
+   foot pa.person_alias_id
+      null
+   foot p.person_id
+   pos = locateval(loc_idx,1,bluesight_detail->order_cnt,p.person_id,bluesight_detail->orders[loc_idx].encounter.person.person_id)
+      while(pos > 0)
+         bluesight_detail->orders[pos].encounter.person.name_first = trim(pn.name_first,3)
+         bluesight_detail->orders[pos].encounter.person.name_middle = trim(pn.name_middle,3)
+         bluesight_detail->orders[pos].encounter.person.name_last = trim(pn.name_last,3)
+         bluesight_detail->orders[pos].encounter.person.patient_suffix = trim(pn.name_suffix,3)
+         bluesight_detail->orders[pos].encounter.person.gender = trim(uar_get_code_display(p.sex_cd),3)
+         bluesight_detail->orders[pos].encounter.person.patient_id = temp_mrn
+         bluesight_detail->orders[pos].encounter.person.ssn = temp_ssn
+         bluesight_detail->orders[pos].encounter.person.dob = trim(datetimezoneformat(p.birth_dt_tm,p.birth_tz,dateFormatLong),3)
+         pos = locateval(loc_idx,pos + 1,bluesight_detail->order_cnt,p.person_id,bluesight_detail->
+                                                                                         orders[loc_idx].encounter.person.person_id)
+      endwhile
+   with nocounter, expand = 1
+  ; if(debugIndExe = 1)
+  ;    call printExecutionLog("Person Details population ends.", 1)
+  ; endif
+end
+;To get drug code
+subroutine(GetDrugCode(null) = null)
+   select into "nl:"
+   from
+      (dummyt d1 with seq = value(bluesight_detail->order_cnt)),
+      order_ingredient oi,
+      order_product op,
+      medication_definition md,
+      med_def_flex mdf,
+      med_flex_object_idx mfoi,
+      med_product mp,
+      med_identifier mi
+   plan d1
+   join oi where oi.order_id = bluesight_detail->orders[d1.seq].order_id
+           and (oi.action_sequence = bluesight_detail->orders[d1.seq].last_action_sequence
+                or oi.action_sequence = bluesight_detail->orders[d1.seq].last_ingred_action_sequence)
+   join op where op.order_id = oi.order_id
+          and op.action_sequence = oi.action_sequence
+          and op.ingred_sequence = oi.comp_sequence
+   join md where md.item_id = op.item_id
+         and md.med_type_flag in(0,2)
+   join mdf where mdf.item_id = md.item_id
+        and mdf.active_status_cd = 48_active_cd
+   join mfoi where mfoi.med_def_flex_id = mdf.med_def_flex_id
+        and mfoi.flex_object_type_cd = 4063_medproduct_cd
+   join mp where mp.med_product_id = mfoi.parent_entity_id
+   join mi where mi.med_product_id = mp.med_product_id
+            and mi.med_identifier_type_cd = 11000_ndc_cd
+            and mi.sequence = 1
+            and mi.pharmacy_type_cd = 4500_inpatient_cd
+            and mi.active_ind = 1
+   order by
+      d1.seq
+      ,oi.comp_sequence
+      ,oi.action_sequence desc
+      ,mdf.flex_sort_flag
+      ,mfoi.sequence
+      ,mp.med_product_id
+      ,mi.med_identifier_id
+   head d1.seq
+      null
+   head oi.comp_sequence
+      bluesight_detail->orders[d1.seq].drug_code = trim(mi.value,3)
+      bluesight_detail->orders[pos].Form = uar_get_code_display(md.form_cd)
+   foot oi.comp_sequence
+      null
+   foot d1.seq
+      null
+   with nocounter
+   ;To get drug code if not retrieved using approach 1
+   select into "nl:"
+   from
+       (dummyt d1 with seq = value(bluesight_detail->order_cnt)),
+       charge c,
+       charge_mod cm
+   plan d1
+      where textlen(trim(bluesight_detail->orders[d1.seq].drug_code,3)) <= 0
+      and bluesight_detail->orders[d1.seq].template_order_id > 0
+   join c  where c.order_id = bluesight_detail->orders[d1.seq].template_order_id
+           and c.process_flg = 100
+           and c.active_ind = 1
+   join cm where cm.charge_item_id = c.charge_item_id
+             and cm.field6 != " "
+             and (exists (select 1
+                          from code_value cv
+                          where cv.code_value = cm.field1_id
+                          and cv.code_set = 14002_codeset
+                          and trim(cv.cdf_meaning,3) in("NDC")
+                          and cv.active_ind = 1))
+             and cm.active_ind = 1
+   order by
+      d1.seq
+   head d1.seq
+      bluesight_detail->orders[d1.seq].drug_code = trim(cm.field6,3)
+   foot d1.seq
+      null
+   with nocounter
+  ; if(debugIndExe = 1)
+  ;    call printExecutionLog("Drug Code population ends.",1)
+  ; endif
+end
+;To get drug strength and drug units
+subroutine (GetDrugstrength(null) = null)
+   select into "nl:"
+   from
+       dispense_hx dh,
+       prod_dispense_hx pdh,
+       med_identifier mi,
+       med_dispense md
+plan dh where expand(exp_idx,1,bluesight_detail->order_cnt,dh.order_id,bluesight_detail->orders[exp_idx].order_id)
+   join pdh where pdh.dispense_hx_id = dh.dispense_hx_id
+   join mi where mi.item_id = pdh.item_id
+           and mi.active_ind = 1
+   join md where md.item_id = mi.item_id
+   order by
+      dh.order_id,
+      dh.dispense_hx_id,
+      mi.med_identifier_id,
+      mi.value
+   head dh.order_id
+     pos = locateval(loc_idx,1,bluesight_detail->order_cnt,dh.order_id,bluesight_detail->orders[loc_idx].order_id)
+     if(pos > 0)
+        bluesight_detail->orders[pos].strength = cnvtstring(md.strength)
+        bluesight_detail->orders[pos].strengthUnits = trim(uar_get_code_display(md.strength_unit_cd),3)
+     endif
+   foot dh.order_id
+      null
+   with nocounter ,expand = 1
+   ;if(debugIndExe = 1)
+   ;   call printExecutionLog("Drug strength population ends.",1)
+   ;endif
+end
+subroutine (FormatExtractData(inputString = vc) = vc)
+   declare return_value  = vc with protect, noconstant(inputString)
+   set return_value = replace(return_value,exclamation_char, " " )
+   set return_value = replace(return_value,attherate_char, " " )
+   set return_value = replace(return_value,hash_char, " " )
+   set return_value = replace(return_value,dollar_char, " " )
+   set return_value = replace(return_value,percent_char, " " )
+   set return_value = replace(return_value,up_char, " " )
+   set return_value = replace(return_value,and_char, " " )
+   set return_value = replace(return_value,asterisk_char, " " )
+   if(findstring(",",return_value,1,0) > 0)
+      set return_value = build2(quote_char,return_value,quote_char)
+   endif
+   return (return_value)
+end
+
+;Output
+subroutine (PopulateDataforExtract(pos = i4) = null)
+set first = 1
+for(x=1 to size(bluesight_detail->orders[pos].clinical_event,5))
+;if(bluesight_detail->orders[pos].clinical_event[x].clinical_event_id != 0)
+set output_string = notrim(check(build2(;bluesight_detail->orders[pos].clinical_event[x].clinical_event_id,comma_char,
+			;bluesight_detail->orders[pos].message_seq,comma_char,
+			bluesight_detail->orders[pos].encounter.account_no,comma_char, 
+                        bluesight_detail->orders[pos].encounter.person.patient_id,comma_char,
+                        ;FormatExtractData(bluesight_detail->orders[pos].encounter.person.ssn),comma_char,
+                        quote_char, FormatExtractData(bluesight_detail->orders[pos].encounter.person.name_last),
+                         comma_char," ",
+                         FormatExtractData(bluesight_detail->orders[pos].encounter.person.name_first),
+                         quote_char,comma_char,
+
+			bluesight_detail->orders[pos].event_id ,comma_char, 
+			if( trim(bluesight_detail->orders[pos].Event_type) = "")
+			"NA"
+			else
+             bluesight_detail->orders[pos].Event_type
+            endif
+            ,comma_char, 
+            bluesight_detail->orders[pos].clinical_event[x].event_admin_dt,comma_char, 
+			;bluesight_detail->orders[pos].Admin_Date_Time ,comma_char, 
+			bluesight_detail->orders[pos].Schedule_Date_Time ,comma_char, 
+			bluesight_detail->orders[pos].clinical_event[x].event_start_dt,comma_char, 
+			bluesight_detail->orders[pos].clinical_event[x].event_end_dt,comma_char, 
+                        ;bluesight_detail->orders[pos].start_date,comma_char,
+                        ;bluesight_detail->orders[pos].end_date,comma_char,
+                        FormatExtractData(bluesight_detail->orders[pos].drug_name),comma_char,
+			FormatExtractData(replace(bluesight_detail->orders[pos].drug_code,"-","")),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].amount),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].units),comma_char,
+			bluesight_detail->orders[pos].placerorderno,comma_char,;PlacerOrderNumber
+                        FormatExtractData(bluesight_detail->orders[pos].route_text),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].dosageform),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].catalog_cd),comma_char,
+			;CDM
+			;FormatExtractData(bluesight_detail->orders[pos].administered_per),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].encounter.point_of_care),comma_char,
+;			FormatExtractData(bluesight_detail->orders[pos].encounter.nurse_unit),comma_char,
+;			FormatExtractData(bluesight_detail->orders[pos].encounter.room),comma_char,
+;            FormatExtractData(bluesight_detail->orders[pos].encounter.bed),comma_char,
+			FormatExtractData(bluesight_detail->orders[pos].MAE_Nurse_Unit),comma_char,
+            bluesight_detail->orders[pos].item_id,comma_char,quote_char,
+            FormatExtractData(bluesight_detail->orders[pos].clinical_event[x].admin_psnl_name_last),comma_char, " ",
+            FormatExtractData(bluesight_detail->orders[pos].clinical_event[x].admin_psnl_name_first),
+            quote_char,comma_char,
+            FormatExtractData(bluesight_detail->orders[pos].clinical_event[x].admin_psnl_role),comma_char,
+            FormatExtractData(bluesight_detail->orders[pos].clinical_event[x].admin_psnl_id),comma_char,
+            FormatExtractData(bluesight_detail->orders[pos].strength),comma_char,
+            FormatExtractData(bluesight_detail->orders[pos].strengthUnits),comma_char,
+            bluesight_detail->orders[pos].OrderDisplay,comma_char,
+            bluesight_detail->orders[pos].clinical_event[x].given,comma_char,
+            bluesight_detail->orders[pos].clinical_event[x].given_units,comma_char )))
+			/*
+                         FormatExtractData(bluesight_detail->orders[pos].encounter.person.patient_suffix),
+                         comma_char,
+                         FormatExtractData(bluesight_detail->orders[pos].encounter.person.gender),comma_char,
+                         
+                         FormatExtractData(bluesight_detail->orders[pos].encounter.patient_class),comma_char,
+                         bluesight_detail->orders[pos].encounter.person.dob,comma_char,
+                         FormatExtractData(bluesight_detail->orders[pos].encounter.service),comma_char,
+  
+
+                         FormatExtractData(bluesight_detail->orders[pos].route_code),comma_char,
+                         fillstring(100, ""),comma_char,;route_system
+                         
+                         FormatExtractData(bluesight_detail->orders[pos].completion_status),comma_char,
+                         FormatExtractData(bluesight_detail->orders[pos].action_code),comma_char,
+
+                         
+                         fillstring(10, ""),comma_char,;drug coding system
+
+                         bluesight_detail->orders[pos].sub_id,comma_char,
+                         */
+   if(pos = 1 and first=1)
+      set header_string = notrim(build2(disp_header,carriage_char,line_feed))
+	  
+	  set print_line = size(output_print->lines,5) + 1
+	  set stat = alterlist(output_print->lines,print_line)
+      set output_print->line_cnt= print_line
+      set output_print->lines[print_line].line = header_string
+	  
+	  set output_string = notrim(build2(output_string,carriage_char,line_feed))
+   else
+      set output_string = notrim(build2(output_string,carriage_char,line_feed))
+   endif
+   set first=0
+   set print_line = size(output_print->lines,5) + 1
+   set stat = alterlist(output_print->lines,print_line)
+   set output_print->line_cnt= print_line
+   set output_print->lines[print_line].line = output_string
+   ;call echo(output_string)
+  ; endif
+   endfor
+end
+
+subroutine (printOutput(output_destination = vc) = null)
+
+call echo(build2("printOutput file name-->", outputfile))
+;call echo(outputfile)
+select into value(outputfile);"bluesight_extract.csv"
+FROM ( DUMMYT  D  WITH  SEQ = output_print->line_cnt)
+plan d
+ head report
+  first = true
+
+detail d.seq
+ 
+  if (first = true)
+    first = false
+  else
+    row + 1
+  endif
+col 0,call print(trim(output_print->lines[d.seq].line))
+WITH noformat, append, maxcol=5000
+;WITH format = pcformat ,format = variable ,nocounter ,append ,maxcol = 5000
+end
+ /*
+;To print the outputlines into a file/output device
+subroutine (printOutput(output_destination = vc) = null)
+   set ocnt = 0
+   set stat = initrec(outputfrec)
+   set outputfrec->file_name = output_destination
+   set outputfrec->file_buf = "w"
+   set stat = cclio("OPEN", outputfrec)
+   if(stat > 0)
+      for(ocnt = 1 to size(output_print->lines,5))
+         set outputfrec->file_buf = output_print->lines[ocnt].line
+         set stat = cclio("WRITE", outputfrec)
+      endfor
+      set stat = cclio("CLOSE", outputfrec)
+   else
+      set errorMessage = build2("File ", output_destination, " creation failed.")
+      go to exit_script
+   endif
+end
+*/
+# EXIT_SCRIPT
+
+end go
