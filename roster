@@ -1,0 +1,1141 @@
+;02/14/2023 mod001 modifying the DOB to account for the timezone
+
+drop program 1_amj_inpatient_roster go
+create program 1_amj_inpatient_roster
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+ 
+set outputfile = $outdev ;file name provided in 1_strata_driver_outbound
+
+;set beg_dt = CNVTDATETIME(cnvtdate($sdate),0)
+;set end_dt = CNVTDATETIME(cnvtdate($edate),235959)
+
+;set outputfile = "CCLUSERDIR:mrh_strata_encounter_121322-121722_12292022.txt"
+;set outputfile = "CCLUSERDIR:mrh_strata_encounter_120122-121522_12152022.txt"
+;set outputfile = build("CCLUSERDIR:mrh_strata_hx_encntr_2023",format(curdate,"mmddyyyy;;d"),".txt")
+set outputfile = 
+build("/cerner/d_p698/data/batch_files/ccl_extracts/strata/mrh_strata_encounter_",format(curdate,"mmddyyyy;;d"),".txt")
+
+SET beg_dt = cnvtdatetime(curdate-3,0)
+;set beg_dt = cnvtdatetime(curdate-10,0)
+SET end_dt = cnvtdatetime(curdate,235959)
+ 
+;set beg_dt = CNVTDATETIME(CNVTDATE(12132022),0)
+;set end_dt = CNVTDATETIME(CNVTDATE(12172022),235959)
+
+SET d_cnt = 0
+FREE RECORD upd_enc
+RECORD upd_enc(
+		1 	qual[*]
+		2 	encntr_id 			= f8
+		2 	pft_encntr_id		= f8
+		2	person_id			= f8
+		2	UpdateDate			= vc
+		2	QueryValue			= vc
+		)
+ 
+/******** Get Updated PFT Encounters ********/
+select into "NL:"
+from
+	encounter e
+	,pft_encntr pe
+	,person p
+plan e
+    where e.loc_facility_cd = 21250403.00;mrh
+join pe
+	where pe.encntr_id = e.encntr_id
+	and pe.encntr_id in (100680590.00
+	                     ,103129061.00
+	                     ,108105751.00
+	                     ,99868526.00
+	                     )
+	;and pe.updt_dt_tm between cnvtdatetime(cnvtdate(01012023),0) and cnvtdatetime(cnvtdate(05102023),235959)
+;	and pe.updt_dt_tm between cnvtdatetime(beg_dt) and cnvtdatetime(end_dt)
+   and (e.disch_dt_tm between cnvtdatetime(cnvtdate(03042023),0) and cnvtdatetime(cnvtdate(04032023),235959)
+    	or pe.last_charge_dt_tm between cnvtdatetime(cnvtdate(03042023),0) and cnvtdatetime(cnvtdate(04032023),235959))
+;	and (pe.pft_encntr_alias like '203002012*' or pe.pft_encntr_alias like '203002029*'
+;	or pe.pft_encntr_alias like '203002090*' or pe.pft_encntr_alias like '203003188*'
+;	or pe.pft_encntr_alias like '203003974*' or pe.pft_encntr_alias like '203004100*')
+	and pe.encntr_id != 0
+join p
+	where p.person_id = e.person_id
+  	and p.active_ind = 1
+  	and p.name_last_key != "TEST"
+  	and p.name_last_key != "ZZ*"
+  	and p.name_last_key != "XXX*"
+;  	and p.person_id = 14610480.00
+HEAD e.encntr_id
+	d_cnt = d_cnt + 1
+	stat = alterlist(upd_enc->qual,d_cnt)
+	upd_enc->qual[d_cnt]->encntr_id = e.encntr_id
+	upd_enc->qual[d_cnt]->pft_encntr_id = pe.pft_encntr_id
+	upd_enc->qual[d_cnt]->person_id = e.person_id
+	upd_enc->qual[d_cnt]->UpdateDate = format(pe.updt_dt_tm,"yyyymmdd")
+	upd_enc->qual[d_cnt]->QueryValue = "One"
+with nocounter
+
+/******** Get Encounters with Updated CPT Detail ********/
+;select into "NL:"
+;from
+;	procedure proc
+;	,nomenclature n
+;	,encounter e
+;	,pft_encntr pe
+;	,person p
+;
+;plan proc
+;	where proc.active_ind = 1
+;	and proc.updt_dt_tm between cnvtdatetime(beg_dt) and cnvtdatetime(end_dt)
+;	and proc.proc_priority != 0
+;	and proc.end_effective_dt_tm > sysdate
+;join n
+;	where n.active_ind = 1
+;	and n.nomenclature_id = proc.nomenclature_id
+;	and n.principle_type_cd =  1263	;procedure
+;	and n.source_vocabulary_cd in (1217,1222) ;cpt4 and hcpcs
+;join e
+;	where e.encntr_id = proc.encntr_id
+;join pe
+;	where pe.encntr_id = e.encntr_id
+;	and pe.encntr_id != 0
+;join p
+;	where p.person_id = e.person_id
+;  	and p.active_ind = 1
+;  	and p.name_last_key != "TEST"
+;  	and p.name_last_key != "ZZ*"
+;  	and p.name_last_key != "XXX*"
+;HEAD e.encntr_id
+;	d_cnt = d_cnt + 1
+;	stat = alterlist(upd_enc->qual,d_cnt)
+;	upd_enc->qual[d_cnt]->encntr_id = e.encntr_id
+;	upd_enc->qual[d_cnt]->pft_encntr_id = pe.pft_encntr_id
+;	upd_enc->qual[d_cnt]->person_id = e.person_id
+;	upd_enc->qual[d_cnt]->UpdateDate = format(pe.updt_dt_tm,"yyyymmdd")
+;	upd_enc->qual[d_cnt]->QueryValue = "CPT"
+;with nocounter
+
+
+
+/******** START OF MAIN ENCOUNTER QUERY ********/
+declare idx = i4
+ 
+/******** GET CONSULT PHYSICIAN ORDERED LIST ********/
+SET con_cnt = 0
+;FREE RECORD con
+RECORD con(
+		1 	qual[*]
+		2	EncounterID					= i4
+		2	SequenceNumber				= i4
+		2	ConsultPhysicianCode		= i4)
+SELECT distinct INTO "NL:"
+	epr.encntr_id,
+	epr.prsnl_person_id,
+	rank = DENSE_RANK() over(partition by epr.encntr_id
+		order by epr.prsnl_person_id)
+FROM
+	(dummyt d with seq = size(upd_enc->qual,5))
+	,encounter e
+	,pft_encntr pe
+	,encntr_prsnl_reltn epr
+plan d
+join e
+	where e.encntr_id = upd_enc->qual[d.seq].encntr_id
+join pe
+	where pe.encntr_id = e.encntr_id
+JOIN epr
+	WHERE epr.encntr_id = e.encntr_id
+	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+	  AND epr.active_ind = 1
+	  AND epr.end_effective_dt_tm > sysdate
+ 
+ORDER BY
+	e.encntr_id, rank
+HEAD e.encntr_id
+	COL 0
+HEAD rank
+	con_cnt = con_cnt + 1
+	stat = alterlist(con->qual,con_cnt)
+	con->qual[con_cnt]->EncounterID = epr.encntr_id,
+	con->qual[con_cnt]->SequenceNumber = rank,
+	con->qual[con_cnt]->ConsultPhysicianCode = epr.prsnl_person_id
+ 
+SET e_cnt = 0
+;FREE RECORD enc
+RECORD enc(
+		1 	qual[*]
+		2 	EncounterRecordNumber 		= vc
+		2	EncounterID					= i4
+		2 	PFTEncounterID 				= i4
+		2	PersonID					= i4
+		2	MedicalRecordNumber			= vc
+		2	LocationCode				= vc
+		2	EntityCode					= vc
+		2	PatientTypeCode				= vc
+		2	FirstName					= vc
+		2	LastName					= vc
+		2	MiddleName					= vc
+		2	ReligionCode				= vc
+		2	GenderCode					= vc
+		2	DateOfBirth					= vc
+		2	RaceCode					= vc
+		2	MaritalStatusCode			= vc
+		2	ZipCode						= vc
+		2	StreetAddress				= vc
+		2	City						= vc
+		2	State						= vc
+		2	County						= vc
+		2	Employer					= vc
+		2	Guarantor					= vc
+		2	GuarantorRelationship		= vc
+		2	GuarantorEmployer			= vc
+		2	SubscriberNumber			= vc
+		2	SubscriberEmployer			= vc
+		2	SubscriberRelationship		= vc
+		2	InsurancePlan1Code			= i4
+		2	InsurancePlan2Code			= i4
+		2	InsurancePlan3Code			= i4
+		2	InsurancePlan4Code			= i4
+		2	InsurancePlan5Code			= i4
+		2	InsurancePlan1GroupName		= vc
+		2	InsurancePlan1GroupNumber	= vc
+		2	InsurancePlan2GroupName		= vc
+		2	InsurancePlan2GroupNumber	= vc
+		2	InsurancePlan3GroupName		= vc
+		2	InsurancePlan3GroupNumber	= vc
+		2	InsurancePlan4GroupName		= vc
+		2	InsurancePlan4GroupNumber	= vc
+		2	InsurancePlan5GroupName		= vc
+		2	InsurancePlan5GroupNumber	= vc
+		2	CurrentInsurancePlan		= i4
+		2	PatientMotherERN			= vc
+		2	NewbornFlag					= vc
+		2	BirthWeight					= f8
+		2	AdmitDate					= vc
+		2	AdmitTime					= vc
+		2	IPAdmitDate					= vc
+		2	IPAdmitTime					= vc
+		2	AdmitTypeCode				= vc
+		2	AdmitSourceCode				= vc
+		2	AdmitDepartmentCode			= vc
+		2	MethodOfArrivalCode			= vc
+		2	AdmitICD10DXCode			= vc
+		2	PrimaryICD10DXCode			= vc
+		2	PrimaryICD10PXCode			= vc
+		2	MSDRGCode					= vc
+		2	APRDRGSchema				= vc
+		2	APRDRGCode					= vc
+		2	APRROM						= vc
+		2	APRSOI						= vc
+		2	MSMDC						= vc
+		2	BilledMDC					= vc
+		2	ClinicalServiceCode			= vc
+		2	CMGCode						= vc
+		2	AdmitPhysicianCode			= i4
+		2	AttendPhysicianCode			= i4
+		2	ConsultPhysician1Code		= i4
+		2	ConsultPhysician2Code		= i4
+		2	ConsultPhysician3Code		= i4
+		2	ConsultPhysician4Code		= i4
+		2	ConsultPhysician5Code		= i4
+		2	ReferPhysicianCode			= i4
+		2	PrimaryCarePhysicianCode	= i4
+		2	DischargeDate				= vc
+		2	DischargeTime				= vc
+		2	DischargeDateTime_UDF		= dq8
+		2	DischargeLocationCode		= vc
+		2	DischargeRoomAndBed_UDF		= vc
+		2	DischargeDisposition_UDF	= vc
+		2	DischargeStatusCode			= vc
+		2	BillStatusCode				= vc
+		2	FinalBillDate				= vc
+		2	AccountBalance				= f8
+		2	AccountTypeCode				= vc
+		2	BadDebtDate					= vc
+		2	CodingStatus				= vc
+		2	FacilityTransferredFrom		= vc
+		2	FacilityTransferredTo		= vc
+		2	EthnicityCode_UDF			= vc
+		2	Language_UDF				= vc
+		2	SSN_UDF						= vc
+		2	PatientAccountBalance_UDF	= f8
+		2	COB1AccountBalance_UDF		= f8
+		2	COB2AccountBalance_UDF		= f8
+		2	COB3AccountBalance_UDF		= f8
+		2	ClientAccountCode_UDF		= vc
+		2	ClientAccountName_UDF		= vc
+		2	OPInABedDate_UDF			= vc
+		2	OPInABedTime_UDF			= vc
+		2	OPInABedHours_UDF			= f8
+		2	BillingEntity_UDF			= vc
+	)
+ 
+select INTO "NL:"
+ 
+FROM
+	(dummyt d with seq = size(upd_enc->qual,5))
+	,encounter e
+	,pft_encntr pe
+	,encntr_person_reltn epr
+	,person p1
+	,person_org_reltn por1
+	,account a
+	,encntr_alias ea
+	,person p
+	,address ad
+	,person_org_reltn por
+	,person_alias pa
+	,person_alias pa1
+	,code_value_outbound cv1
+	,code_value_outbound cv2
+	,code_value_outbound cv3
+	,billing_entity be
+	,encntr_info ei
+ 
+plan d
+join e
+	where e.encntr_id = upd_enc->qual[d.seq].encntr_id
+join pe
+	WHERE pe.encntr_id = e.encntr_id
+	;and pe.pft_encntr_alias like '201107856*'
+join epr
+	where epr.encntr_id = outerjoin(e.encntr_id)
+	and epr.person_reltn_type_cd = outerjoin(1150) ;default guarantor
+	and epr.active_ind = outerjoin(1)
+	and epr.end_effective_dt_tm > outerjoin(sysdate)
+join p1
+	where p1.person_id = outerjoin(epr.related_person_id)
+	and p1.active_ind = outerjoin(1)
+	and p1.end_effective_dt_tm > outerjoin(sysdate)
+join por1
+	where por1.person_id = outerjoin(epr.related_person_id)
+	and por1.active_ind = outerjoin(1)
+	and por1.priority_seq = outerjoin(1)
+	and por1.person_org_reltn_cd = outerjoin(1136) ;employer
+	and por1.end_effective_dt_tm > outerjoin(sysdate)
+JOIN a
+	WHERE a.acct_id = outerjoin(pe.acct_id)
+	  AND a.active_ind = outerjoin(1)
+	  and a.end_effective_dt_tm > outerjoin(sysdate)
+JOIN ea
+	WHERE ea.encntr_id = outerjoin(e.encntr_id)
+	  AND ea.alias_pool_cd = outerjoin(38741899) ;fin
+	  AND ea.active_ind = outerjoin(1)
+	  AND ea.end_effective_dt_tm > outerjoin(sysdate)
+JOIN p
+	WHERE p.person_id = e.person_id
+	  ;AND p.active_ind = 1
+	  ;AND p.end_effective_dt_tm > sysdate
+join ad
+	where ad.parent_entity_id = outerjoin(p.person_id)
+	and ad.address_type_cd = outerjoin(756) ;home
+	and ad.active_ind = outerjoin(1)
+join por
+	where por.person_id = outerjoin(p.person_id)
+	and por.active_ind = outerjoin(1)
+	and por.priority_seq = outerjoin(1)
+	and por.end_effective_dt_tm > outerjoin(sysdate)
+	and por.person_org_reltn_cd = outerjoin(1136) ;employer
+JOIN pa
+	WHERE pa.person_id = outerjoin(p.person_id)
+	  AND pa.alias_pool_cd = outerjoin(21268802); mrn
+	  AND pa.person_alias_type_cd = outerjoin(10) ;mrn
+	  AND pa.active_ind = outerjoin(1)
+	  AND pa.end_effective_dt_tm > outerjoin(sysdate)
+JOIN pa1
+	WHERE pa1.person_id = outerjoin(p.person_id)
+	  and pa1.person_alias_type_cd = outerjoin(18) ;ssn
+	  AND pa1.active_ind = outerjoin(1)
+	  AND pa1.end_effective_dt_tm > outerjoin(sysdate)
+JOIN cv1
+	WHERE cv1.code_value = outerjoin(e.admit_type_cd)
+	  AND cv1.code_set = outerjoin(3) ;admit type
+	  AND cv1.contributor_source_cd = outerjoin(3310545) ;x12claim
+JOIN cv2
+	WHERE cv2.code_value = outerjoin(e.admit_src_cd)
+	  AND cv2.code_set = outerjoin(2) ;admit source
+	  AND cv2.contributor_source_cd = outerjoin(3310545) ;x12claim
+JOIN cv3
+	WHERE cv3.code_value = outerjoin(e.disch_disposition_cd)
+	  AND cv3.code_set = outerjoin(19) ;discharge disposition
+	  AND cv3.contributor_source_cd = outerjoin(3310545) ;x12claim
+join be
+	where pe.billing_entity_id = outerjoin(be.billing_entity_id)
+join ei
+	where ei.encntr_id = outerjoin(e.encntr_id)
+	and ei.info_sub_type_cd = outerjoin(2558158709)
+ 
+ORDER BY e.encntr_id
+HEAD pe.pft_encntr_alias
+	col 0
+HEAD pe.recur_seq
+	e_cnt = e_cnt + 1
+	stat = alterlist(enc->qual,e_cnt)
+	enc->qual[e_cnt]->EncounterRecordNumber =
+	REPLACE(evaluate(pe.recur_ind,1,build(trim(ea.alias),"-",pe.recur_seq),REPLACE(pe.pft_encntr_alias," ","",0)),char(0),''),
+	enc->qual[e_cnt]->EncounterID = CNVTINT(e.encntr_id),
+	enc->qual[e_cnt]->PFTEncounterID = CNVTINT(pe.pft_encntr_id),
+	enc->qual[e_cnt]->PersonID = CNVTINT(p.person_id),
+	enc->qual[e_cnt]->MedicalRecordNumber = pa.alias,
+	enc->qual[e_cnt]->LocationCode = uar_get_code_display(e.loc_facility_cd),
+	enc->qual[e_cnt]->PatientTypeCode = uar_get_code_display(e.encntr_type_cd),
+	enc->qual[e_cnt]->FirstName = REPLACE(REPLACE(p.name_first,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->LastName = REPLACE(REPLACE(p.name_last,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->MiddleName = REPLACE(REPLACE(p.name_middle,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->ReligionCode = uar_get_code_display(p.religion_cd),
+	enc->qual[e_cnt]->GenderCode = substring(1,1,uar_get_code_display(p.sex_cd)),
+;	enc->qual[e_cnt]->DateOfBirth = format(p.birth_dt_tm,"yyyymmdd"),
+/*start mod001*/
+    enc->qual[e_cnt]->DateOfBirth = datebirthformat(p.birth_dt_tm,p.birth_tz,0,"yyyymmdd;;zzz")
+/*end mod001*/
+	enc->qual[e_cnt]->RaceCode = uar_get_code_display(p.race_cd),
+	enc->qual[e_cnt]->MaritalStatusCode = uar_get_code_display(p.marital_type_cd),
+	enc->qual[e_cnt]->ZipCode = SUBSTRING(1,5,ad.zipcode),
+	enc->qual[e_cnt]->StreetAddress = REPLACE(REPLACE(concat(trim(ad.street_addr),trim(ad.street_addr2)),char(0),''),char(160),' '),
+	enc->qual[e_cnt]->City = ad.city,
+	enc->qual[e_cnt]->State = uar_get_code_display(ad.state_cd),
+	enc->qual[e_cnt]->County = uar_get_code_display(ad.county_cd),
+	enc->qual[e_cnt]->Employer = REPLACE(REPLACE(por.ft_org_name,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->Guarantor = REPLACE(REPLACE(p1.name_full_formatted,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->GuarantorRelationship =
+	evaluate(epr.person_reltn_cd,0,uar_get_code_display(epr.related_person_reltn_cd),uar_get_code_display(epr.person_reltn_cd)),
+	enc->qual[e_cnt]->GuarantorEmployer = REPLACE(REPLACE(por1.ft_org_name,char(0),''),char(160),' '),
+	enc->qual[e_cnt]->NewbornFlag = evaluate(e.admit_type_cd,670841,'Y','N'),
+	;If Recurring, set to PFT Begin Effective Date
+	enc->qual[e_cnt]->AdmitDate =
+	evaluate(e.encntr_type_cd,309314,format(pe.beg_effective_dt_tm,"yyyymmdd"),format(e.reg_dt_tm,"yyyymmdd")),
+	enc->qual[e_cnt]->AdmitTime = format(e.reg_dt_tm,"hh:mm;;q"),
+	enc->qual[e_cnt]->IPAdmitDate = format(pe.inpatient_admit_dt_tm,"yyyymmdd"),
+	enc->qual[e_cnt]->IPAdmitTime = format(pe.inpatient_admit_dt_tm,"hh:mm;;q"),
+	enc->qual[e_cnt]->AdmitTypeCode = cv1.alias,
+	enc->qual[e_cnt]->AdmitSourceCode = cv2.alias,
+	enc->qual[e_cnt]->MethodOfArrivalCode = uar_get_code_display(e.admit_mode_cd),
+	enc->qual[e_cnt]->ClinicalServiceCode = uar_get_code_display(e.med_service_cd),
+	;If Recurring, set to PFT Last Charge Date
+	enc->qual[e_cnt]->DischargeDate =
+	evaluate(e.encntr_type_cd,309314,format(pe.last_charge_dt_tm,"yyyymmdd"),format(e.disch_dt_tm,"yyyymmdd")),
+	enc->qual[e_cnt]->DischargeTime = format(e.disch_dt_tm,"hh:mm;;q"),
+	enc->qual[e_cnt]->DischargeDateTime_UDF = e.disch_dt_tm,
+	enc->qual[e_cnt]->DischargeLocationCode = uar_get_code_display(e.loc_nurse_unit_cd),
+	enc->qual[e_cnt]->DischargeRoomAndBed_UDF =
+	concat(trim(uar_get_code_display(e.loc_room_cd))," ",trim(uar_get_code_display(e.loc_bed_cd))),
+	enc->qual[e_cnt]->DischargeDisposition_UDF = uar_get_code_display(e.disch_disposition_cd),
+	enc->qual[e_cnt]->DischargeStatusCode = cv3.alias,
+	;enc->qual[e_cnt]->BillStatusCode = uar_get_code_display(pe.bill_status_cd), ;client did not find this field useful
+	enc->qual[e_cnt]->FinalBillDate = format(pe.last_stmt_dt_tm,"yyyymmdd"),
+	enc->qual[e_cnt]->AccountBalance = evaluate(pe.dr_cr_flag,2,pe.balance*-1,pe.balance),
+	enc->qual[e_cnt]->AccountTypeCode = uar_get_code_display(a.acct_type_cd),
+	enc->qual[e_cnt]->BadDebtDate = format(pe.bad_debt_dt_tm,"yyyymmdd"),
+	enc->qual[e_cnt]->FacilityTransferredTo = uar_get_code_display(e.disch_to_loctn_cd),
+	enc->qual[e_cnt]->FacilityTransferredFrom = uar_get_code_display(ei.value_cd),
+	enc->qual[e_cnt]->EthnicityCode_UDF = uar_get_code_display(p.ethnic_grp_cd),
+	enc->qual[e_cnt]->Language_UDF = uar_get_code_display(p.language_cd),
+	enc->qual[e_cnt]->SSN_UDF = SUBSTRING(1,11,FORMAT(TRIM(PA1.ALIAS),"#########;p0")),
+	enc->qual[e_cnt]->BillingEntity_UDF = be.be_name,
+	IF (a.acct_sub_type_cd = 627544) ;Client
+ 		enc->qual[e_cnt]->ClientAccountCode_UDF = a.ext_acct_id_txt
+ 		enc->qual[e_cnt]->ClientAccountName_UDF = a.acct_desc
+ 	ENDIF
+ 	IF (pe.billing_entity_id in (1641838,98350817))
+ 		enc->qual[e_cnt]->EntityCode = '01'
+ 	ELSEIF (pe.billing_entity_id in (896554,361006072))
+ 		enc->qual[e_cnt]->EntityCode = '02'
+ 	ELSEIF (pe.billing_entity_id = 3776441)
+ 		enc->qual[e_cnt]->EntityCode = '03'
+ 	ELSEIF (pe.billing_entity_id = 1635796)
+ 		enc->qual[e_cnt]->EntityCode = '04'
+ 	ELSE
+ 		enc->qual[e_cnt]->EntityCode = '0'
+ 	ENDIF
+ 
+with nocounter,time=3900
+ 
+/******** INSURANCE ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_plan_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.active_ind = 1
+;ORDER BY
+;	d.seq,
+;	epr.priority_seq
+; 
+;HEAD d.seq
+;	COL 0
+;HEAD epr.priority_seq
+;	IF (epr.priority_seq = 1)
+;		enc->qual[d.seq]->InsurancePlan1Code = epr.health_plan_id
+;		enc->qual[d.seq]->InsurancePlan1GroupName = epr.group_name
+;		enc->qual[d.seq]->InsurancePlan1GroupNumber = epr.group_nbr
+;		enc->qual[d.seq]->CurrentInsurancePlan = epr.health_plan_id
+;		enc->qual[d.seq]->SubscriberNumber = epr.subs_member_nbr
+;	ELSEIF (epr.priority_seq = 2)
+;		enc->qual[d.seq]->InsurancePlan2Code = epr.health_plan_id
+;		enc->qual[d.seq]->InsurancePlan2GroupName = epr.group_name
+;		enc->qual[d.seq]->InsurancePlan2GroupNumber = epr.group_nbr
+;	ELSEIF (epr.priority_seq = 3)
+;		enc->qual[d.seq]->InsurancePlan3Code = epr.health_plan_id
+;		enc->qual[d.seq]->InsurancePlan3GroupName = epr.group_name
+;		enc->qual[d.seq]->InsurancePlan3GroupNumber = epr.group_nbr
+;	ELSEIF (epr.priority_seq = 4)
+;		enc->qual[d.seq]->InsurancePlan4Code = epr.health_plan_id
+;		enc->qual[d.seq]->InsurancePlan4GroupName = epr.group_name
+;		enc->qual[d.seq]->InsurancePlan4GroupNumber = epr.group_nbr
+;	ELSEIF (epr.priority_seq = 5)
+;		enc->qual[d.seq]->InsurancePlan5Code = epr.health_plan_id
+;		enc->qual[d.seq]->InsurancePlan5GroupName = epr.group_name
+;		enc->qual[d.seq]->InsurancePlan5GroupNumber = epr.group_nbr
+;	ENDIF
+; 
+;WITH nocounter,time=3900
+; 
+;/******** ICD10 DIAGNOSES ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	diagnosis dx,
+;	nomenclature n
+;PLAN d
+;join dx
+;	where dx.encntr_id = enc->qual[d.seq]->EncounterID
+;	  and dx.diag_type_cd in (87,89)	;Admitting and Final - set sequence number to 0 for Admitting Diag
+;	  and dx.active_ind = 1
+;	  and dx.end_effective_dt_tm > sysdate
+;join n
+;	where n.nomenclature_id = dx.nomenclature_id
+;	  and n.principle_type_cd =  1252	;disease or syndrome
+;	  and n.active_ind = 1
+;	  and n.source_vocabulary_cd = 19350056 ;icd-10-cm
+;ORDER BY
+;	d.seq,
+;	dx.diag_type_cd,
+;	dx.diag_priority,
+;	dx.updt_dt_tm
+; 
+;HEAD d.seq
+;	COL 0
+;HEAD dx.diag_type_cd
+;	IF (dx.diag_type_cd = 87)	;admit, reason for visit
+;		enc->qual[d.seq]->AdmitICD10DXCode = n.source_identifier
+;	ELSEIF (dx.diag_type_cd = 89 AND dx.diag_priority = 1)  ;final and primary
+;		enc->qual[d.seq]->PrimaryICD10DXCode = n.source_identifier
+;	ENDIF
+;with nocounter,time=3900
+; 
+;/******** PROCEDURES ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	procedure p,
+;	;proc_prsnl_reltn ppr,
+;	nomenclature n
+;PLAN d
+;JOIN p
+;	WHERE p.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND p.proc_priority = 1
+;	  AND p.active_ind = 1
+;	  AND p.end_effective_dt_tm > sysdate
+;join n
+;	where n.nomenclature_id = p.nomenclature_id
+;	  and n.principle_type_cd =  1263	;procedure
+;	  and n.source_vocabulary_cd = 19350130 ;icd-10-pcs
+;	  and n.active_ind = 1
+;order by
+;	d.seq,
+;	p.proc_dt_tm
+; 
+;head d.seq
+;	;enc->qual[d.seq]->per_doc_id = ppr.prsnl_person_id
+;	enc->qual[d.seq]->PrimaryICD10PXCode = n.source_identifier
+;with nocounter,time=3900
+; 
+;/******** MS DRG ********/
+;select into "NL:"
+;from
+;	(dummyt d WITH seq=value(e_cnt)),
+;	drg drg,
+;	nomenclature n
+;plan d
+;join drg
+;	where drg.encntr_id = enc->qual[d.seq]->EncounterID
+; 	and drg.active_ind = 1
+;	and drg.end_effective_dt_tm > sysdate
+;join n
+;	where n.nomenclature_id = drg.nomenclature_id
+;	  and n.principle_type_cd = 4326106 ;ms-drg
+;	  and n.source_vocabulary_cd = 4326105 ;ms-drg
+;	  and n.active_ind = 1
+;order by
+;	d.seq, drg.encntr_id, drg.beg_effective_dt_tm desc
+; 
+;head d.seq
+;	enc->qual[d.seq]->MSDRGCode = n.source_identifier
+;	enc->qual[d.seq]->MSMDC = uar_get_code_display(drg.mdc_cd)
+;	enc->qual[d.seq]->BilledMDC = uar_get_code_display(drg.mdc_cd)
+;with nocounter,time=3900
+; 
+;/******** CMG ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	pft_encntr_code pec
+;PLAN d
+;JOIN pec
+;	WHERE pec.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND pec.active_ind = 1
+;	  AND pec.end_effective_dt_tm > sysdate
+;ORDER BY
+;	d.seq, pec.beg_effective_dt_tm desc
+;HEAD d.seq
+;	enc->qual[d.seq]->CMGCode = trim(pec.encntr_code_string)
+;WITH nocounter,time=3900
+; 
+;/******** ENCOUNTER PHYSICIANS ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd IN (1116 ;admitting
+;	  							   ,1119 ;attending
+;	  							   ,1126 ;referring
+;	  							   )
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;ORDER BY
+;	d.seq,
+;	epr.encntr_prsnl_r_cd,
+;	epr.beg_effective_dt_tm desc
+; 
+;HEAD d.seq
+;	COL 0
+;HEAD epr.encntr_prsnl_r_cd
+;	CASE (epr.encntr_prsnl_r_cd)
+;	  OF 1116: enc->qual[d.seq]->AdmitPhysicianCode = CNVTINT(epr.prsnl_person_id)
+;	  OF 1119: enc->qual[d.seq]->AttendPhysicianCode = CNVTINT(epr.prsnl_person_id)
+;	  OF 1126: enc->qual[d.seq]->ReferPhysicianCode = CNVTINT(epr.prsnl_person_id)
+;	ENDCASE
+;WITH nocounter,time=3900
+; 
+;/******** PRIMARY CARE PHYSICIAN ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	person_prsnl_reltn ppr
+;PLAN d
+;JOIN ppr
+;	WHERE ppr.person_id = enc->qual[d.seq]->PersonID
+;	  AND ppr.person_prsnl_r_cd = 1115 ;primary care physician
+;	  AND ppr.active_ind = 1
+;	  AND ppr.end_effective_dt_tm > sysdate
+;ORDER BY
+;	d.seq,
+;	ppr.beg_effective_dt_tm desc
+; 
+;HEAD d.seq
+;	enc->qual[d.seq]->PrimaryCarePhysicianCode = CNVTINT(ppr.prsnl_person_id)
+;WITH nocounter,time=3900
+; 
+;/******** MOTHER FIN/BIRTH WEIGHT ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	clinical_event ce,
+;	encntr_mother_child_reltn mc,
+;	encntr_alias ea
+;PLAN d
+;	WHERE enc->qual[d.seq]->NewbornFlag = "Y"
+;JOIN ce
+;	WHERE ce.encntr_id = enc->qual[d.seq]->EncounterID
+;	and ce.person_id = enc->qual[d.seq]->PersonID
+;	and ce.valid_until_dt_tm > sysdate
+;	and ce.event_cd = 712070 ;birth weight nb
+;	and ce.result_status_cd in (25, 34, 35) ;auth (verified), modified, modified
+;	and ce.view_level = 1
+;	and ce.publish_flag = 1
+;	and ce.authentic_flag = 1
+;JOIN mc
+;	WHERE mc.child_encntr_id = ce.encntr_id
+;	  and mc.active_ind = 1
+;JOIN ea
+;	WHERE ea.encntr_id = mc.mother_encntr_id
+;	  and ea.alias_pool_cd = 38741899 ;fin
+;	  and ea.active_ind = 1
+;	  and ea.end_effective_dt_tm > sysdate
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->PatientMotherERN = ea.alias
+;	enc->qual[d.seq]->BirthWeight = CNVTREAL(ce.result_val) * 1000 ;convert from kg to g
+;WITH nocounter,time=3900
+; 
+;/******** CODING STATUS ********/
+SELECT INTO "NL:"
+FROM
+	(dummyt d WITH seq=value(e_cnt)),
+	coding c
+PLAN d
+JOIN c
+	WHERE c.encntr_id = enc->qual[d.seq]->EncounterID
+	  AND c.active_ind = 1
+ORDER BY
+	d.seq
+ 
+HEAD d.seq
+	IF (c.completed_dt_tm != NULL)
+  		enc->qual[d.seq]->CodingStatus = 'Final'
+  	ELSE enc->qual[d.seq]->CodingStatus = 'Draft'
+	ENDIF
+WITH nocounter,time=3900
+;
+;/******** OUTPATIENT IN A BED TIME ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	orders o
+;PLAN d
+;JOIN o
+;	WHERE o.encntr_id = enc->qual[d.seq]->EncounterID
+;	  
+;ORDER BY
+;	d.seq, o.orig_order_dt_tm asc
+; 
+;DETAIL
+;
+;	IF (o.catalog_cd = 23493301)
+;  		enc->qual[d.seq]->OPInABedDate_UDF = format(o.orig_order_dt_tm,"yyyymmdd"),
+;		enc->qual[d.seq]->OPInABedTime_UDF = format(o.orig_order_dt_tm,"hh:mm;;q"),
+;		enc->qual[d.seq]->OPInABedHours_UDF = datetimediff(enc->qual[d.seq]->DischargeDateTime_UDF, o.orig_order_dt_tm,3)
+;  	ELSEIF (o.catalog_cd = 4180634)
+;  		enc->qual[d.seq]->OPInABedDate_UDF = format(o.orig_order_dt_tm,"yyyymmdd"),
+;		enc->qual[d.seq]->OPInABedTime_UDF = format(o.orig_order_dt_tm,"hh:mm;;q"),
+;		enc->qual[d.seq]->OPInABedHours_UDF = datetimediff(enc->qual[d.seq]->DischargeDateTime_UDF, o.orig_order_dt_tm,3)
+;	ENDIF
+;	
+;WITH nocounter,time=3900
+; 
+;/******** CONSULT PHYSICIAN 1 ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;	;and con->qual[con_cnt]->EncounterID = enc->qual[d.seq]->EncounterID
+;	AND expand(idx,1,size(con->qual,5), CNVTINT(epr.encntr_id),con->qual[idx]->EncounterID,
+;		CNVTINT(epr.prsnl_person_id),con->qual[idx]->ConsultPhysicianCode
+;		,1,con->qual[idx]->SequenceNumber
+;		)
+;;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;;	  AND epr.active_ind = 1
+;;	  AND epr.end_effective_dt_tm > sysdate
+; 
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->ConsultPhysician1Code = epr.prsnl_person_id
+;WITH nocounter,time=3900
+; 
+;/******** CONSULT PHYSICIAN 2 ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;	;and con->qual[con_cnt]->EncounterID = enc->qual[d.seq]->EncounterID
+;	AND expand(idx,1,size(con->qual,5), CNVTINT(epr.encntr_id),con->qual[idx]->EncounterID,
+;		CNVTINT(epr.prsnl_person_id),con->qual[idx]->ConsultPhysicianCode
+;		,2,con->qual[idx]->SequenceNumber
+;		)
+;;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;;	  AND epr.active_ind = 1
+;;	  AND epr.end_effective_dt_tm > sysdate
+; 
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->ConsultPhysician2Code = epr.prsnl_person_id
+;WITH nocounter,time=3900
+; 
+;/******** CONSULT PHYSICIAN 3 ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;	;and con->qual[con_cnt]->EncounterID = enc->qual[d.seq]->EncounterID
+;	AND expand(idx,1,size(con->qual,5), CNVTINT(epr.encntr_id),con->qual[idx]->EncounterID,
+;		CNVTINT(epr.prsnl_person_id),con->qual[idx]->ConsultPhysicianCode
+;		,3,con->qual[idx]->SequenceNumber
+;		)
+;;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;;	  AND epr.active_ind = 1
+;;	  AND epr.end_effective_dt_tm > sysdate
+; 
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->ConsultPhysician3Code = epr.prsnl_person_id
+;WITH nocounter,time=3900
+; 
+;/******** CONSULT PHYSICIAN 4 ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;	;and con->qual[con_cnt]->EncounterID = enc->qual[d.seq]->EncounterID
+;	AND expand(idx,1,size(con->qual,5), CNVTINT(epr.encntr_id),con->qual[idx]->EncounterID,
+;		CNVTINT(epr.prsnl_person_id),con->qual[idx]->ConsultPhysicianCode
+;		,4,con->qual[idx]->SequenceNumber
+;		)
+;;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;;	  AND epr.active_ind = 1
+;;	  AND epr.end_effective_dt_tm > sysdate
+; 
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->ConsultPhysician4Code = epr.prsnl_person_id
+;WITH nocounter,time=3900
+; 
+;/******** CONSULT PHYSICIAN 5 ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	encntr_prsnl_reltn epr
+;PLAN d
+;JOIN epr
+;	WHERE epr.encntr_id = enc->qual[d.seq]->EncounterID
+;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;	  AND epr.active_ind = 1
+;	  AND epr.end_effective_dt_tm > sysdate
+;	;and con->qual[con_cnt]->EncounterID = enc->qual[d.seq]->EncounterID
+;	AND expand(idx,1,size(con->qual,5), CNVTINT(epr.encntr_id),con->qual[idx]->EncounterID,
+;		CNVTINT(epr.prsnl_person_id),con->qual[idx]->ConsultPhysicianCode
+;		,5,con->qual[idx]->SequenceNumber
+;		)
+;;	  AND epr.encntr_prsnl_r_cd = 1121 ;consulting
+;;	  AND epr.active_ind = 1
+;;	  AND epr.end_effective_dt_tm > sysdate
+; 
+;ORDER BY
+;	d.seq
+;HEAD d.seq
+;	enc->qual[d.seq]->ConsultPhysician5Code = epr.prsnl_person_id
+;WITH nocounter,time=3900
+; 
+;/******** Account Balances ********/
+;SELECT INTO "NL:"
+;FROM
+;	(dummyt d WITH seq=value(e_cnt)),
+;	pft_encntr pe,
+;	encntr_plan_reltn epr,
+;	benefit_order bo,
+;	health_plan hp,
+;	health_plan_alias hpa,
+;	bo_hp_reltn bhr,
+;	pft_proration pp
+;plan d
+;join pe
+;where pe.pft_encntr_id = enc->qual[d.seq]->PFTEncounterID
+;	and pe.active_ind = 1 ;pe.pft_encntr_id =  data->qual[d.seq].pe_encntr_id
+;	;and pe.pft_encntr_id in (468825107,468706966)
+;join bo
+;	where bo.pft_encntr_id = outerjoin(pe.pft_encntr_id)
+;  and bo.active_ind = outerjoin(1)
+;  and bo.end_effective_dt_tm > outerjoin(sysdate)
+;  ;and bo.bo_status_cd != outerjoin(674487.00)  ;invalid
+;join bhr
+;	where bhr.benefit_order_id = outerjoin(bo.benefit_order_id)
+;  and bhr.active_ind = outerjoin(1)
+;  and bhr.end_effective_dt_tm > outerjoin(sysdate)
+;join hp
+;	where hp.health_plan_id = outerjoin(bhr.health_plan_id)
+;join pp
+;	where pp.bo_hp_reltn_id = outerjoin(bhr.bo_hp_reltn_id)
+;  and pp.active_ind = outerjoin(1)
+;  and pp.end_effective_dt_tm > outerjoin(sysdate)
+;join epr
+;	where epr.encntr_plan_reltn_id = outerjoin(bhr.encntr_plan_reltn_id)
+;join hpa
+;	where hpa.health_plan_id = hp.health_plan_id
+;  and hpa.active_ind = 1
+;  and hpa.end_effective_dt_tm > sysdate
+;  and hpa.plan_alias_type_cd = 666881 ;health plan alias
+;order by d.seq, pe.pft_encntr_id, bhr.priority_seq
+; 
+;HEAD d.seq
+;	COL 0
+;HEAD bhr.priority_seq
+;	IF (bhr.priority_seq = 1)
+;		IF (hp.plan_type_cd = 24861473) ;Self Pay
+;		enc->qual[d.seq]->PatientAccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ELSE enc->qual[d.seq]->COB1AccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ENDIF
+;	ELSEIF (bhr.priority_seq = 2)
+;		IF (hp.plan_type_cd = 24861473) ;Self Pay
+;		enc->qual[d.seq]->PatientAccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ELSE enc->qual[d.seq]->COB2AccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ENDIF
+;	ELSEIF (bhr.priority_seq = 3)
+;		IF (hp.plan_type_cd = 24861473) ;Self Pay
+;		enc->qual[d.seq]->PatientAccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ELSE enc->qual[d.seq]->COB3AccountBalance_UDF =
+;			evaluate(pp.curr_amount_dr_cr_flag,2,pp.curr_amt_due*-1,pp.curr_amt_due)
+;		ENDIF
+;	ENDIF
+; 
+;WITH nocounter,time=3900
+ 
+/******** FINAL SELECT ********/
+;SELECT INTO value(outputfile)
+select into $outdev
+	output =
+	 build(enc->qual[d.seq]->EncounterRecordNumber
+	,"|",enc->qual[d.seq]->MedicalRecordNumber
+	,"|",enc->qual[d.seq]->LocationCode
+	,"|",enc->qual[d.seq]->EntityCode
+	,"|",enc->qual[d.seq]->PatientTypeCode
+	,"|",enc->qual[d.seq]->FirstName
+	,"|",enc->qual[d.seq]->LastName
+	,"|",enc->qual[d.seq]->MiddleName
+	,"|",enc->qual[d.seq]->ReligionCode
+	,"|",enc->qual[d.seq]->GenderCode
+	,"|",enc->qual[d.seq]->DateOfBirth
+	,"|",enc->qual[d.seq]->RaceCode
+	,"|",enc->qual[d.seq]->MaritalStatusCode
+	,"|",enc->qual[d.seq]->ZipCode
+	,"|",enc->qual[d.seq]->StreetAddress
+	,"|",enc->qual[d.seq]->City
+	,"|",enc->qual[d.seq]->State
+	,"|",enc->qual[d.seq]->County
+	,"|",enc->qual[d.seq]->Employer
+	,"|",enc->qual[d.seq]->Guarantor
+	,"|",enc->qual[d.seq]->GuarantorRelationship
+	,"|",enc->qual[d.seq]->GuarantorEmployer
+	,"|",enc->qual[d.seq]->SubscriberNumber
+	,"|",enc->qual[d.seq]->SubscriberEmployer
+	,"|",enc->qual[d.seq]->SubscriberRelationship
+	,"|",enc->qual[d.seq]->InsurancePlan1Code
+	,"|",enc->qual[d.seq]->InsurancePlan2Code
+	,"|",enc->qual[d.seq]->InsurancePlan3Code
+	,"|",enc->qual[d.seq]->InsurancePlan4Code
+	,"|",enc->qual[d.seq]->InsurancePlan5Code
+	,"|",enc->qual[d.seq]->CurrentInsurancePlan
+	,"|",enc->qual[d.seq]->PatientMotherERN
+	,"|",enc->qual[d.seq]->NewbornFlag
+	,"|",enc->qual[d.seq]->BirthWeight
+	,"|",enc->qual[d.seq]->AdmitDate
+	,"|",enc->qual[d.seq]->AdmitTime
+	,"|",enc->qual[d.seq]->IPAdmitDate
+	,"|",enc->qual[d.seq]->IPAdmitTime
+	,"|",enc->qual[d.seq]->AdmitTypeCode
+	,"|",enc->qual[d.seq]->AdmitSourceCode
+	,"|",enc->qual[d.seq]->AdmitDepartmentCode
+	,"|",enc->qual[d.seq]->MethodOfArrivalCode
+	,"|",enc->qual[d.seq]->AdmitICD10DXCode
+	,"|",enc->qual[d.seq]->PrimaryICD10DXCode
+	,"|",enc->qual[d.seq]->PrimaryICD10PXCode
+	,"|",enc->qual[d.seq]->MSDRGCode
+	,"|",enc->qual[d.seq]->MSMDC
+	,"|",enc->qual[d.seq]->BilledMDC
+	,"|",enc->qual[d.seq]->APRDRGSchema
+	,"|",enc->qual[d.seq]->APRDRGCode
+	,"|",enc->qual[d.seq]->APRROM
+	,"|",enc->qual[d.seq]->APRSOI
+	,"|",enc->qual[d.seq]->ClinicalServiceCode
+	,"|",enc->qual[d.seq]->CMGCode
+	,"|",enc->qual[d.seq]->AdmitPhysicianCode
+	,"|",enc->qual[d.seq]->AttendPhysicianCode
+	,"|",enc->qual[d.seq]->ConsultPhysician1Code
+	,"|",enc->qual[d.seq]->ConsultPhysician2Code
+	,"|",enc->qual[d.seq]->ConsultPhysician3Code
+	,"|",enc->qual[d.seq]->ConsultPhysician4Code
+	,"|",enc->qual[d.seq]->ConsultPhysician5Code
+	,"|",enc->qual[d.seq]->ReferPhysicianCode
+	,"|",enc->qual[d.seq]->PrimaryCarePhysicianCode
+	,"|",enc->qual[d.seq]->DischargeDate
+	,"|",enc->qual[d.seq]->DischargeTime
+	,"|",enc->qual[d.seq]->DischargeLocationCode
+	,"|",enc->qual[d.seq]->DischargeRoomAndBed_UDF
+	,"|",enc->qual[d.seq]->DischargeDisposition_UDF
+	,"|",enc->qual[d.seq]->DischargeStatusCode
+	,"|",enc->qual[d.seq]->BillStatusCode
+	,"|",enc->qual[d.seq]->FinalBillDate
+	,"|",enc->qual[d.seq]->AccountBalance
+	,"|",enc->qual[d.seq]->AccountTypeCode
+	,"|",enc->qual[d.seq]->BadDebtDate
+	,"|",enc->qual[d.seq]->CodingStatus
+	,"|",enc->qual[d.seq]->FacilityTransferredFrom
+	,"|",enc->qual[d.seq]->FacilityTransferredTo
+	,"|",enc->qual[d.seq]->EthnicityCode_UDF
+	,"|",enc->qual[d.seq]->Language_UDF
+	,"|",enc->qual[d.seq]->SSN_UDF
+	,"|",enc->qual[d.seq]->PatientAccountBalance_UDF
+	,"|",enc->qual[d.seq]->COB1AccountBalance_UDF
+	,"|",enc->qual[d.seq]->COB2AccountBalance_UDF
+	,"|",enc->qual[d.seq]->COB3AccountBalance_UDF
+	,"|",enc->qual[d.seq]->ClientAccountCode_UDF
+	,"|",enc->qual[d.seq]->ClientAccountName_UDF
+	,"|",enc->qual[d.seq]->OPInABedDate_UDF
+	,"|",enc->qual[d.seq]->OPInABedTime_UDF
+	,"|",enc->qual[d.seq]->OPInABedHours_UDF
+	,"|",enc->qual[d.seq]->BillingEntity_UDF
+	,"|",enc->qual[d.seq]->InsurancePlan1GroupName
+	,"|",enc->qual[d.seq]->InsurancePlan1GroupNumber
+	,"|",enc->qual[d.seq]->InsurancePlan2GroupName
+	,"|",enc->qual[d.seq]->InsurancePlan2GroupNumber
+	,"|",enc->qual[d.seq]->InsurancePlan3GroupName
+	,"|",enc->qual[d.seq]->InsurancePlan3GroupNumber
+	,"|",enc->qual[d.seq]->InsurancePlan4GroupName
+	,"|",enc->qual[d.seq]->InsurancePlan4GroupNumber
+	,"|",enc->qual[d.seq]->InsurancePlan5GroupName
+	,"|",enc->qual[d.seq]->InsurancePlan5GroupNumber
+	,"|Patient Billing Data - Soarian"
+	  )
+FROM (dummyt d WITH seq=value(e_cnt))
+ 
+HEAD REPORT
+	COL 0, "EncounterRecordNumber"
+	,"|","MedicalRecordNumber"
+	,"|","LocationCode"
+	,"|","EntityCode"
+	,"|","PatientTypeCode"
+	,"|","FirstName"
+	,"|","LastName"
+	,"|","MiddleName"
+	,"|","ReligionCode"
+	,"|","GenderCode"
+	,"|","DateOfBirth"
+	,"|","RaceCode"
+	,"|","MaritalStatusCode"
+	,"|","ZipCode"
+	,"|","StreetAddress"
+	,"|","City"
+	,"|","State"
+	,"|","County"
+	,"|","Employer"
+	,"|","Guarantor"
+	,"|","GuarantorRelationship"
+	,"|","GuarantorEmployer"
+	,"|","SubscriberNumber"
+	,"|","SubscriberEmployer"
+	,"|","SubscriberRelationship"
+	,"|","InsurancePlan1Code"
+	,"|","InsurancePlan2Code"
+	,"|","InsurancePlan3Code"
+	,"|","InsurancePlan4Code"
+	,"|","InsurancePlan5Code"
+	,"|","CurrentInsurancePlan"
+	,"|","PatientMotherERN"
+	,"|","NewbornFlag"
+	,"|","BirthWeight"
+	,"|","AdmitDate"
+	,"|","AdmitTime"
+	,"|","IPAdmitDate"
+	,"|","IPAdmitTime"
+	,"|","AdmitTypeCode"
+	,"|","AdmitSourceCode"
+	,"|","AdmitDepartmentCode"
+	,"|","MethodOfArrivalCode"
+	,"|","AdmitICD10DXCode"
+	,"|","PrimaryICD10DXCode"
+	,"|","PrimaryICD10PXCode"
+	,"|","MSDRGCode"
+	,"|","MSMDC"
+	,"|","BilledMDC"
+	,"|","APRDRGSchema"
+	,"|","APRDRGCode"
+	,"|","APRROM"
+	,"|","APRSOI"
+	,"|","ClinicalServiceCode"
+	,"|","CMGCode"
+	,"|","AdmitPhysicianCode"
+	,"|","AttendPhysicianCode"
+	,"|","ConsultPhysician1Code"
+	,"|","ConsultPhysician2Code"
+	,"|","ConsultPhysician3Code"
+	,"|","ConsultPhysician4Code"
+	,"|","ConsultPhysician5Code"
+	,"|","ReferPhysicianCode"
+	,"|","PrimaryCarePhysicianCode"
+	,"|","DischargeDate"
+	,"|","DischargeTime"
+	,"|","DischargeLocationCode"
+	,"|","DischargeRoomAndBed_UDF"
+	,"|","DischargeDisposition_UDF"
+	,"|","DischargeStatusCode"
+	,"|","BillStatusCode"
+	,"|","FinalBillDate"
+	,"|","AccountBalance"
+	,"|","AccountTypeCode"
+	,"|","BadDebtDate"
+	,"|","CodingStatus"
+	,"|","FacilityTransferredFrom"
+	,"|","FacilityTransferredTo"
+	,"|","EthnicityCode_UDF"
+	,"|","Language_UDF"
+	,"|","SSN_UDF"
+	,"|","PatientAccountBalance_UDF"
+	,"|","COB1AccountBalance_UDF"
+	,"|","COB2AccountBalance_UDF"
+	,"|","COB3AccountBalance_UDF"
+	,"|","ClientAccountCode_UDF"
+	,"|","ClientAccountName_UDF"
+	,"|","OPInABedDate_UDF"
+	,"|","OPInABedTime_UDF"
+	,"|","OPInABedHours_UDF"
+	,"|","BillingEntity_UDF"
+	,"|","InsurancePlan1GroupName"
+	,"|","InsurancePlan1GroupNumber"
+	,"|","InsurancePlan2GroupName"
+	,"|","InsurancePlan2GroupNumber"
+	,"|","InsurancePlan3GroupName"
+	,"|","InsurancePlan3GroupNumber"
+	,"|","InsurancePlan4GroupName"
+	,"|","InsurancePlan4GroupNumber"
+	,"|","InsurancePlan5GroupName"
+	,"|","InsurancePlan5GroupNumber"
+	,"|","SourceSystem"
+ 
+	ROW+1
+DETAIL
+	COL 0, output
+	ROW+1
+ 
+with nocounter, maxcol=3300, maxrow=1, compress, format=variable,time=3900
+ 
+end
+go
