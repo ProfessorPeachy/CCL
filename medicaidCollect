@@ -1,0 +1,331 @@
+
+DROP PROGRAM 1_amj_medicaid_collect GO
+CREATE PROGRAM 1_amj_medicaid_collect
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Encntr Types:" = "NR" 
+
+with OUTDEV, ENCNTR
+ 
+ 
+ 
+/*************************************************************************************
+;           INCLUDES AND EXTERNAL LIBRARIES
+*************************************************************************************/
+ 
+/*************************************************************************************
+;           VARIABLES AND VARIABLE INITIALIZATION
+*************************************************************************************/
+declare num = i4
+ 
+;run from Ops Scheduler
+;if(validate(request->batch_select,"none") != "none")
+;    set bdate = datetimefind(cnvtlookbehind("1,M"),"D","B","B")
+;    set edate = datetimefind(cnvtlookbehind("1,M"),"D","E","E")
+;else
+;    set bdate = concat($START_DATE,' 00:00')
+;    set edate = concat($END_DATE,' 23:59')     
+;endif
+/*************************************************************************************
+;           DECLARED SUBROUTINES
+*************************************************************************************/
+ 
+/*************************************************************************************
+;           CONSTANTS
+*************************************************************************************/
+set rundate = format(curdate,'yyyymmdd;;d')
+;set maury_3m_outfile = build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/3m/maury_3m_",rundate),".txt")
+/*************************************************************************************
+;          RECORD STRUCTURES
+*************************************************************************************/
+;free record udesc
+;record udesc
+ 
+free record data
+record data
+(1 ptcnt                                = i4
+ 1 pt_qual[*]
+    2 eid                               = f8
+    2 pid                               = f8
+    2 pft_eid                           = f8
+    2 Facility                          = vc
+    2 FacilityCCN                       = vc
+    2 FacilityNPI                       = vc
+    2 PatientLastName                   = vc
+    2 PatientFirsName                   = vc
+    2 PatientFIN                        = vc
+    2 PatientMRN                        = vc
+    2 PatientEncntrTypeCode             = vc
+    2 PatientDischargeDate              = vc
+    2 PlacementDate                     = vc
+    2 PlacementAmount                   = vc
+    2 ReturnedDate                      = vc
+    2 ReturnedAmount                    = vc
+    2 ReturnedReason                    = vc
+    2 ClosedAmount                      = vc
+)
+/*************************************************************************************
+;           DISCHARGED PATIENTS
+*************************************************************************************/
+SELECT into $outdev;"NL:"
+    e.encntr_id
+    ,e.person_id
+	,pe.pft_encntr_alias
+	,pe.beg_effective_dt_tm
+	,pe.active_status_dt_tm
+	,pe.last_charge_dt_tm	
+,	pe.last_stmt_dt_tm	
+	,pe.alias_seq
+	,pe.disch_dt_tm
+	,pe.bill_counter_term
+    ,from_service_date = format(br.from_service_dt_tm,"MM/dd/yyyy")      
+    ,to_service_date = format(br.to_service_dt_tm,"MM/dd/yyyy")	
+	,pe.updt_dt_tm
+
+	,pe.bad_debt_dt_tm
+	,pe.dunning_level_change_dt_tm
+	,pe.end_effective_dt_tm
+	,pe.inpatient_admit_dt_tm
+	,pe.last_adjustment_dt_tm
+	,pe.seq
+
+,	pe.last_patient_pay_dt_tm
+,	pe.last_payment_dt_tm
+,	pe.last_stmt_dt_tm
+;,bhr.benefit_order_id
+;,bhr.bo_hp_reltn_id
+;,bhr.total_billed_amount
+;,breltn.bill_reltn_id
+;,breltn.parent_entity_id
+;,breltn.corsp_activity_id
+;,bhr.*
+;,	pe.orig_bill_submit_dt_tm
+;,	pe.orig_bill_transmit_dt_tm
+;,	pe.ot_start_dt_tm
+;,	pe.ot_total_visits
+;,	pe.pt_start_dt_tm
+;,	pe.svc_beg_dt_tm*
+;,	pe.svc_end_dt_tm
+	
+	
+
+;    ,bo.*
+;,bhr.*
+;,breltn.*
+  
+from
+    encounter           e
+    ,pft_encntr         pe
+   
+;    ,pft_encntr_collection_reltn    col
+    ,billing_entity     be
+;    ,PFT_TRANS_RELTN PTR 
+;    ,BILL_REC BR
+;FROM (PFT_TRANS_RELTN PTR ) ,
+;(PFT_TRANS_RELTN PTR2 ) ,
+;(BILL_REC BR ) ,       
+;    ,organization       org
+;    ,organization_alias orga
+;    ,encntr_alias       ea
+;    ,person             p
+    ,benefit_order                  bo
+    ,bo_hp_reltn                    bhr
+    ,bill_reltn                     breltn
+    ,bill_rec                       br
+    
+plan e
+	where  e.encntr_id = 103185048.00
+;    where e.disch_dt_tm between cnvtdatetime(cnvtdate(08012024),0)and cnvtdatetime(cnvtdate(08102024),235959)
+;                            and cnvtdatetime(edate)
+                            ;and cnvtdatetime(cnvtdate(12152021),2359)
+;                            and cnvtdatetime(curdate,2359)
+;    where e.disch_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+;    where e.disch_dt_tm between cnvtdatetime(cnvtdate(07012023),0) and cnvtdatetime(cnvtdate(09302023),2359)
+      and e.loc_facility_cd in (21250403.0)
+;      and operator(e.loc_facility_cd,opr_var,$FACILITY)
+      and e.encntr_type_cd in (309308.0;inpatient
+                               ,309309.00;outpatient
+                               ,309311.00;same day surgery
+                               ,309312.00;obs
+                               ,19962820.00;outpatient in a bed
+                               ,309314.00;recurring
+                               ,2559612671.00;multiday outpatient
+                               ,309310.00;emergency
+                               )
+;      and e.encntr_id in (106030547.00,105795141.00)
+;      and e.encntr_id in (108971947.0)
+;      and e.loc_facility_cd in ($LOCATION)
+;      and e.encntr_type_cd in ($ENCNTR)
+      and e.active_ind = 1
+;      and e.financial_class_cd = (select cv.code_value
+;                                    from code_value cv
+;                                   where cv.code_set = 354
+;                                     and cv.active_ind = 1
+;                                     and cv.end_effective_dt_tm > sysdate
+;                                     and cv.display_key in ("MEDICAID", "MEDICARE", "MEDICAREREPLACEMENT"
+;                                                            ,"COMMERCIALNONCONTRACT","SELFPAY")
+;                                  )
+     ; and e.encntr_id = 110520097.00
+ ;     and e.encntr_id = 103185048.00
+join pe
+    where pe.encntr_id = e.encntr_id
+      and pe.active_ind = 1
+      and pe.pft_encntr_alias in ("*-1 *","*-2 *","*-3 *")
+     
+;join col
+;    where col.pft_encntr_id = pe.pft_encntr_id
+;      and col.active_ind = 1
+; ;     and col.return_dt_tm is not null
+;      and col.return_balance > 0.0
+join be
+    where be.billing_entity_id = pe.billing_entity_id
+      and be.active_ind = 1    
+  
+;join org
+;    where org.organization_id = be.organization_id
+;join orga
+;    where orga.organization_id = org.organization_id
+;      and orga.alias_pool_cd = 21708567.00;organization alias
+;join ea
+;    where ea.encntr_id = e.encntr_id
+;      and ea.active_ind = 1
+;join p
+;    where p.person_id = e.person_id
+;      and p.active_ind = 1
+;      and cnvtupper(p.name_full_formatted) != "*CERNER*"
+join bo
+    where bo.pft_encntr_id = pe.pft_encntr_id
+ ;     and bo.end_service_dt_tm >= cnvtdate(12302100)
+      and bo.parent_bo_id = 0.0
+      and bo.active_ind = 1
+join bhr
+    where bhr.benefit_order_id = bo.benefit_order_id
+      and bhr.active_ind = 1
+      and bhr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and bhr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+join breltn
+    where breltn.parent_entity_id = bhr.bo_hp_reltn_id
+      and breltn.parent_entity_name = "BO_HP_RELTN"
+      and breltn.active_ind = 1
+join br
+    where br.corsp_activity_id = breltn.corsp_activity_id
+      and br.active_ind =1
+;      and br.to_service_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+;      and br.to_service_dt_tm between cnvtdatetime(cnvtdate(11012018),0)
+ ;                                 and cnvtdatetime(cnvtdate(06272022),2359)      
+;join pd
+;    where pd.payment_detail_id = tl.payment_detail_id
+;      and pd.active_ind = 1
+      
+order by
+    pe.pft_encntr_id, pe.active_status_dt_tm
+with nocounter, format, separator =  " ", format("DATE", "@SHORTDATETIME")
+/* 
+head report
+    cnt = 0
+    stat = alterlist(data->pt_qual,100)
+ 
+head pe.pft_encntr_id
+    cnt = cnt + 1
+     if(mod(cnt,100)=1)
+        stat = alterlist(data->pt_qual,cnt+99)
+     endif
+ 
+ 
+    data->pt_qual[cnt].eid = e.encntr_id
+    data->pt_qual[cnt].pid = e.person_id
+    data->pt_qual[cnt].pft_eid = pe.pft_encntr_id
+    data->pt_qual[cnt].PatientFirsName = p.name_first_key
+    data->pt_qual[cnt].PatientLastName = p.name_last_key
+    data->pt_qual[cnt].FacilityCCN = "44-0073"
+    data->pt_qual[cnt].Facility = be.be_name
+    data->pt_qual[cnt].FacilityNPI = orga.alias
+    data->pt_qual[cnt].PlacementDate = format(col.send_dt_tm,"MM/dd/yyyy;;d")
+    data->pt_qual[cnt].ReturnedDate = format(col.return_dt_tm,"MM/dd/yyyy;;d")
+    data->pt_qual[cnt].ReturnedAmount = format(col.return_balance,"#########.##;l")
+    data->pt_qual[cnt].ReturnedReason = uar_get_code_display(col.send_back_reason_cd)
+    data->pt_qual[cnt].PlacementAmount = format(col.orig_bal_sent_amt,"#########.##;l")
+    data->pt_qual[cnt].ClosedAmount = format(col.current_balance,"#######.##;l")
+     
+detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        data->pt_qual[cnt].PatientFIN = ;ea.alias
+            evaluate (pe.recur_ind,1,concat(trim(ea.alias),"-",
+            cnvtstring(pe.recur_seq)),ea.alias)
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        data->pt_qual[cnt].PatientMRN = ea.alias
+    endif
+    case(e.encntr_type_cd)
+        of 309308.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "IP"
+        of 309309.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "OP"
+        of 309310.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "ED"   
+        OF 309311.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "SDS"
+        of 309312.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "OBS"
+        of 19962820.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "OPinBed"
+        of 309314.00:
+            data->pt_qual[cnt].PatientEncntrTypeCode = "Recurring"
+            data->pt_qual[cnt].PatientDischargeDate = format(pe.beg_effective_dt_tm,"MM/dd/yyyy;;d")            
+    endcase 
+
+foot report
+    if(cnt>0)
+        data->ptcnt = cnt
+        stat = alterlist(data->pt_qual,cnt)
+    endif
+with nocounter,time=90
+
+call echorecord(data)
+/*************************************************************************************
+;           OUTPUT SECTION
+*************************************************************************************/
+/*
+declare nullfield = vc with public,noconstant('')
+declare delimiter = cv with public,noconstant("|")
+if($ENCNTR = "NR")
+select into $outdev
+    AccountNumber = trim(substring(1,60,data->pt_qual[d1.seq].PatientFIN))
+    ,Last_Name = trim(substring(1,60,data->pt_qual[d1.seq].PatientLastName))
+    ,First_Name = trim(substring(1,60,data->pt_qual[d1.seq].PatientFirsName))
+    ,List_Date_with_Agency = trim(substring(1,40,data->pt_qual[d1.seq].PlacementDate))
+    ,List_Amount = trim(substring(1,20,data->pt_qual[d1.seq].PlacementAmount))
+    ,Closed_Date = trim(substring(1,120,data->pt_qual[d1.seq].ReturnedDate))
+    ,Closed_Amount = trim(substring(1,20,data->pt_qual[d1.seq].ClosedAmount))
+    ,Closed_Reason = trim(substring(1,60,data->pt_qual[d1.seq].ReturnedReason))
+from
+    (dummyt d1 with seq=value(size(data->pt_qual,5)))
+    
+plan d1
+    where d1.seq > 0
+      and data->pt_qual[d1.seq].PatientEncntrTypeCode != "Recurring"
+
+with nocounter,separator="",format,time=90
+elseif($ENCNTR = "R")
+select into $outdev
+    AccountNumber = trim(substring(1,60,data->pt_qual[d1.seq].PatientFIN))
+    ,Last_Name = trim(substring(1,60,data->pt_qual[d1.seq].PatientLastName))
+    ,First_Name = trim(substring(1,60,data->pt_qual[d1.seq].PatientFirsName))
+    ,List_Date_with_Agency = trim(substring(1,40,data->pt_qual[d1.seq].PlacementDate))
+    ,List_Amount = trim(substring(1,20,data->pt_qual[d1.seq].PlacementAmount))
+    ,Closed_Date = trim(substring(1,120,data->pt_qual[d1.seq].ReturnedDate))
+    ,Closed_Amount = trim(substring(1,20,data->pt_qual[d1.seq].ClosedAmount))
+    ,Closed_Reason = trim(substring(1,60,data->pt_qual[d1.seq].ReturnedReason))
+from
+    (dummyt d1 with seq=value(size(data->pt_qual,5)))
+    
+plan d1
+    where d1.seq > 0
+      and data->pt_qual[d1.seq].PatientEncntrTypeCode = "Recurring"
+
+with nocounter,separator="",format,time=90
+endif
+
+*/
+end
+go
