@@ -1,0 +1,1816 @@
+/*
+
+*/
+DROP PROGRAM 1_amj_3M_HIS_EXTRACT GO
+CREATE PROGRAM 1_amj_3M_HIS_EXTRACT
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Discharge Start Date:" = ""
+	, "Discharge End Date:" = ""
+	, "Facility:" = 0
+	, "Output:" = "" 
+
+with OUTDEV, START_DATE, END_DATE, FACILITY, OUTPUT
+ 
+ 
+ 
+/*************************************************************************************
+;           INCLUDES AND EXTERNAL LIBRARIES
+*************************************************************************************/
+ 
+/*************************************************************************************
+;           VARIABLES AND VARIABLE INITIALIZATION
+*************************************************************************************/
+declare num = i4
+ 
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+ 
+;run from Ops Scheduler
+if(validate(request->batch_selection,"none")!="none")
+    set bdate = datetimefind(cnvtlookbehind("2,M"),"D","B","B")
+    set edate = datetimefind(cnvtlookbehind("1,M"),"D","E","E")
+else
+    set bdate = concat($START_DATE,' 00:00:00')
+    set edate = concat($END_DATE,' 23:59:59')
+endif
+ 
+/*************************************************************************************
+;           DECLARED SUBROUTINES
+*************************************************************************************/
+ 
+/*************************************************************************************
+;           CONSTANTS
+*************************************************************************************/
+set rundate = format(curdate,'yyyymmdd;;d')
+set maury_3m_outfile = build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/3m/maury_",rundate),".txt")
+/*************************************************************************************
+;          RECORD STRUCTURES
+*************************************************************************************/
+;free record udesc
+;record udesc
+ 
+free record data
+record data
+(1 ptcnt                                = i4
+ 1 pt_qual[*]
+    2 eid                               = f8
+    2 pid                               = f8
+    2 PIDFormatted                      = vc
+    2 PatientTotalCharges               = vc
+    2 PatientName                       = vc
+    2 PatientFinClass                   = vc
+    2 PatientDOB                        = vc
+    2 PatientInsPayor                   = vc
+    2 PatientInsPlan                    = vc
+    2 PatientAdmitSource                = vc
+    2 PatientAgeAtVisit                 = vc
+    2 PatientAgeAtVisitFormatted        = vc
+    2 PatientAgeInDaysAtVisit           = f8;vc
+    2 PatientAgeInDaysAtVisitFormatted  = vc
+    2 PatientAgeInDaysAtDischarge       = f8;vc
+    2 PatientAgeInDaysAtDischargeFormatted  = vc
+    2 PatientFIN                        = vc
+    2 PatientMRN                        = vc
+    2 PatientGender                     = vc
+    2 PatientFacility                   = vc
+    2 PatientFacilityCode               = f8
+    2 PatientFacilityNPI                = vc
+    2 PatientMedicaidProviderNumber     = vc
+    2 PatientNurseUnit                  = vc
+    2 PatientBirthWeightInGrams         = f8;vc
+    2 PaitientBirthWieghtInGramsFormatted   = vc
+    2 PatientBirthWeightInKilograms     = vc
+    2 PatientNurseryType                = vc
+    2 FacilityNPI                       = vc
+    2 FacilityMedicaidProviderNumber    = vc
+    2 AttendingPhysician                = vc
+    2 AttendingPhysicianNPI             = vc
+    2 AttendingPhysicianSpecialty       = vc
+    2 AdmittingPhysician                = vc
+    2 AdmittingPhysicianNPI             = vc
+    2 AdmittingPysicianSpecialty        = vc
+    2 PatientAdmitDate                  = vc
+    2 PatientDischDate                  = vc
+    2 PatientLOS                        = f8
+    2 PatientLOSRounded                 = vc
+    2 CodedBy                           = vc
+    2 CodedByID                         = vc
+    2 PatientVentilatorOrderName        = vc
+    2 PatientVentilatorOrderDate        = vc
+    2 PatientDaysOnVent                 = vc
+    2 PatientAdmittingDx                = vc
+    2 PatientAdmittingDxPresentOnAdmit  = vc
+    2 PatientPrincipalDx                = vc
+    2 PatientPrincipalDxPresentOnAdmit  = vc
+    2 PatientSecondaryDx                = vc
+    2 PatientSecondaryDxPresentOnAdmit  = vc
+    2 PatientDischDx                    = vc
+    2 PatientDischStatus                = vc
+    2 PatientDischDisposition           = vc
+    2 PatientFinalDRG                   = vc
+    2 DischPhysician                    = vc
+    2 DischPhysicianNPI                 = vc
+    2 DischPhysicianSpecialty           = vc
+    2 PrincipalProcedureDesc            = vc
+    2 PrincipalProcedureCode            = vc
+    2 PrincipalProcedureDate            = vc
+    2 DxCnt                             = i4
+    2 Dx[*]
+        3 DxDesc                        = vc
+        3 DxCode                        = vc
+        3 DxPresentOnAdmit              = vc
+    2 ProcCnt                           = i4
+    2 Proc[*]
+        3 ProcDesc                      = vc
+        3 ProcCode                      = vc
+        3 ProcDate                      = vc
+ 
+)
+/*************************************************************************************
+;           DISCHARGED PATIENTS
+*************************************************************************************/
+SELECT into "NL:"
+    e.encntr_id
+    ,e.person_id
+    ,AgeFormat = cnvtage(p.birth_dt_tm)"C12"
+;    ,AgeInDays = cnvtint(cnvtage(p.birth_dt_tm)"C12" * 365
+from
+    encounter           e
+    ,encntr_alias       ea
+    ,person             p
+    ,location           l
+    ,organization_alias oa
+    ,pft_encntr         pe
+plan e
+;    where e.disch_dt_tm between cnvtdatetime(cnvtdate(10012021),0)
+;                            and cnvtdatetime(edate)
+                            ;and cnvtdatetime(cnvtdate(12152021),2359)
+;                            and cnvtdatetime(curdate,2359)
+    where e.disch_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+;    where e.disch_dt_tm between cnvtdatetime(cnvtdate(07012023),0) and cnvtdatetime(cnvtdate(09302023),2359)
+      and e.loc_facility_cd in (21250403.0)
+;      and operator(e.loc_facility_cd,opr_var,$FACILITY)
+      and e.encntr_type_cd = 309308.0;inpatient
+;      and e.encntr_id in (106030547.00,105795141.00)
+;      and e.encntr_id in (102541112.0)
+;      and e.loc_facility_cd in ($LOCATION)
+;      and e.encntr_type_cd in ($ENCNTR)
+      and e.active_ind = 1
+      and e.disch_disposition_cd !=  3564086409.00;LTD organ harvest
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.active_ind = 1
+join p
+    where p.person_id = e.person_id
+      and p.active_ind = 1
+      and cnvtupper(p.name_full_formatted) != "*CERNER*"
+join l
+    where l.location_cd = e.loc_facility_cd
+;join o
+;    where o.organization_id = e.loc_facility_cd
+;      and o.active_ind = 1
+join oa
+    where oa.organization_id = l.organization_id
+      and oa.org_alias_type_cd = 4045119.00;organization npi
+join pe
+    where pe.encntr_id = outerjoin(e.encntr_id)
+order by
+    e.encntr_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(data->pt_qual,100)
+ 
+head e.encntr_id
+    cnt = cnt + 1
+     if(mod(cnt,100)=1)
+        stat = alterlist(data->pt_qual,cnt+99)
+     endif
+ 
+ 
+    data->pt_qual[cnt].eid = e.encntr_id
+    data->pt_qual[cnt].pid = e.person_id
+    data->pt_qual[cnt].PIDFormatted = cnvtstring(cnvtreal(e.person_id))
+    data->pt_qual[cnt].PatientName = p.name_full_formatted
+    data->pt_qual[cnt].PatientFacility = uar_get_code_display(e.loc_facility_cd)
+    data->pt_qual[cnt].PatientFacilityCode = e.loc_facility_cd
+    data->pt_qual[cnt].PatientFacilityNPI = oa.alias
+    data->pt_qual[cnt].PatientAdmitDate = format(e.reg_dt_tm,"MM/dd/yyyy")
+    data->pt_qual[cnt].PatientDischDate = format(e.disch_dt_tm,"MM/dd/yyyy")
+;    data->pt_qual[cnt].PatientDischStatus = uar_get_code_display(e.encntr_status_cd)
+    data->pt_qual[cnt].PatientDOB = format(p.birth_dt_tm,"MM/dd/yyyy")
+    data->pt_qual[cnt].PatientGender = substring(1,1,trim(uar_Get_code_display(p.sex_cd)))
+    data->pt_qual[cnt].PatientLOS = datetimediff(e.disch_dt_tm,e.reg_dt_tm)
+    data->pt_qual[cnt].PatientLOSRounded = trim(format(datetimediff(e.disch_dt_tm,e.reg_dt_tm),"####"),3)
+    data->pt_qual[cnt].PatientAgeAtVisit = cnvtage(p.birth_dt_tm)
+    data->pt_qual[cnt].PatientAgeAtVisitFormatted = trim(AgeFormat,3)
+    data->pt_qual[cnt].PatientDischDisposition = uar_get_code_display(e.disch_disposition_cd)
+    data->pt_qual[cnt].PatientNurseUnit = uar_get_code_display(e.loc_nurse_unit_cd)
+    data->pt_qual[cnt].PatientAdmitSource = uar_get_code_display(e.admit_src_cd)
+    data->pt_qual[cnt].PatientFinClass = uar_get_code_display(e.financial_class_cd)
+    data->pt_qual[cnt].PatientAgeInDaysAtVisit = datetimediff(e.reg_dt_tm,p.birth_dt_tm)
+    data->pt_qual[cnt].PatientAgeInDaysAtDischarge = datetimediff(e.disch_dt_tm,p.birth_dt_tm)
+    data->pt_qual[cnt].PatientDischStatus = "70"
+ 
+ 
+    case (e.disch_disposition_cd)
+        of 638671.0:;home,self-care routine
+            data->pt_qual[cnt].PatientDischStatus ="01"
+        of 685144.00:;general hospital for inpt care
+            data->pt_qual[cnt].PatientDischStatus = "02"
+        of 4190893.0:;snf-skilled nursing facility
+            data->pt_qual[cnt].PatientDischStatus = "03"
+        of 638673.00:;intermediate care
+            data->pt_qual[cnt].PatientDischStatus = "04" 
+        of 4510195.0:;cancer/child hosp
+            data->pt_qual[cnt].PatientDischStatus = "05"
+        of 638672.0:;home health services
+            data->pt_qual[cnt].PatientDischStatus = "06"
+        of 312916.0:;left against medical advice
+            data->pt_qual[cnt].PatientDischStatus = "07"
+        of 638666.0:;expired
+            data->pt_qual[cnt].PatientDischStatus = "20"
+        of 638677.00:;admitted as inpatient
+            data->pt_qual[cnt].PatientDischStatus = "09"
+        of 638675.0:;still a patient
+            data->pt_qual[cnt].PatientDischStatus = "30"
+        of 4225260.0:;federal hospital
+            data->pt_qual[cnt].PatientDischStatus = "43"
+        of 312910.0:;home/hospice
+            data->pt_qual[cnt].PatientDischStatus = "50"
+        of 638663.0:;hospice medical facility
+            data->pt_qual[cnt].PatientDischStatus = "51"
+        of 4190896.0:;swing bed
+            data->pt_qual[cnt].PatientDischStatus = "61"
+        of 312913.0:;rehab facility/unit
+            data->pt_qual[cnt].PatientDischStatus = "62"
+        of 312911.0:;LTCF
+            data->pt_qual[cnt].PatientDischStatus = "63"
+        of 4190999.0:;nursing facility - medicaid
+            data->pt_qual[cnt].PatientDischStatus = "64"
+        of 685148.0:;psych hospital/unit
+            data->pt_qual[cnt].PatientDischStatus = "65"
+        of 4190898.0:;critical access
+            data->pt_qual[cnt].PatientDischStatus = "66"
+        of 51873363.0:;designated diaster
+            data->pt_qual[cnt].PatientDischStatus = "69"
+        of 638664.0:;op services - other facility
+            data->pt_qual[cnt].PatientDischStatus = "71"
+        of 638665.0:;op services - this facility
+            data->pt_qual[cnt].PatientDischStatus = "72"
+        of 27677811.0:;home/self-care w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "81"
+        of 27677961.0:;Short term hosp w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "82"
+        of 27677971.0:;SNF w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "83"
+        of 27666339.0:;cancer/child hosp w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "85"
+        of 27677725.0:;court/law w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "87"
+        of 27677779.0:;fed hospital w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "88"
+        of 27677977.0:;swing bed w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "89"
+        of 27677853.0:;rehab facility/unit w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "90"
+        of 27677859.0:;LTCH w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "91"
+        of 27677865.0:;nursing facility-medicaid w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "92"
+        of 27677951.0:;psych hosp/unit w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "93"
+        of 27677725.0:;critical access hosp w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "94"
+        of 27677877.0:;other institution w/planned readmit
+            data->pt_qual[cnt].PatientDischStatus = "95"
+        of 19945035.0:;court/law enforcement
+            data->pt_qual[cnt].PatientDischStatus = "21"
+    endcase
+ 
+/*the Medicaid Provider Numbers are found on the cms.gov website*/
+    case (e.loc_facility_cd)
+        of 21250403.0:;mrmc
+            data->pt_qual[cnt].FacilityMedicaidProviderNumber = "440073"
+        of 21304872.0:;mmc
+            data->pt_qual[cnt].FacilityMedicaidProviderNumber = "441309"
+        of 21250831.0:;wmc
+            data->pt_qual[cnt].FacilityMedicaidProviderNumber = "440010"
+    endcase
+ 
+detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        data->pt_qual[cnt].PatientFIN = ;ea.alias
+            evaluate (pe.recur_ind,1,concat(trim(ea.alias),"-",
+            cnvtstring(pe.recur_seq)),ea.alias)
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        data->pt_qual[cnt].PatientMRN = ea.alias
+    endif
+ 
+foot e.encntr_id
+    if(data->pt_qual[cnt].PatientAgeInDaysAtVisit < 1)
+        data->pt_qual[cnt].PatientAgeInDaysAtVisitFormatted =
+                                ;cnvtstring(data->pt_qual[cnt].PatientAgeInDaysAtDischarge)
+                 trim(format(datetimediff(e.reg_dt_tm,p.abs_birth_dt_tm),"###"),3)
+        data->pt_qual[cnt].PatientAgeInDaysAtDischargeFormatted =
+                 trim(format(datetimediff(e.disch_dt_tm,p.abs_birth_dt_tm),"###"),3)
+        data->pt_qual[cnt].PatientNurseryType = uar_get_code_display(e.accommodation_cd)
+    else
+        data->pt_qual[cnt].PatientAgeInDaysAtVisitFormatted = ""
+    endif
+ 
+foot report
+    if(cnt>0)
+        data->ptcnt = cnt
+        stat = alterlist(data->pt_qual,cnt)
+    endif
+with nocounter;,time=9600
+/*************************************************************************************
+;           BIRTH WEIGHT
+*************************************************************************************/
+select into "NL:"
+    ce.encntr_id
+from
+    clinical_event  ce
+plan ce
+    where expand(num,1,size(data->pt_qual,5),ce.encntr_id,data->pt_qual[num].eid)
+      and ce.event_cd = 712070.0
+      and ce.view_level = 1
+      and ce.valid_until_dt_tm >= cnvtdate(12302100)
+      and ce.result_status_cd in (25.0,34.0,35.0)
+order by
+    ce.encntr_id
+    ,ce.performed_dt_tm
+ 
+head ce.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),ce.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PatientBirthWeightInKilograms = ce.result_val
+    data->pt_qual[pos].PatientBirthWeightInGrams = cnvtreal(ce.result_val)*1000
+    data->pt_qual[pos].PaitientBirthWieghtInGramsFormatted =
+                        cnvtstring(cnvtreal(ce.result_val)*1000)
+    ;build2(trim(ce.result_val)," ",uar_get_code_display(ce.result_units_cd))
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           INSURANCE INFORMATION
+*************************************************************************************/
+select into "NL:"
+    health_plan = uar_Get_code_display(hp.plan_type_cd)
+from
+    encntr_plan_reltn       epr
+    ,encntr_person_reltn    ep
+    ,health_plan            hp
+    ,health_plan_alias      h
+plan epr
+    where expand(num,1,size(data->pt_qual,5),epr.encntr_id,data->pt_qual[num].eid)
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.priority_seq in (1,2,3)
+join ep
+    where ep.encntr_id = epr.encntr_id
+      and ep.related_person_id = epr.person_id
+      and ep.person_reltn_type_cd in (1158.0);insured
+      and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and ep.end_effective_dt_tm >= cnvtdate(12302100)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+      and hp.active_ind = 1
+      and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join h
+    where h.health_plan_id = hp.health_plan_id
+      and h.alias_pool_cd = 683993.0;health plan
+      and h.active_ind = 1
+order by
+    epr.encntr_id
+    ,epr.priority_seq
+ 
+head epr.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),epr.encntr_id,data->pt_qual[num].eid)
+ 
+detail
+    case (epr.priority_seq)
+        of 1:
+            data->pt_qual[pos].PatientInsPayor = uar_get_code_display(hp.plan_type_cd)
+            data->pt_qual[pos].PatientInsPlan = hp.plan_name
+    endcase
+ 
+with nocounter,expand=1;,time=3900
+/*************************************************************************************
+;           ATTENDING & DISCHARGE PHYSICIANS
+*************************************************************************************/
+select into "NL:"
+    pr.name_full_formatted
+    ,pr.person_id
+from
+    encntr_prsnl_reltn  epr
+    ,prsnl              pr
+    ,prsnl_alias        pa
+plan epr
+    where expand(num,1,size(data->pt_qual,5),epr.encntr_id,data->pt_qual[num].eid)
+      and epr.encntr_prsnl_r_cd in (1119.0;attending
+                                    ,1116.0;admitting
+                                    )
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.active_ind = 1
+join pr
+    where pr.person_id = epr.prsnl_person_id
+      and pr.active_ind = 1
+join pa
+    where pa.person_id = pr.person_id
+      and pa.prsnl_alias_type_cd = 4038127.0;npi number
+order by
+    epr.encntr_id
+    ,epr.encntr_prsnl_r_cd
+ 
+head epr.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),epr.encntr_id,data->pt_qual[num].eid)
+ 
+detail
+    case (epr.encntr_prsnl_r_cd)
+;        of 1116.0:
+;            data->pt_qual[pos].AdmittingPhysician = pr.name_full_formatted
+;            data->pt_qual[pos].AdmittingPhysicianNPI = pa.alias
+;            data->pt_qual[pos].AdmittingPysicianSpecialty = 
+;                trim(replace(substring(findstring("-",uar_get_code_display(pr.position_cd),1,0),220
+;                ,uar_get_code_display(pr.position_cd)),"-",""),3)
+        of 1119.0:
+            data->pt_qual[num].AttendingPhysician = pr.name_full_formatted
+            data->pt_qual[num].AttendingPhysicianNPI = pa.alias
+            data->pt_qual[num].AttendingPhysicianSpecialty =
+                trim(replace(substring(findstring("-",uar_get_code_display(pr.position_cd),1,0),220
+                ,uar_get_code_display(pr.position_cd)),"-",""),3)
+    endcase
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           ADMITTING DIAGNOSIS
+*************************************************************************************/
+select into "NL:"
+    n.source_identifier
+    ,n.source_string
+from
+    diagnosis d
+    ,coding c
+    ,nomenclature n
+plan d
+    where expand(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid);d.encntr_id = 106030547.00
+      and d.diag_priority != 0
+      and d.diag_type_cd = 87.00;admitting
+join c
+    where c.encntr_id = d.encntr_id
+      and c.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+      and c.completed_dt_tm != NULL
+join n
+    where n.nomenclature_id = d.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    d.encntr_id
+    ,d.diag_priority
+    ,n.source_identifier
+
+head d.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+    
+head n.source_identifier
+    data->pt_qual[pos].PatientAdmittingDx = n.source_identifier
+    data->pt_qual[pos].PatientAdmittingDxPresentOnAdmit = uar_get_code_display(d.present_on_admit_cd)
+    
+with nocounter,expand=1;,time=3900
+/*************************************************************************************
+;           SECONDARY DIAGNOSIS
+*************************************************************************************/
+select into "NL:"
+    n.source_string
+    ,n.source_identifier
+from
+    diagnosis d
+    ,coding c
+    ,nomenclature n
+plan d
+    where expand(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid);d.encntr_id = 106030547.00
+;      and d.diag_priority != 0
+      and d.diag_type_cd = 89.00;final
+      and d.diag_priority = 2
+;and d.contributor_system_cd = 470.00
+join c
+    where c.encntr_id = d.encntr_id
+      and c.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+      and c.completed_dt_tm != NULL
+join n
+    where n.nomenclature_id = d.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+      
+order by
+    d.encntr_id
+    ,n.source_identifier
+ 
+head d.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PatientSecondaryDx = n.source_identifier
+    data->pt_qual[pos].PatientSecondaryDxPresentOnAdmit = uar_Get_code_display(d.present_on_admit_cd)
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           DISCHARGE DIAGNOSIS
+*************************************************************************************/
+select into "NL:"
+    n.source_string
+    ,n.source_identifier
+from
+    diagnosis d
+    ,coding c
+    ,nomenclature n
+plan d
+    where expand(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid); = 106030547.00
+      and d.diag_priority != 0
+      and d.diag_type_cd = 88.00;discharge
+join c
+    where c.encntr_id = d.encntr_id
+      and c.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+      and c.completed_dt_tm != NULL
+join n
+    where n.nomenclature_id = d.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+      
+order by
+    d.encntr_id
+    ,d.diag_priority
+    ,n.source_identifier
+ 
+head d.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PatientDischDx = n.source_identifier
+ 
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           ADDITIONAL DIAGNOSIS
+*************************************************************************************/
+select distinct into "NL:"
+    n.source_string
+    ,n.source_identifier
+from
+    diagnosis d
+    ,coding c
+    ,nomenclature n
+plan d
+    where expand(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid);d.encntr_id = 106030547.00
+      and d.diag_priority not in (0,2)
+      and d.diag_type_cd = 89.00;final
+join c
+    where c.encntr_id = d.encntr_id
+      and c.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+      and c.completed_dt_tm != NULL
+join n
+    where n.nomenclature_id = d.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    d.encntr_id
+    ,d.diag_priority
+    ,n.source_identifier
+    
+ 
+head d.encntr_id
+    dx_cnt = 0
+    pos = locateval(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+ 
+head n.source_identifier
+    dx_cnt = dx_cnt + 1
+    data->pt_qual[pos].DxCnt = dx_cnt
+ 
+    stat = alterlist(data->pt_qual[pos].Dx,100)
+ 
+    data->pt_qual[pos].Dx[dx_cnt].DxCode = n.source_identifier
+    data->pt_qual[pos].dx[dx_cnt].DxDesc = d.diagnosis_display
+    data->pt_qual[pos].dx[dx_cnt].DxPresentOnAdmit = uar_get_code_display(d.present_on_admit_cd)
+ 
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           CODING PERSONNEL
+*************************************************************************************/
+select into "NL:"
+    pr.name_full_formatted
+from
+    coding  c
+    ,prsnl  pr
+plan c
+    where expand(num,1,size(data->pt_qual,5),c.encntr_id,data->pt_qual[num].eid)
+join pr
+    where pr.person_id = c.coding_prsnl_id
+      and pr.active_ind = 1
+      and pr.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    c.encntr_id
+ 
+head c.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),c.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].CodedBy = pr.name_full_formatted
+    data->pt_qual[pos].CodedByID = cnvtstring(pr.person_id)
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           PRINCIPAL DIAGNOSIS
+*************************************************************************************/
+select into "NL:"
+    n.source_string
+    ,n.source_identifier
+from
+    diagnosis       d
+    ,nomenclature   n
+plan d
+    where expand(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+;      and d.diag_type_cd = 91.0;principal dx
+;      and d.confirmation_status_cd = 3305.0;confirmed
+;      and d.clinical_diag_priority = 1
+      and d.end_effective_dt_tm >= cnvtdate(12302100)
+      and d.active_ind = 1
+join n
+    where n.nomenclature_id = d.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    d.encntr_id
+    ,n.source_identifier
+ 
+head d.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),d.encntr_id,data->pt_qual[num].eid)
+ 
+detail
+    if(d.clinical_diag_priority = 1 and d.diag_type_cd = 89.0)
+        data->pt_qual[pos].PatientPrincipalDx= n.source_identifier
+        data->pt_qual[pos].PatientPrincipalDxPresentOnAdmit = uar_Get_code_display(d.present_on_admit_cd)
+    elseif(d.diag_priority = 1 and d.diag_type_cd = 89.0)
+        data->pt_qual[pos].PatientPrincipalDx= n.source_identifier
+        data->pt_qual[pos].PatientPrincipalDxPresentOnAdmit = uar_Get_code_display(d.present_on_admit_cd)
+    endif
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           DAYS ON VENT
+*************************************************************************************/
+select into "NL:"
+from
+    orders  o
+plan o
+    where expand(num,1,size(data->pt_qual,5),o.encntr_id,data->pt_qual[num].eid)
+      and (o.hna_order_mnemonic = "*entilator*"
+       or o.hna_order_mnemonic = "*xtubat*"
+          )
+      and o.order_status_cd != 2542.0;cancelled
+order by
+    o.encntr_id
+    ,o.updt_dt_tm
+head o.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),o.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PatientVentilatorOrderName = o.order_mnemonic
+    data->pt_qual[pos].PatientVentilatorOrderDate = format(o.orig_order_dt_tm,"MM/dd/yyyy")
+ 
+    if(o.order_status_cd = 2545.0)
+        data->pt_qual[pos].PatientDaysOnVent =
+                cnvtstring(cnvtreal(datetimediff(o.discontinue_effective_dt_tm,o.active_status_dt_tm,1)))
+    else
+        data->pt_qual[pos].PatientDaysOnVent =
+                cnvtstring(cnvtreal(datetimediff(cnvtdatetime(curdate,curtime3),o.active_status_dt_tm,1)))
+    endif
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           PATIENT TOTAL CHARGES
+*************************************************************************************/
+select into "NL:"
+    charge_total = cnvtint(evaluate(pe.chrg_bal_dr_cr_flag,1,pe.charge_balance,2
+                   ,pe.charge_balance*-1))
+from
+    pft_encntr  pe
+plan pe
+    where expand(num,1,size(data->pt_qual,5),pe.encntr_id,data->pt_qual[num].eid)
+order by
+    pe.encntr_id
+ 
+head pe.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),pe.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[num].PatientTotalCharges = trim(format(charge_total,"##########.##"),3)
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           PRIMARY PROCEDURE
+*************************************************************************************/
+select into "NL:"
+    p.encntr_id
+from
+    procedure       p
+    ,nomenclature   n
+plan p
+    where expand(num,1,size(data->pt_qual,5),p.encntr_id,data->pt_qual[num].eid)
+      and p.proc_priority = 1
+      and p.end_effective_dt_tm >= cnvtdate(12302100)
+      and p.active_ind = 1
+join n
+    where n.nomenclature_id = p.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    p.encntr_id
+    ,p.procedure_id
+ 
+head p.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),p.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PrincipalProcedureDesc = n.source_string
+    data->pt_qual[pos].PrincipalProcedureCode = n.source_identifier
+    data->pt_qual[pos].PrincipalProcedureDate = format(p.proc_dt_tm,"MM/dd/yyyy")
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           OTHER PROCEDURES
+*************************************************************************************/
+select into "NL:"
+    p.encntr_id
+from
+    procedure       p
+    ,nomenclature   n
+plan p
+    where expand(num,1,size(data->pt_qual,5),p.encntr_id,data->pt_qual[num].eid)
+      and p.proc_priority > 1
+      and p.end_effective_dt_tm >= cnvtdate(12302100)
+      and p.active_ind = 1
+join n
+    where n.nomenclature_id = p.nomenclature_id
+      and n.source_vocabulary_cd in (select code_value
+                                       from code_value
+                                      where cdf_meaning = "*ICD*")
+      and n.active_ind = 1
+      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    p.encntr_id
+    ,p.procedure_id
+ 
+head p.encntr_id
+    proc_cnt = 0
+    pos = locateval(num,1,size(data->pt_qual,5),p.encntr_id,data->pt_qual[num].eid)
+ 
+head p.procedure_id
+    proc_cnt = proc_cnt + 1
+    data->pt_qual[pos].ProcCnt = proc_cnt
+ 
+;    stat = alterlist(data->pt_qual[pos].Proc,49)
+    stat = alterlist(data->pt_qual[pos].Proc,100)
+ 
+    data->pt_qual[pos].Proc[proc_cnt].ProcCode = n.source_identifier
+    data->pt_qual[pos].proc[proc_cnt].ProcDesc= n.source_string
+    data->pt_qual[pos].proc[proc_cnt].ProcDate = format(p.proc_dt_tm,"MM/dd/yyyy")
+ 
+with nocounter,expand=1;,time=9600
+/*************************************************************************************
+;           FINAL DRG
+*************************************************************************************/
+select into "NL:"
+    dr.encntr_id
+    ,n.nomenclature_id
+from
+    drg             dr
+    ,nomenclature   n
+plan dr
+    where expand(num,1,size(data->pt_qual,5),dr.encntr_id,data->pt_qual[num].eid)
+;      and dr.source_vocabulary_cd = (select cv.code_value
+;                                       from code_value cv
+;                                      where cv.code_set = 400
+;                                        and cv.display_key = "MSDRG")
+join n
+    where n.nomenclature_id = dr.nomenclature_id
+      and n.source_vocabulary_cd = (select cv.code_value
+                                       from code_value cv
+                                      where cv.code_set = 400
+                                        and cv.display_key = "MSDRG")
+      and n.active_ind = 1
+;      and n.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    dr.encntr_id
+    ,dr.nomenclature_id
+;    ,dr.updt_dt_tm
+ 
+head dr.encntr_id
+    pos = locateval(num,1,size(data->pt_qual,5),dr.encntr_id,data->pt_qual[num].eid)
+ 
+    data->pt_qual[pos].PatientFinalDRG = n.source_identifier
+ 
+with nocounter,expand=1;,time=9600
+call echorecord(data)
+ 
+ 
+/*************************************************************************************
+;           OUTPUT SECTION
+*************************************************************************************/
+declare nullfield = vc with public,noconstant('')
+declare delimiter = cv with public,noconstant("|")
+ 
+if($OUTPUT = "S")
+select into $outdev
+    MedicareProviderNo = trim(substring(1,80,data->pt_qual[d1.seq].FacilityMedicaidProviderNumber))
+    ,FacilityNPI = trim(substring(1,80,data->pt_qual[d1.seq].PatientFacilityNPI))
+    ,AttendingPhysNPI = trim(substring(1,80,data->pt_qual[d1.seq].AttendingPhysicianNPI))
+    ,AttendingPhysSpecialty = trim(substring(1,120,data->pt_qual[d1.seq].AttendingPhysicianSpecialty))
+    ,DischargePhysNPI = trim(substring(1,80,data->pt_qual[d1.seq].AttendingPhysicianNPI))
+    ,DischargePhysSpecialty = trim(substring(1,120,data->pt_qual[d1.seq].AttendingPhysicianSpecialty))
+;    ,DischargePhysNPI = trim(substring(1,80,data->pt_qual[d1.seq].DischPhysicianNPI))
+;    ,DischargePhysSpecialty = trim(substring(1,80,data->pt_qual[d1.seq].DischPhysicianSpecialty))
+    ,PatientID = trim(substring(1,40,data->pt_qual[d1.seq].PatientFIN))
+    ,MedicalRecordNo = trim(substring(1,80,data->pt_qual[d1.seq].PatientMRN))
+    ,AdmissionDate = trim(substring(1,40,data->pt_qual[d1.seq].PatientAdmitDate))
+    ,DischargeDate = trim(substring(1,40,data->pt_qual[d1.seq].PatientDischDate))
+    ,LengthOfStay = trim(substring(1,40,data->pt_qual[d1.seq].PatientLOSRounded))
+    ,DateOfBirth = trim(substring(1,40,data->pt_qual[d1.seq].PatientDOB))
+    ,AgeInYears = trim(substring(1,40,data->pt_qual[d1.seq].PatientAgeAtVisitFormatted))
+    ,Sex = trim(substring(1,10,data->pt_qual[d1.seq].PatientGender))
+    ,DischargeStatus = trim(substring(1,80,data->pt_qual[d1.seq].PatientDischStatus))
+    ,DaysOnMechanicalVentilation =
+        trim(substring(1,80,data->pt_qual[d1.seq].PatientDaysOnVent))
+    ,AdmittingDiagnosis = trim(substring(1,80,data->pt_qual[d1.seq].PatientAdmittingDx))
+    ,PrincipalDiagnosis = trim(substring(1,80,data->pt_qual[d1.seq].PatientPrincipalDx))
+    ,POA = trim(substring(1,10,data->pt_qual[d1.seq].PatientPrincipalDxPresentOnAdmit))
+    ,ConditionCode1 = ""
+    ,ConditionCode2 = ""
+    ,ConditionCode3 = ""
+    ,ConditionCode4 = ""
+    ,ConditionCode5 = ""
+    ,ConditionCode6 = ""
+    ,ConditionCode7 = ""
+    ,ConditionCode8 = ""
+    ,ConditionCode9 = ""
+    ,ConditionCode10 = ""
+    ,ConditionCode11 = ""
+    ,SecondaryDiagnosis1 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[1].DxCode))
+    ,SecondaryDiagnosis2 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[2].DxCode))
+    ,SecondaryDiagnosis3 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[3].DxCode))
+    ,SecondaryDiagnosis4 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[4].DxCode))
+    ,SecondaryDiagnosis5 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[5].DxCode))
+    ,SecondaryDiagnosis6 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[6].DxCode))
+    ,SecondaryDiagnosis7 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[7].DxCode))
+    ,SecondaryDiagnosis8 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[8].DxCode))
+    ,SecondaryDiagnosis9 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[9].DxCode))
+    ,SecondaryDiagnosis10 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[10].DxCode))
+    ,SecondaryDiagnosis11 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[11].DxCode))
+    ,SecondaryDiagnosis12 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[12].DxCode))
+    ,SecondaryDiagnosis13 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[13].DxCode))
+    ,SecondaryDiagnosis14 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[14].DxCode))
+    ,SecondaryDiagnosis15 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[15].DxCode))
+    ,SecondaryDiagnosis16 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[16].DxCode))
+    ,SecondaryDiagnosis17 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[17].DxCode))
+    ,SecondaryDiagnosis18 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[18].DxCode))
+    ,SecondaryDiagnosis19 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[19].DxCode))
+    ,SecondaryDiagnosis20 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[20].DxCode))
+    ,SecondaryDiagnosis21 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[21].DxCode))
+    ,SecondaryDiagnosis22 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[22].DxCode))
+    ,SecondaryDiagnosis23 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[23].DxCode))
+    ,SecondaryDiagnosis24 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[24].DxCode))
+    ,SecondaryDiagnosis25 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[25].DxCode))
+    ,SecondaryDiagnosis26 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[26].DxCode))
+    ,SecondaryDiagnosis27 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[27].DxCode))
+    ,SecondaryDiagnosis28 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[28].DxCode))
+    ,SecondaryDiagnosis29 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[29].DxCode))
+    ,SecondaryDiagnosis30 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[30].DxCode))
+    ,SecondaryDiagnosis31 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[31].DxCode))
+    ,SecondaryDiagnosis32 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[32].DxCode))
+    ,SecondaryDiagnosis33 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[33].DxCode))
+    ,SecondaryDiagnosis34 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[34].DxCode))
+    ,SecondaryDiagnosis35 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[35].DxCode))
+    ,SecondaryDiagnosis36 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[36].DxCode))
+    ,SecondaryDiagnosis37 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[37].DxCode))
+    ,SecondaryDiagnosis38 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[38].DxCode))
+    ,SecondaryDiagnosis39 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[39].DxCode))
+    ,SecondaryDiagnosis40 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[40].DxCode))
+    ,SecondaryDiagnosis41 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[41].DxCode))
+    ,SecondaryDiagnosis42 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[42].DxCode))
+    ,SecondaryDiagnosis43 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[43].DxCode))
+    ,SecondaryDiagnosis44 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[44].DxCode))
+    ,SecondaryDiagnosis45 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[45].DxCode))
+    ,SecondaryDiagnosis46 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[46].DxCode))
+    ,SecondaryDiagnosis47 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[47].DxCode))
+    ,SecondaryDiagnosis48 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[48].DxCode))
+    ,SecondaryDiagnosis49 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[49].DxCode))
+    ,SecondaryDiagnosisPOA1 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[1].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA2 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[2].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA3 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[3].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA4 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[4].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA5 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[5].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA6 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[6].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA7 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[7].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA8 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[8].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA9 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[9].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA10 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[10].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA11 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[11].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA12 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[12].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA13 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[13].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA14 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[14].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA15 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[15].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA16 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[16].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA17 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[17].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA18 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[18].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA19 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[19].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA20 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[20].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA21 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[21].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA22 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[22].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA23 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[23].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA24 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[24].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA25 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[25].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA26 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[26].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA27 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[27].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA28 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[28].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA29 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[29].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA30 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[30].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA31 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[31].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA32 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[32].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA33 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[33].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA34 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[34].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA35 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[35].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA36 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[36].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA37 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[37].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA38 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[38].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA39 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[39].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA40 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[40].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA41 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[41].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA42 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[42].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA43 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[43].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA44 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[44].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA45 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[45].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA46 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[46].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA47 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[47].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA48 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[48].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA49 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[49].DxPresentOnAdmit))
+    ,PrincipalProcedure = trim(substring(1,220,data->pt_qual[d1.seq].PrincipalProcedureCode))
+    ,PrincipalProcedureDate = trim(substring(1,220,data->pt_qual[d1.seq].PrincipalProcedureDate))
+    ,SecondaryProcedure1 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[1].ProcCode))
+    ,SecondaryProcedure2 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[2].ProcCode))
+    ,SecondaryProcedure3 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[3].ProcCode))
+    ,SecondaryProcedure4 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[4].ProcCode))
+    ,SecondaryProcedure5 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[5].ProcCode))
+    ,SecondaryProcedure6 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[6].ProcCode))
+    ,SecondaryProcedure7 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[7].ProcCode))
+    ,SecondaryProcedure8 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[8].ProcCode))
+    ,SecondaryProcedure9 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[9].ProcCode))
+    ,SecondaryProcedure10 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[10].ProcCode))
+    ,SecondaryProcedure11 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[11].ProcCode))
+    ,SecondaryProcedure12 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[12].ProcCode))
+    ,SecondaryProcedure13 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[13].ProcCode))
+    ,SecondaryProcedure14 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[14].ProcCode))
+    ,SecondaryProcedure15 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[15].ProcCode))
+    ,SecondaryProcedure16 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[16].ProcCode))
+    ,SecondaryProcedure17 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[17].ProcCode))
+    ,SecondaryProcedure18 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[18].ProcCode))
+    ,SecondaryProcedure19 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[19].ProcCode))
+    ,SecondaryProcedure20 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[20].ProcCode))
+    ,SecondaryProcedure21 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[21].ProcCode))
+    ,SecondaryProcedure22 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[22].ProcCode))
+    ,SecondaryProcedure23 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[23].ProcCode))
+    ,SecondaryProcedure24 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[24].ProcCode))
+    ,SecondaryProcedure25 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[25].ProcCode))
+    ,SecondaryProcedure26 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[26].ProcCode))
+    ,SecondaryProcedure27 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[27].ProcCode))
+    ,SecondaryProcedure28 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[28].ProcCode))
+    ,SecondaryProcedure29 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[29].ProcCode))
+    ,SecondaryProcedure30 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[30].ProcCode))
+    ,SecondaryProcedure31 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[31].ProcCode))
+    ,SecondaryProcedure32 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[32].ProcCode))
+    ,SecondaryProcedure33 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[33].ProcCode))
+    ,SecondaryProcedure34 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[34].ProcCode))
+    ,SecondaryProcedure35 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[35].ProcCode))
+    ,SecondaryProcedure36 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[36].ProcCode))
+    ,SecondaryProcedure37 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[37].ProcCode))
+    ,SecondaryProcedure38 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[38].ProcCode))
+    ,SecondaryProcedure39 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[39].ProcCode))
+    ,SecondaryProcedure40 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[40].ProcCode))
+    ,SecondaryProcedure41 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[41].ProcCode))
+    ,SecondaryProcedure42 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[42].ProcCode))
+    ,SecondaryProcedure43 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[43].ProcCode))
+    ,SecondaryProcedure44 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[44].ProcCode))
+    ,SecondaryProcedure45 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[45].ProcCode))
+    ,SecondaryProcedure46 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[46].ProcCode))
+    ,SecondaryProcedure47 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[47].ProcCode))
+    ,SecondaryProcedure48 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[48].ProcCode))
+    ,SecondaryProcedure49 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[49].ProcCode))
+    ,SecondaryProcedureDate1 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[1].ProcDate))
+    ,SecondaryProcedureDate2 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[2].ProcDate))
+    ,SecondaryProcedureDate3 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[3].ProcDate))
+    ,SecondaryProcedureDate4 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[4].ProcDate))
+    ,SecondaryProcedureDate5 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[5].ProcDate))
+    ,SecondaryProcedureDate6 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[6].ProcDate))
+    ,SecondaryProcedureDate7 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[7].ProcDate))
+    ,SecondaryProcedureDate8 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[8].ProcDate))
+    ,SecondaryProcedureDate9 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[9].ProcDate))
+    ,SecondaryProcedureDate10 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[10].ProcDate))
+    ,SecondaryProcedureDate11 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[11].ProcDate))
+    ,SecondaryProcedureDate12 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[12].ProcDate))
+    ,SecondaryProcedureDate13 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[13].ProcDate))
+    ,SecondaryProcedureDate14 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[14].ProcDate))
+    ,SecondaryProcedureDate15 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[15].ProcDate))
+    ,SecondaryProcedureDate16 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[16].ProcDate))
+    ,SecondaryProcedureDate17 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[17].ProcDate))
+    ,SecondaryProcedureDate18 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[18].ProcDate))
+    ,SecondaryProcedureDate19 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[19].ProcDate))
+    ,SecondaryProcedureDate20 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[20].ProcDate))
+    ,SecondaryProcedureDate21 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[21].ProcDate))
+    ,SecondaryProcedureDate22 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[22].ProcDate))
+    ,SecondaryProcedureDate23 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[23].ProcDate))
+    ,SecondaryProcedureDate24 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[24].ProcDate))
+    ,SecondaryProcedureDate25 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[25].ProcDate))
+    ,SecondaryProcedureDate26 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[26].ProcDate))
+    ,SecondaryProcedureDate27 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[27].ProcDate))
+    ,SecondaryProcedureDate28 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[28].ProcDate))
+    ,SecondaryProcedureDate29 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[29].ProcDate))
+    ,SecondaryProcedureDate30 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[30].ProcDate))
+    ,SecondaryProcedureDate31 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[31].ProcDate))
+    ,SecondaryProcedureDate32 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[32].ProcDate))
+    ,SecondaryProcedureDate33 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[33].ProcDate))
+    ,SecondaryProcedureDate34 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[34].ProcDate))
+    ,SecondaryProcedureDate35 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[35].ProcDate))
+    ,SecondaryProcedureDate36 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[36].ProcDate))
+    ,SecondaryProcedureDate37 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[37].ProcDate))
+    ,SecondaryProcedureDate38 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[38].ProcDate))
+    ,SecondaryProcedureDate39 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[39].ProcDate))
+    ,SecondaryProcedureDate40 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[40].ProcDate))
+    ,SecondaryProcedureDate41 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[41].ProcDate))
+    ,SecondaryProcedureDate42 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[42].ProcDate))
+    ,SecondaryProcedureDate43 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[43].ProcDate))
+    ,SecondaryProcedureDate44 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[44].ProcDate))
+    ,SecondaryProcedureDate45 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[45].ProcDate))
+    ,SecondaryProcedureDate46 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[46].ProcDate))
+    ,SecondaryProcedureDate47 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[47].ProcDate))
+    ,SecondaryProcedureDate48 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[48].ProcDate))
+    ,SecondaryProcedureDate49 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[49].ProcDate))
+    ,InsurancePayor = trim(substring(1,120,data->pt_qual[d1.seq].PatientInsPayor))
+    ,InsurancePlan = trim(substring(1,120,data->pt_qual[d1.seq].PatientInsPlan))
+    ,FinancialClass = trim(substring(1,80,data->pt_qual[d1.seq].PatientFinClass))
+    ,InsurancePayorFinalDRG = trim(substring(1,80,data->pt_qual[d1.seq].PatientFinalDRG))
+    ,LessThan1YrsOld = trim(substring(1,60,data->pt_qual[d1.seq].PatientAgeInDaysAtVisitFormatted))
+    ,LessThan1DischargeAge = trim(substring(1,60,data->pt_qual[d1.seq].PatientAgeInDaysAtDischargeFormatted))
+    ,BirthWeight = trim(substring(1,40,data->pt_qual[d1.seq].PaitientBirthWieghtInGramsFormatted))
+    ,NurseryLevel = trim(substring(1,80,data->pt_qual[d1.seq].PatientNurseryType))
+    ,TotalCharges = trim(substring(1,80,data->pt_qual[d1.seq].PatientTotalCharges))
+    ,NonCoveredCharges = ""
+    ,Coder = trim(substring(1,120,data->pt_qual[d1.seq].CodedBy))
+    ,AdmissionSource = trim(substring(1,80,data->pt_qual[d1.seq].PatientAdmitSource))
+    ,FacilityIdentifier = trim(substring(1,80,data->pt_qual[d1.seq].PatientFacility))
+    ,PatientLocation = trim(substring(1,80,data->pt_qual[d1.seq].PatientNurseUnit))
+ 
+from
+ 
+    (dummyt d1 with seq=value(size(data->pt_qual,5)))
+    ,(dummyt d2 with seq = 1)
+    ,(dummyt d3 with seq = 1)
+plan d1
+    where d1.seq > 0
+join d2
+join d3
+;order by
+;    therapist
+with nocounter,separator="",format;,time=9600
+elseif ($OUTPUT = "F")
+select into $outdev
+;select into value(maury_3m_outfile)
+    MedicareProviderNo = trim(substring(1,80,data->pt_qual[d1.seq].FacilityMedicaidProviderNumber))
+    ,FacilityNPI = trim(substring(1,80,data->pt_qual[d1.seq].PatientFacilityNPI))
+    ,AttendingPhysNPI = trim(substring(1,80,data->pt_qual[d1.seq].AttendingPhysicianNPI))
+    ,AttendingPhysSpecialty = trim(substring(1,120,data->pt_qual[d1.seq].AttendingPhysicianSpecialty))
+    ,DischargePhysNPI = trim(substring(1,80,data->pt_qual[d1.seq].DischPhysicianNPI))
+    ,DischargePhysSpecialty = trim(substring(1,80,data->pt_qual[d1.seq].DischPhysicianSpecialty))
+    ,PatientID = trim(substring(1,40,data->pt_qual[d1.seq].PatientFIN))
+    ,MedicalRecordNo = trim(substring(1,80,data->pt_qual[d1.seq].PatientMRN))
+    ,AdmissionDate = trim(substring(1,40,data->pt_qual[d1.seq].PatientAdmitDate))
+    ,DischargeDate = trim(substring(1,40,data->pt_qual[d1.seq].PatientDischDate))
+    ,LengthOfStay = trim(substring(1,40,data->pt_qual[d1.seq].PatientLOSRounded))
+    ,DateOfBirth = trim(substring(1,40,data->pt_qual[d1.seq].PatientDOB))
+    ,AgeInYears = trim(substring(1,40,data->pt_qual[d1.seq].PatientAgeAtVisitFormatted))
+    ,Sex = trim(substring(1,10,data->pt_qual[d1.seq].PatientGender))
+    ,DischargeStatus = trim(substring(1,80,data->pt_qual[d1.seq].PatientDischStatus))
+    ,DaysOnMechanicalVentilation =
+        trim(substring(1,80,data->pt_qual[d1.seq].PatientDaysOnVent))
+    ,AdmittingDiagnosis = trim(substring(1,80,data->pt_qual[d1.seq].PatientAdmittingDx))
+    ,PrincipalDiagnosis = trim(substring(1,80,data->pt_qual[d1.seq].PatientPrincipalDx))
+    ,POA = trim(substring(1,10,data->pt_qual[d1.seq].PatientPrincipalDxPresentOnAdmit))
+    ,ConditionCode1 = ""
+    ,ConditionCode2 = ""
+    ,ConditionCode3 = ""
+    ,ConditionCode4 = ""
+    ,ConditionCode5 = ""
+    ,ConditionCode6 = ""
+    ,ConditionCode7 = ""
+    ,ConditionCode8 = ""
+    ,ConditionCode9 = ""
+    ,ConditionCode10 = ""
+    ,ConditionCode11 = ""
+    ,SecondaryDiagnosis1 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[1].DxCode))
+    ,SecondaryDiagnosis2 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[2].DxCode))
+    ,SecondaryDiagnosis3 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[3].DxCode))
+    ,SecondaryDiagnosis4 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[4].DxCode))
+    ,SecondaryDiagnosis5 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[5].DxCode))
+    ,SecondaryDiagnosis6 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[6].DxCode))
+    ,SecondaryDiagnosis7 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[7].DxCode))
+    ,SecondaryDiagnosis8 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[8].DxCode))
+    ,SecondaryDiagnosis9 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[9].DxCode))
+    ,SecondaryDiagnosis10 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[10].DxCode))
+    ,SecondaryDiagnosis11 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[11].DxCode))
+    ,SecondaryDiagnosis12 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[12].DxCode))
+    ,SecondaryDiagnosis13 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[13].DxCode))
+    ,SecondaryDiagnosis14 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[14].DxCode))
+    ,SecondaryDiagnosis15 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[15].DxCode))
+    ,SecondaryDiagnosis16 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[16].DxCode))
+    ,SecondaryDiagnosis17 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[17].DxCode))
+    ,SecondaryDiagnosis18 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[18].DxCode))
+    ,SecondaryDiagnosis19 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[19].DxCode))
+    ,SecondaryDiagnosis20 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[20].DxCode))
+    ,SecondaryDiagnosis21 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[21].DxCode))
+    ,SecondaryDiagnosis22 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[22].DxCode))
+    ,SecondaryDiagnosis23 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[23].DxCode))
+    ,SecondaryDiagnosis24 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[24].DxCode))
+    ,SecondaryDiagnosis25 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[25].DxCode))
+    ,SecondaryDiagnosis26 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[26].DxCode))
+    ,SecondaryDiagnosis27 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[27].DxCode))
+    ,SecondaryDiagnosis28 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[28].DxCode))
+    ,SecondaryDiagnosis29 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[29].DxCode))
+    ,SecondaryDiagnosis30 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[30].DxCode))
+    ,SecondaryDiagnosis31 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[31].DxCode))
+    ,SecondaryDiagnosis32 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[32].DxCode))
+    ,SecondaryDiagnosis33 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[33].DxCode))
+    ,SecondaryDiagnosis34 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[34].DxCode))
+    ,SecondaryDiagnosis35 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[35].DxCode))
+    ,SecondaryDiagnosis36 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[36].DxCode))
+    ,SecondaryDiagnosis37 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[37].DxCode))
+    ,SecondaryDiagnosis38 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[38].DxCode))
+    ,SecondaryDiagnosis39 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[39].DxCode))
+    ,SecondaryDiagnosis40 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[40].DxCode))
+    ,SecondaryDiagnosis41 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[41].DxCode))
+    ,SecondaryDiagnosis42 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[42].DxCode))
+    ,SecondaryDiagnosis43 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[43].DxCode))
+    ,SecondaryDiagnosis44 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[44].DxCode))
+    ,SecondaryDiagnosis45 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[45].DxCode))
+    ,SecondaryDiagnosis46 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[46].DxCode))
+    ,SecondaryDiagnosis47 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[47].DxCode))
+    ,SecondaryDiagnosis48 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[48].DxCode))
+    ,SecondaryDiagnosis49 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[49].DxCode))
+    ,SecondaryDiagnosisPOA1 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[1].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA2 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[2].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA3 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[3].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA4 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[4].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA5 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[5].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA6 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[6].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA7 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[7].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA8 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[8].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA9 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[9].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA10 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[10].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA11 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[11].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA12 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[12].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA13 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[13].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA14 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[14].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA15 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[15].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA16 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[16].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA17 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[17].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA18 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[18].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA19 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[19].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA20 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[20].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA21 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[21].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA22 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[22].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA23 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[23].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA24 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[24].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA25 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[25].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA26 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[26].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA27 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[27].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA28 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[28].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA29 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[29].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA30 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[30].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA31 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[31].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA32 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[32].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA33 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[33].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA34 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[34].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA35 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[35].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA36 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[36].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA37 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[37].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA38 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[38].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA39 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[39].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA40 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[40].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA41 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[41].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA42 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[42].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA43 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[43].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA44 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[44].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA45 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[45].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA46 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[46].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA47 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[47].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA48 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[48].DxPresentOnAdmit))
+    ,SecondaryDiagnosisPOA49 = trim(substring(1,40,data->pt_qual[d1.seq].Dx[49].DxPresentOnAdmit))
+    ,PrincipalProcedure = trim(substring(1,220,data->pt_qual[d1.seq].PrincipalProcedureCode))
+    ,PrincipalProcedureDate = trim(substring(1,220,data->pt_qual[d1.seq].PrincipalProcedureDate))
+    ,SecondaryProcedure1 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[1].ProcCode))
+    ,SecondaryProcedure2 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[2].ProcCode))
+    ,SecondaryProcedure3 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[3].ProcCode))
+    ,SecondaryProcedure4 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[4].ProcCode))
+    ,SecondaryProcedure5 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[5].ProcCode))
+    ,SecondaryProcedure6 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[6].ProcCode))
+    ,SecondaryProcedure7 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[7].ProcCode))
+    ,SecondaryProcedure8 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[8].ProcCode))
+    ,SecondaryProcedure9 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[9].ProcCode))
+    ,SecondaryProcedure10 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[10].ProcCode))
+    ,SecondaryProcedure11 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[11].ProcCode))
+    ,SecondaryProcedure12 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[12].ProcCode))
+    ,SecondaryProcedure13 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[13].ProcCode))
+    ,SecondaryProcedure14 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[14].ProcCode))
+    ,SecondaryProcedure15 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[15].ProcCode))
+    ,SecondaryProcedure16 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[16].ProcCode))
+    ,SecondaryProcedure17 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[17].ProcCode))
+    ,SecondaryProcedure18 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[18].ProcCode))
+    ,SecondaryProcedure19 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[19].ProcCode))
+    ,SecondaryProcedure20 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[20].ProcCode))
+    ,SecondaryProcedure21 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[21].ProcCode))
+    ,SecondaryProcedure22 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[22].ProcCode))
+    ,SecondaryProcedure23 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[23].ProcCode))
+    ,SecondaryProcedure24 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[24].ProcCode))
+    ,SecondaryProcedure25 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[25].ProcCode))
+    ,SecondaryProcedure26 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[26].ProcCode))
+    ,SecondaryProcedure27 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[27].ProcCode))
+    ,SecondaryProcedure28 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[28].ProcCode))
+    ,SecondaryProcedure29 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[29].ProcCode))
+    ,SecondaryProcedure30 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[30].ProcCode))
+    ,SecondaryProcedure31 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[31].ProcCode))
+    ,SecondaryProcedure32 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[32].ProcCode))
+    ,SecondaryProcedure33 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[33].ProcCode))
+    ,SecondaryProcedure34 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[34].ProcCode))
+    ,SecondaryProcedure35 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[35].ProcCode))
+    ,SecondaryProcedure36 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[36].ProcCode))
+    ,SecondaryProcedure37 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[37].ProcCode))
+    ,SecondaryProcedure38 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[38].ProcCode))
+    ,SecondaryProcedure39 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[39].ProcCode))
+    ,SecondaryProcedure40 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[40].ProcCode))
+    ,SecondaryProcedure41 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[41].ProcCode))
+    ,SecondaryProcedure42 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[42].ProcCode))
+    ,SecondaryProcedure43 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[43].ProcCode))
+    ,SecondaryProcedure44 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[44].ProcCode))
+    ,SecondaryProcedure45 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[45].ProcCode))
+    ,SecondaryProcedure46 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[46].ProcCode))
+    ,SecondaryProcedure47 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[47].ProcCode))
+    ,SecondaryProcedure48 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[48].ProcCode))
+    ,SecondaryProcedure49 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[49].ProcCode))
+    ,SecondaryProcedureDate1 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[1].ProcDate))
+    ,SecondaryProcedureDate2 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[2].ProcDate))
+    ,SecondaryProcedureDate3 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[3].ProcDate))
+    ,SecondaryProcedureDate4 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[4].ProcDate))
+    ,SecondaryProcedureDate5 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[5].ProcDate))
+    ,SecondaryProcedureDate6 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[6].ProcDate))
+    ,SecondaryProcedureDate7 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[7].ProcDate))
+    ,SecondaryProcedureDate8 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[8].ProcDate))
+    ,SecondaryProcedureDate9 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[9].ProcDate))
+    ,SecondaryProcedureDate10 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[10].ProcDate))
+    ,SecondaryProcedureDate11 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[11].ProcDate))
+    ,SecondaryProcedureDate12 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[12].ProcDate))
+    ,SecondaryProcedureDate13 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[13].ProcDate))
+    ,SecondaryProcedureDate14 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[14].ProcDate))
+    ,SecondaryProcedureDate15 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[15].ProcDate))
+    ,SecondaryProcedureDate16 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[16].ProcDate))
+    ,SecondaryProcedureDate17 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[17].ProcDate))
+    ,SecondaryProcedureDate18 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[18].ProcDate))
+    ,SecondaryProcedureDate19 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[19].ProcDate))
+    ,SecondaryProcedureDate20 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[20].ProcDate))
+    ,SecondaryProcedureDate21 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[21].ProcDate))
+    ,SecondaryProcedureDate22 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[22].ProcDate))
+    ,SecondaryProcedureDate23 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[23].ProcDate))
+    ,SecondaryProcedureDate24 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[24].ProcDate))
+    ,SecondaryProcedureDate25 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[25].ProcDate))
+    ,SecondaryProcedureDate26 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[26].ProcDate))
+    ,SecondaryProcedureDate27 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[27].ProcDate))
+    ,SecondaryProcedureDate28 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[28].ProcDate))
+    ,SecondaryProcedureDate29 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[29].ProcDate))
+    ,SecondaryProcedureDate30 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[30].ProcDate))
+    ,SecondaryProcedureDate31 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[31].ProcDate))
+    ,SecondaryProcedureDate32 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[32].ProcDate))
+    ,SecondaryProcedureDate33 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[33].ProcDate))
+    ,SecondaryProcedureDate34 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[34].ProcDate))
+    ,SecondaryProcedureDate35 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[35].ProcDate))
+    ,SecondaryProcedureDate36 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[36].ProcDate))
+    ,SecondaryProcedureDate37 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[37].ProcDate))
+    ,SecondaryProcedureDate38 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[38].ProcDate))
+    ,SecondaryProcedureDate39 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[39].ProcDate))
+    ,SecondaryProcedureDate40 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[40].ProcDate))
+    ,SecondaryProcedureDate41 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[41].ProcDate))
+    ,SecondaryProcedureDate42 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[42].ProcDate))
+    ,SecondaryProcedureDate43 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[43].ProcDate))
+    ,SecondaryProcedureDate44 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[44].ProcDate))
+    ,SecondaryProcedureDate45 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[45].ProcDate))
+    ,SecondaryProcedureDate46 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[46].ProcDate))
+    ,SecondaryProcedureDate47 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[47].ProcDate))
+    ,SecondaryProcedureDate48 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[48].ProcDate))
+    ,SecondaryProcedureDate49 = trim(substring(1,120,data->pt_qual[d1.seq].Proc[49].ProcDate))
+    ,InsurancePayor = trim(substring(1,120,data->pt_qual[d1.seq].PatientInsPayor))
+    ,InsurancePlan = trim(substring(1,120,data->pt_qual[d1.seq].PatientInsPlan))
+    ,FinancialClass = trim(substring(1,80,data->pt_qual[d1.seq].PatientFinClass))
+    ,InsurancePayorFinalDRG = trim(substring(1,80,data->pt_qual[d1.seq].PatientFinalDRG))
+    ,LessThan1YrsOld = trim(substring(1,60,data->pt_qual[d1.seq].PatientAgeInDaysAtVisitFormatted))
+    ,LessThan1DischargeAge = trim(substring(1,60,data->pt_qual[d1.seq].PatientAgeInDaysAtDischargeFormatted))
+    ,BirthWeight = trim(substring(1,40,data->pt_qual[d1.seq].PaitientBirthWieghtInGramsFormatted))
+    ,NurseryLevel = trim(substring(1,80,data->pt_qual[d1.seq].PatientNurseryType))
+    ,TotalCharges = trim(substring(1,80,data->pt_qual[d1.seq].PatientTotalCharges))
+    ,NonCoveredCharges = ""
+    ,Coder = trim(substring(1,120,data->pt_qual[d1.seq].CodedBy))
+    ,AdmissionSource = trim(substring(1,80,data->pt_qual[d1.seq].PatientAdmitSource))
+    ,FacilityIdentifier = trim(substring(1,80,data->pt_qual[d1.seq].PatientFacility))
+    ,PatientLocation = trim(substring(1,80,data->pt_qual[d1.seq].PatientNurseUnit))
+ 
+from
+ 
+    (dummyt d1 with seq=value(size(data->pt_qual,5)))
+    ,(dummyt d2 with seq = 1)
+    ,(dummyt d3 with seq = 1)
+plan d1
+    where d1.seq > 0
+join d2
+join d3
+head report
+    line0 = build("MRN",delimiter,"FacNPI",delimiter,"AttNPI",delimiter,"AttnSpec",delimiter,
+            "DischNPI",delimiter,"DischSpec",delimiter,"PatID",delimiter,"MedRecNo",delimiter,
+            "AdmDate",delimiter,"DisDate",delimiter,"LOS",delimiter,"DOB",delimiter,"AgeYrs",delimiter,
+            "Sex",delimiter,"DisStat",delimiter,"DMV",delimiter,
+            "CCode1",delimiter,
+            "CCode2",delimiter,
+            "CCode3",delimiter,
+            "CCode4",delimiter,
+            "CCode5",delimiter,
+            "CCode6",delimiter,
+            "CCode7",delimiter,
+            "CCode8",delimiter,
+            "CCode9",delimiter,
+            "CCode10",delimiter,
+            "CCode11",delimiter,
+            "Admdx",delimiter,"Pridx",delimiter,"PriPOA",delimiter,
+            "Secdx1",delimiter,
+            "Secdx2",delimiter,
+            "Secdx3",delimiter,
+            "Secdx4",delimiter,
+            "Secdx5",delimiter,
+            "Secdx6",delimiter,
+            "Secdx7",delimiter,
+            "Secdx8",delimiter,
+            "Secdx9",delimiter,
+            "Secdx10",delimiter,
+            "Secdx11",delimiter,
+            "Secdx12",delimiter,
+            "Secdx13",delimiter,
+            "Secdx14",delimiter,
+            "Secdx15",delimiter,
+            "Secdx16",delimiter,
+            "Secdx17",delimiter,
+            "Secdx18",delimiter,
+            "Secdx19",delimiter,
+            "Secdx20",delimiter,
+            "Secdx21",delimiter,
+            "Secdx22",delimiter,
+            "Secdx23",delimiter,
+            "Secdx24",delimiter,
+            "Secdx25",delimiter,
+            "Secdx26",delimiter,
+            "Secdx27",delimiter,
+            "Secdx28",delimiter,
+            "Secdx29",delimiter,
+            "Secdx30",delimiter,
+            "Secdx31",delimiter,
+            "Secdx32",delimiter,
+            "Secdx33",delimiter,
+            "Secdx34",delimiter,
+            "Secdx35",delimiter,
+            "Secdx36",delimiter,
+            "Secdx37",delimiter,
+            "Secdx38",delimiter,
+            "Secdx39",delimiter,
+            "Secdx40",delimiter,
+            "Secdx41",delimiter,
+            "Secdx42",delimiter,
+            "Secdx43",delimiter,
+            "Secdx44",delimiter,
+            "Secdx45",delimiter,
+            "Secdx46",delimiter,
+            "Secdx47",delimiter,
+            "Secdx48",delimiter,
+            "Secdx49",delimiter,
+            "SecPOA1",delimiter,
+            "SecPOA2",delimiter,
+            "SecPOA3",delimiter,
+            "SecPOA4",delimiter,
+            "SecPOA5",delimiter,
+            "SecPOA6",delimiter,
+            "SecPOA7",delimiter,
+            "SecPOA8",delimiter,
+            "SecPOA9",delimiter,
+            "SecPOA10",delimiter,
+            "SecPOA11",delimiter,
+            "SecPOA12",delimiter,
+            "SecPOA13",delimiter,
+            "SecPOA14",delimiter,
+            "SecPOA15",delimiter,
+            "SecPOA16",delimiter,
+            "SecPOA17",delimiter,
+            "SecPOA18",delimiter,
+            "SecPOA19",delimiter,
+            "SecPOA20",delimiter,
+            "SecPOA21",delimiter,
+            "SecPOA22",delimiter,
+            "SecPOA23",delimiter,
+            "SecPOA24",delimiter,
+            "SecPOA25",delimiter,
+            "SecPOA26",delimiter,
+            "SecPOA27",delimiter,
+            "SecPOA28",delimiter,
+            "SecPOA29",delimiter,
+            "SecPOA30",delimiter,
+            "SecPOA31",delimiter,
+            "SecPOA32",delimiter,
+            "SecPOA33",delimiter,
+            "SecPOA34",delimiter,
+            "SecPOA35",delimiter,
+            "SecPOA36",delimiter,
+            "SecPOA37",delimiter,
+            "SecPOA38",delimiter,
+            "SecPOA39",delimiter,
+            "SecPOA40",delimiter,
+            "SecPOA41",delimiter,
+            "SecPOA42",delimiter,
+            "SecPOA43",delimiter,
+            "SecPOA44",delimiter,
+            "SecPOA45",delimiter,
+            "SecPOA46",delimiter,
+            "SecPOA47",delimiter,
+            "SecPOA48",delimiter,
+            "SecPOA49",delimiter,
+            "PriProc",delimiter,"PriProcDate",delimiter,
+            "Proc1",delimiter,
+            "Proc2",delimiter,
+            "Proc3",delimiter,
+            "Proc4",delimiter,
+            "Proc5",delimiter,
+            "Proc6",delimiter,
+            "Proc7",delimiter,
+            "Proc8",delimiter,
+            "Proc9",delimiter,
+            "Proc10",delimiter,
+            "Proc11",delimiter,
+            "Proc12",delimiter,
+            "Proc13",delimiter,
+            "Proc14",delimiter,
+            "Proc15",delimiter,
+            "Proc16",delimiter,
+            "Proc17",delimiter,
+            "Proc18",delimiter,
+            "Proc19",delimiter,
+            "Proc20",delimiter,
+            "Proc21",delimiter,
+            "Proc22",delimiter,
+            "Proc23",delimiter,
+            "Proc24",delimiter,
+            "Proc25",delimiter,
+            "Proc26",delimiter,
+            "Proc27",delimiter,
+            "Proc28",delimiter,
+            "Proc29",delimiter,
+            "Proc30",delimiter,
+            "Proc31",delimiter,
+            "Proc32",delimiter,
+            "Proc33",delimiter,
+            "Proc34",delimiter,
+            "Proc35",delimiter,
+            "Proc36",delimiter,
+            "Proc37",delimiter,
+            "Proc38",delimiter,
+            "Proc39",delimiter,
+            "Proc40",delimiter,
+            "Proc41",delimiter,
+            "Proc42",delimiter,
+            "Proc43",delimiter,
+            "Proc44",delimiter,
+            "Proc45",delimiter,
+            "Proc46",delimiter,
+            "Proc47",delimiter,
+            "Proc48",delimiter,
+            "Proc49",delimiter,
+            "ProcDate1",delimiter,
+            "ProcDate2",delimiter,
+            "ProcDate3",delimiter,
+            "ProcDate4",delimiter,
+            "ProcDate5",delimiter,
+            "ProcDate6",delimiter,
+            "ProcDate7",delimiter,
+            "ProcDate8",delimiter,
+            "ProcDate9",delimiter,
+            "ProcDate10",delimiter,
+            "ProcDate11",delimiter,
+            "ProcDate12",delimiter,
+            "ProcDate13",delimiter,
+            "ProcDate14",delimiter,
+            "ProcDate15",delimiter,
+            "ProcDate16",delimiter,
+            "ProcDate17",delimiter,
+            "ProcDate18",delimiter,
+            "ProcDate19",delimiter,
+            "ProcDate20",delimiter,
+            "ProcDate21",delimiter,
+            "ProcDate22",delimiter,
+            "ProcDate23",delimiter,
+            "ProcDate24",delimiter,
+            "ProcDate25",delimiter,
+            "ProcDate26",delimiter,
+            "ProcDate27",delimiter,
+            "ProcDate28",delimiter,
+            "ProcDate29",delimiter,
+            "ProcDate30",delimiter,
+            "ProcDate31",delimiter,
+            "ProcDate32",delimiter,
+            "ProcDate33",delimiter,
+            "ProcDate34",delimiter,
+            "ProcDate35",delimiter,
+            "ProcDate36",delimiter,
+            "ProcDate37",delimiter,
+            "ProcDate38",delimiter,
+            "ProcDate39",delimiter,
+            "ProcDate40",delimiter,
+            "ProcDate41",delimiter,
+            "ProcDate42",delimiter,
+            "ProcDate43",delimiter,
+            "ProcDate44",delimiter,
+            "ProcDate45",delimiter,
+            "ProcDate46",delimiter,
+            "ProcDate47",delimiter,
+            "ProcDate48",delimiter,
+            "ProcDate49",delimiter,
+            "Payor",delimiter,"Plan",delimiter,"Financial Class",delimiter,"DRG",delimiter,
+            "AgeDays",delimiter,"DisAgeDays",delimiter,"BirthWght",delimiter,"Nurlevel",delimiter,
+            "TotChrg",delimiter,"NonCovChrg",delimiter,"CODER",delimiter,"AdmitSrc",delimiter,
+            "Campus",delimiter,"Patient Location"
+            )
+ 
+    col 0 line0
+    row+1
+ 
+detail
+    line1= build(MedicareProviderNo,delimiter,FacilityNPI,delimiter,AttendingPhysNPI,delimiter,AttendingPhysSpecialty,delimiter,
+           AttendingPhysNPI,delimiter,AttendingPhysSpecialty,delimiter,PatientID,delimiter,MedicalRecordNo,delimiter,
+           AdmissionDate,delimiter,
+           DischargeDate,delimiter,LengthOfStay,delimiter,DateOfBirth,delimiter,AgeInYears,delimiter,
+           Sex,delimiter,DischargeStatus,delimiter,DaysOnMechanicalVentilation,delimiter,
+           ConditionCode1,delimiter,
+           ConditionCode2,delimiter,
+           ConditionCode3,delimiter,
+           ConditionCode4,delimiter,
+           ConditionCode5,delimiter,
+           ConditionCode6,delimiter,
+           ConditionCode7,delimiter,
+           ConditionCode8,delimiter,
+           ConditionCode9,delimiter,
+           ConditionCode10,delimiter,
+           ConditionCode11,delimiter,
+           AdmittingDiagnosis,delimiter,PrincipalDiagnosis,delimiter,POA,delimiter,
+           SecondaryDiagnosis1,delimiter,
+           SecondaryDiagnosis2,delimiter,
+           SecondaryDiagnosis3,delimiter,
+           SecondaryDiagnosis4,delimiter,
+           SecondaryDiagnosis5,delimiter,
+           SecondaryDiagnosis6,delimiter,
+           SecondaryDiagnosis7,delimiter,
+           SecondaryDiagnosis8,delimiter,
+           SecondaryDiagnosis9,delimiter,
+           SecondaryDiagnosis10,delimiter,
+           SecondaryDiagnosis11,delimiter,
+           SecondaryDiagnosis12,delimiter,
+           SecondaryDiagnosis13,delimiter,
+           SecondaryDiagnosis14,delimiter,
+           SecondaryDiagnosis15,delimiter,
+           SecondaryDiagnosis16,delimiter,
+           SecondaryDiagnosis17,delimiter,
+           SecondaryDiagnosis18,delimiter,
+           SecondaryDiagnosis19,delimiter,
+           SecondaryDiagnosis20,delimiter,
+           SecondaryDiagnosis21,delimiter,
+           SecondaryDiagnosis22,delimiter,
+           SecondaryDiagnosis23,delimiter,
+           SecondaryDiagnosis24,delimiter,
+           SecondaryDiagnosis25,delimiter,
+           SecondaryDiagnosis26,delimiter,
+           SecondaryDiagnosis27,delimiter,
+           SecondaryDiagnosis28,delimiter,
+           SecondaryDiagnosis29,delimiter,
+           SecondaryDiagnosis30,delimiter,
+           SecondaryDiagnosis31,delimiter,
+           SecondaryDiagnosis32,delimiter,
+           SecondaryDiagnosis33,delimiter,
+           SecondaryDiagnosis34,delimiter,
+           SecondaryDiagnosis35,delimiter,
+           SecondaryDiagnosis36,delimiter,
+           SecondaryDiagnosis37,delimiter,
+           SecondaryDiagnosis38,delimiter,
+           SecondaryDiagnosis39,delimiter,
+           SecondaryDiagnosis40,delimiter,
+           SecondaryDiagnosis41,delimiter,
+           SecondaryDiagnosis42,delimiter,
+           SecondaryDiagnosis43,delimiter,
+           SecondaryDiagnosis44,delimiter,
+           SecondaryDiagnosis45,delimiter,
+           SecondaryDiagnosis46,delimiter,
+           SecondaryDiagnosis47,delimiter,
+           SecondaryDiagnosis48,delimiter,
+           SecondaryDiagnosis48,delimiter,
+           SecondaryDiagnosisPOA1,delimiter,
+           SecondaryDiagnosisPOA2,delimiter,
+           SecondaryDiagnosisPOA3,delimiter,
+           SecondaryDiagnosisPOA4,delimiter,
+           SecondaryDiagnosisPOA5,delimiter,
+           SecondaryDiagnosisPOA6,delimiter,
+           SecondaryDiagnosisPOA7,delimiter,
+           SecondaryDiagnosisPOA8,delimiter,
+           SecondaryDiagnosisPOA9,delimiter,
+           SecondaryDiagnosisPOA10,delimiter,
+           SecondaryDiagnosisPOA11,delimiter,
+           SecondaryDiagnosisPOA12,delimiter,
+           SecondaryDiagnosisPOA13,delimiter,
+           SecondaryDiagnosisPOA14,delimiter,
+           SecondaryDiagnosisPOA15,delimiter,
+           SecondaryDiagnosisPOA16,delimiter,
+           SecondaryDiagnosisPOA17,delimiter,
+           SecondaryDiagnosisPOA18,delimiter,
+           SecondaryDiagnosisPOA19,delimiter,
+           SecondaryDiagnosisPOA20,delimiter,
+           SecondaryDiagnosisPOA21,delimiter,
+           SecondaryDiagnosisPOA22,delimiter,
+           SecondaryDiagnosisPOA23,delimiter,
+           SecondaryDiagnosisPOA24,delimiter,
+           SecondaryDiagnosisPOA25,delimiter,
+           SecondaryDiagnosisPOA26,delimiter,
+           SecondaryDiagnosisPOA27,delimiter,
+           SecondaryDiagnosisPOA28,delimiter,
+           SecondaryDiagnosisPOA29,delimiter,
+           SecondaryDiagnosisPOA30,delimiter,
+           SecondaryDiagnosisPOA31,delimiter,
+           SecondaryDiagnosisPOA32,delimiter,
+           SecondaryDiagnosisPOA33,delimiter,
+           SecondaryDiagnosisPOA34,delimiter,
+           SecondaryDiagnosisPOA35,delimiter,
+           SecondaryDiagnosisPOA36,delimiter,
+           SecondaryDiagnosisPOA37,delimiter,
+           SecondaryDiagnosisPOA38,delimiter,
+           SecondaryDiagnosisPOA39,delimiter,
+           SecondaryDiagnosisPOA40,delimiter,
+           SecondaryDiagnosisPOA41,delimiter,
+           SecondaryDiagnosisPOA42,delimiter,
+           SecondaryDiagnosisPOA43,delimiter,
+           SecondaryDiagnosisPOA44,delimiter,
+           SecondaryDiagnosisPOA45,delimiter,
+           SecondaryDiagnosisPOA46,delimiter,
+           SecondaryDiagnosisPOA47,delimiter,
+           SecondaryDiagnosisPOA48,delimiter,
+           SecondaryDiagnosisPOA49,delimiter,
+           PrincipalProcedure,delimiter,PrincipalProcedureDate,delimiter,
+           SecondaryProcedure1,delimiter,
+           SecondaryProcedure2,delimiter,
+           SecondaryProcedure3,delimiter,
+           SecondaryProcedure4,delimiter,
+           SecondaryProcedure5,delimiter,
+           SecondaryProcedure6,delimiter,
+           SecondaryProcedure7,delimiter,
+           SecondaryProcedure8,delimiter,
+           SecondaryProcedure9,delimiter,
+           SecondaryProcedure10,delimiter,
+           SecondaryProcedure11,delimiter,
+           SecondaryProcedure12,delimiter,
+           SecondaryProcedure13,delimiter,
+           SecondaryProcedure14,delimiter,
+           SecondaryProcedure15,delimiter,
+           SecondaryProcedure16,delimiter,
+           SecondaryProcedure17,delimiter,
+           SecondaryProcedure18,delimiter,
+           SecondaryProcedure19,delimiter,
+           SecondaryProcedure20,delimiter,
+           SecondaryProcedure21,delimiter,
+           SecondaryProcedure22,delimiter,
+           SecondaryProcedure23,delimiter,
+           SecondaryProcedure24,delimiter,
+           SecondaryProcedure25,delimiter,
+           SecondaryProcedure26,delimiter,
+           SecondaryProcedure27,delimiter,
+           SecondaryProcedure28,delimiter,
+           SecondaryProcedure29,delimiter,
+           SecondaryProcedure30,delimiter,
+           SecondaryProcedure31,delimiter,
+           SecondaryProcedure32,delimiter,
+           SecondaryProcedure33,delimiter,
+           SecondaryProcedure34,delimiter,
+           SecondaryProcedure35,delimiter,
+           SecondaryProcedure36,delimiter,
+           SecondaryProcedure37,delimiter,
+           SecondaryProcedure38,delimiter,
+           SecondaryProcedure39,delimiter,
+           SecondaryProcedure40,delimiter,
+           SecondaryProcedure41,delimiter,
+           SecondaryProcedure42,delimiter,
+           SecondaryProcedure43,delimiter,
+           SecondaryProcedure44,delimiter,
+           SecondaryProcedure45,delimiter,
+           SecondaryProcedure46,delimiter,
+           SecondaryProcedure47,delimiter,
+           SecondaryProcedure48,delimiter,
+           SecondaryProcedure49,delimiter,
+           SecondaryProcedureDate1,delimiter,
+           SecondaryProcedureDate2,delimiter,
+           SecondaryProcedureDate3,delimiter,
+           SecondaryProcedureDate4,delimiter,
+           SecondaryProcedureDate5,delimiter,
+           SecondaryProcedureDate6,delimiter,
+           SecondaryProcedureDate7,delimiter,
+           SecondaryProcedureDate8,delimiter,
+           SecondaryProcedureDate9,delimiter,
+           SecondaryProcedureDate10,delimiter,
+           SecondaryProcedureDate11,delimiter,
+           SecondaryProcedureDate12,delimiter,
+           SecondaryProcedureDate13,delimiter,
+           SecondaryProcedureDate14,delimiter,
+           SecondaryProcedureDate15,delimiter,
+           SecondaryProcedureDate16,delimiter,
+           SecondaryProcedureDate17,delimiter,
+           SecondaryProcedureDate18,delimiter,
+           SecondaryProcedureDate19,delimiter,
+           SecondaryProcedureDate20,delimiter,
+           SecondaryProcedureDate21,delimiter,
+           SecondaryProcedureDate22,delimiter,
+           SecondaryProcedureDate23,delimiter,
+           SecondaryProcedureDate24,delimiter,
+           SecondaryProcedureDate25,delimiter,
+           SecondaryProcedureDate26,delimiter,
+           SecondaryProcedureDate27,delimiter,
+           SecondaryProcedureDate28,delimiter,
+           SecondaryProcedureDate29,delimiter,
+           SecondaryProcedureDate30,delimiter,
+           SecondaryProcedureDate31,delimiter,
+           SecondaryProcedureDate32,delimiter,
+           SecondaryProcedureDate33,delimiter,
+           SecondaryProcedureDate34,delimiter,
+           SecondaryProcedureDate35,delimiter,
+           SecondaryProcedureDate36,delimiter,
+           SecondaryProcedureDate37,delimiter,
+           SecondaryProcedureDate38,delimiter,
+           SecondaryProcedureDate39,delimiter,
+           SecondaryProcedureDate40,delimiter,
+           SecondaryProcedureDate41,delimiter,
+           SecondaryProcedureDate42,delimiter,
+           SecondaryProcedureDate43,delimiter,
+           SecondaryProcedureDate44,delimiter,
+           SecondaryProcedureDate45,delimiter,
+           SecondaryProcedureDate46,delimiter,
+           SecondaryProcedureDate47,delimiter,
+           SecondaryProcedureDate48,delimiter,
+           SecondaryProcedureDate49,delimiter,
+           InsurancePayor,delimiter,
+           InsurancePlan,delimiter,
+           FinancialClass,delimiter,
+           InsurancePayorFinalDRG,delimiter,
+           LessThan1YrsOld,delimiter,
+           LessThan1DischargeAge,delimiter,
+           BirthWeight,delimiter,
+           NurseryLevel,delimiter,
+           TotalCharges,delimiter,
+           NonCoveredCharges,delimiter,
+           Coder,delimiter,
+           AdmissionSource,delimiter,
+           FacilityIdentifier,delimiter,
+           PatientLocation
+            )
+    col 0 line1
+    row+1
+ 
+ 
+ 
+with nocounter,format=variable,separator="|",noheading,nullreport,maxrow=1,maxcol=100000
+endif
+end
+go
