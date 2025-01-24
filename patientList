@@ -1,0 +1,75 @@
+drop program 1_maur_tn_patient_list go
+create program 1_maur_tn_patient_list
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Facility" = 0
+ 
+with OUTDEV, FAC
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare HOME_VAR = f8
+SET HOME_VAR = uar_get_code_by("MEANING",212,"HOME")
+ 
+declare EMAIL_VAR = f8
+SET EMAIL_VAR = uar_get_code_by("MEANING",212,"EMAIL")
+ 
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+;    Your Code Goes Here
+SELECT DISTINCT INTO $OUTDEV
+	P.NAME_FULL_FORMATTED
+	, E_LOC_FACILITY_DISP = UAR_GET_CODE_DISPLAY(E.LOC_FACILITY_CD)
+	, A.STREET_ADDR
+	, A.STREET_ADDR2
+	, A.CITY
+	, A_STATE_DISP = UAR_GET_CODE_DISPLAY(A.STATE_CD)
+	, A.ZIPCODE
+	, PH.PHONE_NUM
+	, EMAIL_ADDR = AD.STREET_ADDR
+ 
+ 
+FROM
+	PERSON   P
+	, ENCOUNTER   E
+	, ADDRESS   A
+	, ADDRESS   AD
+	, PHONE   PH
+ 
+PLAN p
+ 
+JOIN e WHERE e.person_id = p.person_id
+AND e.loc_facility_cd = $FAC
+ 
+JOIN a WHERE a.parent_entity_id = p.person_id
+and a.address_type_cd = home_var
+and a.active_ind = 1
+ 
+JOIN ad WHERE ad.parent_entity_id = OUTERJOIN(p.person_id)
+and ad.address_type_cd = email_var
+and ad.active_ind = 1
+JOIN ph WHERE ph.parent_entity_id = p.person_id
+and ph.parent_entity_name = "PERSON"
+and ph.active_ind = 1
+ 
+ORDER BY
+	P.NAME_FULL_FORMATTED
+ 
+WITH NOCOUNTER, SEPARATOR=" ", FORMAT
+ 
+ 
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 
+ 
