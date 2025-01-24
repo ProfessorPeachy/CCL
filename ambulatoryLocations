@@ -1,0 +1,454 @@
+drop program 1_amj_tn_amb_loc_patients go
+create program 1_amj_tn_amb_loc_patients
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"          ;* Enter or select the printer or file name to send this report to.
+	, "Arrival/Discharge Begin Date:" = "CURDATE"
+	, "Arrival/Discharge End Date:" = "CURDATE"
+	, "Select Ambulatory Location" = 0 
+
+with OUTDEV, START_DATE, END_DATE, LOC
+
+
+/*
+loc prompt
+select 
+    ID              = cv.code_value
+    ,NAME           = cv.display
+from 
+     code_value cv
+    ,location l
+plan l
+    where l.location_type_cd = 772; ambulatory_cd;772.00 ;ambulatory code from cs 222
+    and l.active_ind = 1
+    join cv
+where cv.code_value = l.location_cd
+    and cv.active_ind = 1
+order by name asc
+
+*/
+
+
+
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+;declare bdate = vc 
+;declare eDate = vc
+;set bdate = build2($START_DATE, " 00:00:00")), protect
+;set edate build2($END_DATE, " 23:59:59"))),protect
+;
+
+;select count(*) from person p
+;where p.person_id > 0
+
+declare mobile_phone_var 	= f8 with constant(uar_get_code_by("DISPLAYKEY",43,"MOBILE")),protect ;      4149712.00
+declare email_adr_var 		= f8 with constant(uar_get_code_by("DISPLAYKEY",212,"EMAIL")),protect ;1152
+;
+;select 
+;    ID              = cv.code_value
+;    ,NAME           = cv.display
+;    ,uar_get_code_display(cv.code_value)
+;from 
+;     code_value cv
+;    ,location l
+;plan l
+;    where l.location_type_cd = 772; ambulatory_cd;772.00 ;ambulatory code from cs 222
+;    and l.active_ind = 1
+;    join cv
+;where cv.code_value = l.location_cd
+;    and cv.active_ind = 1
+;order by name asc
+;
+;
+;
+;
+;;patient phone numbers
+;select into "NL:"
+;    ph.phone_num
+;    ,ph.phone_type_cd
+;    ,uar_get_code_display(ph.phone_type_cd)
+;from
+;    phone   ph
+;    ,(dummyt d1 with seq = value(size(rec->patients,5)))
+;plan d1
+;	where d1.seq> 0     
+;;plan ph
+;;    where expand(num,1,size(rec->patients,5),ph.parent_entity_id,rec->patients[num].pid)
+;join ph
+;	where ph.parent_entity_id = rec->patients[d1.seq].pid
+;      and ph.phone_type_cd in (mobile_phone_var)
+;      and ph.active_ind = 1
+;      and ph.end_effective_dt_tm >= cnvtdate(12302100)
+;order by
+;    ph.parent_entity_id
+;;head ph.parent_entity_id
+;;    pos = locateval(num,1,size(rec->patients,5),ph.parent_entity_id,rec->patients[num].pid)
+;detail
+;    if(ph.phone_type_cd = home_phone_var)
+;        rec->patients[d1.seq].pat_home_phone = format(ph.phone_num,"###-###-####")
+;    elseif(ph.phone_type_cd = mobile_phone_var)
+;        rec->patients[d1.seq].pat_mobile_phone = format(ph.phone_num,"###-###-####")
+;    endif
+;with nocounter,format, separator = " "; expand=1,time=3900
+;
+;
+;
+;
+
+
+free record rec
+record rec
+(
+	1 cnt							= i4
+	1 begindate						= vc
+	1 enddate						= vc
+	1 begindateDQ8					= dq8
+	1 enddateDQ8					= dq8
+	1 patients[*]
+		2 ecnt						= i4
+		2 mrn						= c20
+		2 fin						= vc
+		2 personid					= f8
+		2 fname						= c100 	;02_patient name		;(last,first m)
+		2 lname						= c100 	;02_patient name		;(last,first m)
+		2 dob						= c10 	;04_patient dob		;(mm/dd/ccyy
+		2 address					= c200 	;07_patient address
+		2 city						= c100 	;09_patient city
+		2 state						= c100 	;10_patient state	;(post office standard)
+		2 zip						= c20 	;11_patient zip code	;(xxxxx-xxxx)
+		2 country					= c100 	;11_patient country code	;(xxxxx-xxxx)
+		2 home_phone				= c20 	;12_patient home phone	;(xxx-xxx-xxxx)
+		2 mobile_phone				= c20 	;12_patient mobile phone	;(xxx-xxx-xxxx)
+		2 email						= c100
+)
+
+declare ecnt				= i4 with protect, noconstant(0)
+declare tempAddress			= vc with protect, noconstant("")
+declare tempPhone			= vc with protect, noconstant("")
+
+declare home_address_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'HOME'))
+declare email_address_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 212, 'EMAIL'))
+declare mobile_phone_cd 	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'MOBILE'))
+declare home_phone_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 43, 'HOME'))
+declare female_sex_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 57, 'FEMALE'))
+declare mrn_cd				= f8 with constant(uar_get_code_by("MEANING",4,"MRN"));2.0
+
+DECLARE randomAmt =i4 with protect, constant(600)  ;CHANGE THIS TO GENERATE A DIFFERENT SAMPLE AMOUNT
+
+;males over the age of 45 in certain zipcodes
+;Maury County: 38401, 37174, 38474, 38451, 38482, 38461, 38487
+;                - Lewis County: 38462
+;                - Marshall County: 37091, 37047, 37034, 37109, 37144
+select distinct into $outdev
+	p.person_id
+;      ,P.name_first
+;      ,P.name_last
+;      ,p.birth_dt_tm
+;      ,age = cnvtage(p.birth_dt_tm)
+;      ,sex = uar_get_code_display(p.sex_cd)
+;      ,a.zipcode_key
+;      ,email_address = a2.street_addr
+from
+;	
+	encounter e
+	,person p
+;	,phone   ph
+;	,address a
+;	,address a2
+plan e
+	where e.beg_effective_dt_tm <= CNVTLOOKBEHIND("1,M", CNVTDATETIME(CURDATE,CURTIME3))
+;	AND E.loc_facility_cd = $LOC
+join p
+	where p.person_id = e.person_id
+	and p.sex_cd		= female_sex_cd
+ 	and p.name_last_key 			not like "ZZ*"
+	and p.name_first_key 			not like "ZZ*"
+	and p.name_last_key 			not like "*XCERNER"
+	and p.name_last_key 			!= "CERNER"
+	and p.active_ind 				= 1	
+	
+;join a2
+;	where a2.parent_entity_id 		= p.person_id		
+;	and a2.parent_entity_name 		= 'PERSON'
+;	and a2.active_ind 				= 1
+;	and a2.address_type_cd 			= email_address_cd
+;	and operator(a2.street_addr, "REGEXPLIKE","*@.\.*")  ;email addres
+;order by p.name_last_key, p.name_first_key, p.name_middle_key, p.birth_dt_tm
+head report
+	call echo("head report")
+    ecnt = 0
+    stat = alterlist(rec->patients, 100)
+head p.person_id
+	CALL ECHO(ECNT)
+	ecnt += 1
+	rec->cnt = ecnt
+ 
+    if(mod(rec->cnt,99) = 1 and rec->cnt != 1)
+      stat = alterlist(rec->patients , ecnt + 99)
+    endif
+    
+    rec->patients[ecnt].personid 						= p.person_id
+    rec->patients[ecnt].fname 							= p.name_first
+    rec->patients[ecnt].lname 							= p.name_last
+    rec->patients[ecnt].dob 							= format(p.birth_dt_tm, "mm/dd/yyyy") 	
+				
+foot report
+	 stat = alterlist(rec->patients, ecnt)
+with nocounter, format, separator = " ", maxrec= 100
+;
+;patient phone numbers
+select into "NL:"
+    ph.phone_num
+    ,ph.phone_type_cd
+    ,uar_get_code_display(ph.phone_type_cd)
+from
+    phone   ph
+    ,(dummyt d1 with seq = value(size(rec->patients,5)))
+plan d1
+	where d1.seq> 0     
+join ph
+	where ph.parent_entity_id = rec->patients[d1.seq].personid
+      and ph.phone_type_cd in (mobile_phone_var)
+      and ph.active_ind = 1
+      and ph.end_effective_dt_tm >= cnvtdate(12302100)
+order by
+    ph.parent_entity_id
+detail
+        rec->patients[d1.seq].mobile_phone = format(ph.phone_num,"###-###-####")
+
+with nocounter,format, separator = " "; expand=1,time=3900
+
+
+;patient addresses and patient email
+select into "NL:"
+    a.address_id
+from
+    address a
+    ,(dummyt d1 with seq = value(size(rec->patients,5)))
+plan d1
+	where d1.seq> 0
+join a
+	where a.parent_entity_id = rec->patients[d1.seq].personid
+      and a.parent_entity_name = "PERSON"
+      and a.address_type_cd in (email_adr_var)
+      and operator(a.street_addr, "REGEXPLIKE","*@.\.*")  ;email addres
+      and a.active_ind = 1
+      and a.end_effective_dt_tm >= cnvtdate(12302100)	
+order by
+    a.parent_entity_id      
+detail
+ 		rec->patients[d1.seq].email = trim(a.street_addr)
+with nocounter,expand=1,time=3900
+
+
+;;GENERATE RANDOM SAMPLE OF NON-DECEASED PATIENTS, BUT ONLY PULL PATIENTS WHO HAVE A HOME ADDRESS
+;select into $outdev; "nl:"
+;  il1.cnt
+;  ,il2.*
+;from
+;  ((select
+;      cnt = count(*)
+;    from
+;      person p
+;	,(inner join encounter e on e.person_id = p.person_id)
+;    where 	p.deceased_cd  			!= 684729.00 ; yes
+;	and p.name_last_key not like "ZZ*"
+;	and p.name_first_key not like "ZZ*"
+;	and p.name_last_key not like "*XCERNER"
+;	and  	p.active_ind 			= 1	
+;	and  (e.arrive_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)
+;	or e.disch_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date))
+;	AND E.active_ind 	=1
+;    with sqltype("i4")) il1)
+;  , ((select distinct
+;      p.person_id
+;      ,P.name_first
+;      ,P.name_last
+;      ,p.birth_dt_tm
+;      ,a.address_type_cd
+;      ,a.street_addr
+;      ,A.street_addr2
+;      ,A.street_addr3
+;      ,A.street_addr4
+;      ,A.city
+;      ,A.state
+;      ,A.state_cd
+;      ,A.zipcode
+;      ,A.country_cd
+;      , rnum = row_number() over (order by sqlpassthru("dbms_random.random", 0.0))
+;    from
+;      person p
+;      ,(inner join encounter e on e.person_id = p.person_id)
+;	  ,(inner join address a on a.parent_entity_id = p.person_id)	
+;    where 	p.deceased_cd  			!= 684729.00 ; yes
+;	and p.name_last_key not like "ZZ*"
+;	and p.name_first_key not like "ZZ*"
+;	and p.name_last_key not like "*XCERNER"
+;	and p.active_ind 			= 1	
+;	and  (e.arrive_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)
+;	or e.disch_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date))
+;	AND E.active_ind 	=1
+;	and a.parent_entity_name = 'PERSON'
+;	and a.active_ind = 1
+;	and a.address_type_cd IN (home_address_cd)		
+;    order by rnum
+;	with sqltype("f8","C100","C100","DQ8","f8","C100","C100","C100","C100","C100","C100","F8","C25","F8","i4"))il2)
+;plan il1
+;join il2 
+;	where il2.rnum <= randomAmt ;  (il1.cnt*0.002)
+;	
+;	
+;ORDER BY IL2.PERSON_ID
+;head report
+;	call echo("head report")
+;    ecnt = 0
+;    stat = alterlist(rec->patients, 100)
+;head IL2.person_id
+;	CALL ECHO(ECNT)
+;	ecnt += 1
+;	rec->cnt = ecnt
+; 
+;    if(mod(rec->cnt,99) = 1 and rec->cnt != 1)
+;      stat = alterlist(rec->patients , ecnt + 99)
+;    endif
+;    
+;    rec->patients[ecnt].personid 						= IL2.person_id
+;    rec->patients[ecnt].fname 							= IL2.name_first
+;    rec->patients[ecnt].lname 							= IL2.name_last
+;    rec->patients[ecnt].dob 							= format(IL2.birth_dt_tm, "mm/dd/yyyy") 	
+;detail
+;	tempAddress = IL2.street_addr
+; 
+; 	;email
+; 	if (IL2.address_type_cd = email_address_cd)
+; 		rec->patients[ecnt].email = tempAddress
+; 	;home address
+; 	elseif (IL2.address_type_cd = home_address_cd)
+; 		if (trim(IL2.street_addr,3) > " ")
+;	   		tempAddress = build2(tempAddress, ', ', IL2.street_addr)
+;	   	endif
+;	   	
+;	   	if (trim(IL2.street_addr2,3) > " ")
+;	   		tempAddress = build2(tempAddress, ', ', IL2.street_addr2)
+;	   	endif
+; 
+;	   	if (trim(IL2.street_addr3,3) > " ")
+;	    	tempAddress = build2(tempAddress, ', ', IL2.street_addr3)
+;	   	endif
+; 
+;	   	if (trim(IL2.street_addr4,3) > " ")
+;	   		tempAddress = build2(tempAddress, ', ', IL2.street_addr4)
+;	   	endif
+;	 	rec->patients[ecnt].address 	= trim(substring(1,100,tempAddress),3)
+;	 	rec->patients[ecnt].city 		= trim(substring(1,100,IL2.city),3)
+;	 	rec->patients[ecnt].state		= trim(substring(1,100,uar_get_code_display(IL2.state_cd)),3)
+;	 	rec->patients[ecnt].zip			= trim(substring(1,5,IL2.zipcode),3)
+;	 	rec->patients[ecnt].country		= trim(substring(1,100,uar_get_code_display(IL2.country_cd)),3)
+; 	endif    													
+;foot report
+;	 stat = alterlist(rec->patients, ecnt)
+;;with nocounter, format, separator = " ", time = 600, format(DATE, "@SHORTDATETIME")
+;with nocounter, format, separator = " ", time = 600, maxrec = 2000
+;
+;
+;
+;
+;;;GET PATIENT EMAIL ADDRESS
+;select into 'nl:'
+;	pid =  rec->patients[d1.seq].personid
+;	,A.city
+;	,a.address_id
+;	,state = a.state
+;	,A.zipcode
+;	,a.street_addr
+;	,a.street_addr2
+;	,address_type = uar_get_code_display(a.address_type_cd)
+;	,a.country
+;	,country = uar_get_code_display(a.country_cd)
+;	,email		= if (a.address_type_cd = 755)
+;					a.street_addr
+;				  endif
+;from
+;	ADDRESS A
+;	,(dummyt d1 with seq = value(size(rec->patients,5)))
+;plan d1
+;	where rec->patients[d1.seq].personid > 0
+;join a
+;	where a.parent_entity_id = rec->patients[d1.seq].personid
+;	and a.parent_entity_name = 'PERSON'
+;	and a.active_ind = 1
+;	and a.address_type_cd = email_address_cd
+;order by pid, a.address_id
+;head pid
+;	null
+;detail
+; 	rec->patients[d1.seq].email = a.street_addr
+;with nocounter, format, separator=' ',time = 600,check
+;
+;
+;;;;GET PATIENT HOME PHONE AND MOBILE PHONE
+;select into 'nl:'
+;	 pid 		=  rec->patients[d1.seq].personid
+;	,patientFirst = rec->patients[d1.seq].fname
+;	,last		=rec->patients[d1.seq].lname
+;	,phone_type = uar_get_code_display(ph.phone_type_cd)
+;	,ph.phone_type_cd
+;	,ph.phone_type_seq
+;	,ph.phone_num
+;	,ph.phone_num_key
+;	,home_phone	= if (ph.phone_type_cd = home_phone_cd)
+;					ph.phone_num
+;				  endif
+;	,mobile_phone = if (ph.phone_type_cd = MOBILE_phone_cd)
+;					ph.phone_num
+;				  endif
+;from
+;	phone ph
+;	,(dummyt d1 with seq = value(size(rec->patients,5)))
+;plan d1
+;	where rec->patients[d1.seq].personid > 0
+;join ph
+;	where ph.parent_entity_id = rec->patients[d1.seq].personid
+;	and ph.phone_type_cd in (mobile_phone_cd,home_phone_cd)
+;	and ph.parent_entity_name = "PERSON"
+;	and ph.active_ind = 1
+;order by pid
+;head pid
+;	null
+;detail
+;	tempPhone = cnvtphone(ph.phone_num_key,ph.phone_type_cd,2)		;(###)###-####
+;	;tempPhone = replace(replace(replace(tempPhone,")","-"),"(","")," ","")  ;REMOVE PARENTHESIS AND SPACES
+;	if (ph.phone_type_cd = mobile_phone_cd)
+;		rec->patients[d1.seq].mobile_phone = tempPhone
+;	elseif (ph.phone_type_cd = home_phone_cd)
+;		rec->patients[d1.seq].home_phone 	= tempPhone
+;	endif
+;with nocounter, format, separator=' ',time = 600,check 
+;
+;
+;FINAL OUTPUT TO SCREEN
+select into $OUTDEV
+	PERSONID 		= rec->patients[d1.seq].personid 
+	,FIRST_NAME 	= trim(substring(1,50,rec->patients[d1.seq].fname),3)
+	,LAST_NAME 		= trim(substring(1,50,rec->patients[d1.seq].lname),3) 
+	,DOB 			= trim(substring(1,10,rec->patients[d1.seq].dob),3) 
+;	,ADDRESS 		= trim(substring(1,50,rec->patients[d1.seq].address),3) 
+;	,CITY 			= trim(substring(1,50,rec->patients[d1.seq].city),3) 
+;	,STATE 			= trim(substring(1,20,rec->patients[d1.seq].state),3) 
+;	,ZIP 			= trim(substring(1,20,rec->patients[d1.seq].zip),3) 
+;	,COUNTRY 		= trim(substring(1,20,rec->patients[d1.seq].country),3) 
+;	,HOME_PHONE 	= trim(substring(1,20,rec->patients[d1.seq].home_phone),3) 
+	,MOBILE_PHONE 	= trim(substring(1,20,rec->patients[d1.seq].mobile_phone),3) 
+	,EMAIL 			= trim(substring(1,50,rec->patients[d1.seq].email),3) 
+	
+from
+	(dummyt d1 with seq = value(size(rec->patients,5)))
+plan d1
+	where rec->patients[d1.seq].personid > 0
+with nocounter, format, separator=' ',time = 600,check 
+
+
+end
+go
