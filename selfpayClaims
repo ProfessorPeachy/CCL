@@ -1,0 +1,939 @@
+drop program amj_selfpay_clm:dba go
+create program amj_selfpay_clm:dba
+ 
+
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+declare LoadOutAlias (s_code_set = vc, f_contrib_sys_cd = f8 ) = i2
+declare GetAlias (f_cv = f8, f_contrib_sys_cd = f8 ) = vc
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare ms_file_path = vc with protect, noconstant(cnvtlower(trim($1,3)))
+declare ms_dt = vc with protect, constant(trim(format(cnvtdatetime(curdate,curtime3),'YYYYMMDD;;q'),3))
+ 
+declare mf_cs73_HL7STDSRC_CD = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",73,"HL7STDSRC"))
+ 
+declare mf_cs21849_PATIENTSTATEMENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!506683'))
+declare mf_cs319_FIN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2930'))
+declare mf_cs319_MRN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!8021'))
+ 
+declare mf_cs71_INPATIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3958'))
+ 
+declare mf_cs57_FEMALE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2774'))
+declare mf_cs57_MALE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2773'))
+ 
+declare mf_cs38_SINGLE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!6264'))
+declare mf_cs38_MARRIED_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!6263'))
+declare mf_cs38_WIDOW_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!24472'))
+ 
+declare mf_cs27_HISPANIC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!1003004'))
+ 
+declare mf_cs282_BLACK_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3947'))
+declare mf_cs282_WHITE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3949'))
+declare mf_cs282_ASIAN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3948'))
+declare mf_cs282_AMINDIAN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3951'))
+declare mf_cs282_PACISL_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4001382942'))
+ 
+declare mf_cs282_DECLINE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4001368871'))
+declare mf_cs282_UNAVAILABLE_CD = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',282,'UNAVAILABLE'))
+ 
+declare mf_cs354_SELFPAY_CD = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',354,'SELFPAY'))
+ 
+declare mf_cs212_HOME_ADDR_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4018'))
+declare mf_cs43_HOME_PHONE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4017'))
+declare mf_cs4_SSN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2626'))
+ 
+declare mf_cs351_INSURED_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9521'))
+declare mf_cs27121_HEALTHPLANALIAS_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2961173'))
+ 
+declare mf_cs320_DOCDEA_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9850'))
+declare mf_cs320_DOCUPIN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9854'))
+declare mf_cs320_NPI_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2160654021'))
+declare mf_cs320_LICENSENBR_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9851'))
+declare mf_cs320_OTHER_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!9852'))
+declare mf_cs320_PRSNLPRIMID_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3756043'))
+declare mf_cs263_DICTATION_CD = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',263,'DICTATION'))
+ 
+declare mf_cs333_ADMITDOC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4023'))
+declare mf_cs333_ATTENDDOC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4024'))
+declare mf_cs333_REFERDOC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4597'))
+declare mf_cs333_EDDOC_CD = f8 with protect, constant(uar_get_code_by('DISPLAYKEY',333,'EDPHYSICIAN'))
+ 
+declare mf_cs333_PCPDOC_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4593'))
+declare mf_cs400_MSDRG_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2570183840'))
+ 
+declare mf_cs400_ICD10_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4101498946'))
+declare mf_cs400_CPT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2954'))
+declare mf_cs400_ICD10PCS_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!4101496118'))
+ 
+declare mf_cs17_FINAL_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!13984'))
+declare mf_cs17_ADMIT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!17001'))
+ 
+declare mf_cs14002_CPT4_CD = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3600"))
+declare mf_cs14002_HCPCS_CD = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!507597"))
+ 
+declare ml_idx1 = i4 with protect, noconstant(0)
+declare ml_idx2 = i4 with protect, noconstant(0)
+declare ml_idx3 = i4 with protect, noconstant(0)
+ 
+declare mf_billng_entity_id = f8 with protect, noconstant(0.0)
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+free record m_out_alias
+record m_out_alias(
+  1 l_cs_cnt = i4
+  1 qual[*]
+    2 f_code_set = f8
+    2 l_cv_cnt = i4
+    2 qual[*]
+     3 f_code_value = f8
+     3 s_alias = vc
+     3 f_contrib_sys_cd = f8) with protect
+ 
+free record m_rec
+record m_rec(
+  1 l_cnt = i4
+  1 qual[*]
+    2 f_encntr_id = f8
+    2 f_pe_encntr_id = f8
+    2 f_person_id = f8
+    2 s_mrn = vc
+    2 s_fin = vc
+    2 s_pat_name = vc
+    2 s_pat_class = vc
+    2 s_dob = vc
+    2 s_gender = vc
+    2 s_ssn = vc
+    2 s_addr1 = vc
+    2 s_addr2 = vc
+    2 s_city = vc
+    2 s_state = vc
+    2 s_zip = vc
+    2 s_pat_home_phone = vc
+    2 s_loc_service = vc
+    2 s_admit_dt = vc
+    2 s_disch_dt = vc
+    2 s_race = vc
+    2 s_marital_stat = vc
+    2 f_admit_phys_id = f8
+    2 s_admit_phys_name = vc
+    2 s_admit_phys_upin = vc
+    2 s_admit_phys_npi = vc
+    2 s_admit_phys_doc_nbr = vc
+    2 s_admit_phys_dea = vc
+    2 s_admit_phys_license = vc
+    2 s_admit_phys_speciality = vc
+    2 f_attend_phys_id = f8
+    2 s_attend_phys_name = vc
+    2 s_attend_phys_upin = vc
+    2 s_attend_phys_npi = vc
+    2 s_attend_phys_doc_nbr = vc
+    2 s_attend_phys_dea = vc
+    2 s_attend_phys_license = vc
+    2 s_attend_phys_speciality = vc
+    2 f_er_phys_id = f8
+    2 s_er_phys_name = vc
+    2 s_er_phys_upin = vc
+    2 s_er_phys_npi = vc
+    2 s_er_phys_doc_nbr = vc
+    2 s_er_phys_dea = vc
+    2 s_er_phys_license = vc
+    2 s_er_phys_speciality = vc
+    2 f_refer_phys_id = f8
+    2 s_refer_phys_name = vc
+    2 s_refer_phys_upin = vc
+    2 s_refer_phys_npi = vc
+    2 s_refer_phys_doc_nbr = vc
+    2 s_refer_phys_dea = vc
+    2 s_refer_phys_license = vc
+    2 s_refer_phys_speciality = vc
+    2 f_prim_care_phys_id = f8
+    2 s_prim_care_phys_name = vc
+    2 s_prim_care_phys_upin = vc
+    2 s_prim_care_phys_npi = vc
+    2 s_prim_care_phys_doc_nbr = vc
+    2 s_prim_care_phys_dea = vc
+    2 s_prim_care_phys_license = vc
+    2 s_prim_care_phys_speciality = vc
+    2 f_other1_phys_id = f8
+    2 s_other1_phys_name = vc
+    2 s_other1_phys_upin = vc
+    2 s_other1_phys_npi = vc
+    2 s_other1_phys_doc_nbr = vc
+    2 s_other1_phys_dea = vc
+    2 s_other1_phys_license = vc
+    2 s_other1_phys_speciality = vc
+    2 f_other2_phys_id = f8
+    2 s_other2_phys_name = vc
+    2 s_other2_phys_upin = vc
+    2 s_other2_phys_npi = vc
+    2 s_other2_phys_doc_nbr = vc
+    2 s_other2_phys_dea = vc
+    2 s_other2_phys_license = vc
+    2 s_other2_phys_speciality = vc
+    2 s_drg = vc
+    2 s_reason_for_visit = c200;vc per request modified field to be max 200 char
+    2 s_icd_ind = vc ;default to 0 for ICD-10
+    2 s_admit_diag = vc
+    2 l_dg_cnt = i4
+    2 diag[20]
+      3 f_diag_id = f8
+      3 s_diag_icd = vc
+      3 s_diag_desc = vc
+    2 l_pr_cnt = i4
+    2 proc[20]
+      3 f_proc_id = f8
+      3 s_proc_icd = vc
+      3 s_proc_desc = vc
+    2 l_cpt_cnt = i4
+    2 cpt[20]
+      3 s_cpt = vc
+    2 l_ins_cnt = i4
+    2 ins[*]
+      3 f_health_plan_id = f8
+      3 s_ins_alias = vc
+      3 s_ins_name = vc
+      3 s_group_num = vc
+      3 s_policy_num = vc
+      3 s_priority = vc
+      3 s_reltn_to_sub = vc
+  ) with protect
+ 
+ 
+free record frec
+record frec(
+  1 file_desc = i4
+  1 file_offset = i4
+  1 file_dir = i4
+  1 file_name = vc
+  1 file_buf = vc) with protect
+ 
+set frec->file_name = concat(ms_file_path,ms_dt,"_",trim(cnvtlower($2),3),"_self_pay_new")
+;set frec->file_name = concat(ms_file_path,"20221222_mmc_self_pay_new.txt")
+set frec->file_buf = "w"
+ 
+call LoadOutAlias("220", mf_cs73_HL7STDSRC_CD)
+ 
+;get billing entity id
+select into 'nl:'
+  from billing_entity be
+ where be.active_ind = 1
+   and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+   and ((be.be_name_key = 'MAURYREGIONALMEDICALCENTER' and trim(cnvtupper($2),3) = 'MRMC')
+     or (be.be_name_key = 'MARSHALLMEDICALCENTER' and trim(cnvtupper($2),3) = 'MMC')
+     or (be.be_name_key = 'RHC' and trim(cnvtupper($2),3) = 'RHC')) ;001 AMJ
+detail
+  mf_billng_entity_id = be.billing_entity_id
+with nocounter
+ 
+select into 'nl:'
+  from bill_rec br,
+       bill_reltn brt,
+       bo_hp_reltn bhr,
+       benefit_order bo,
+       pft_encntr pe,
+       ;billing_entity be,
+       encntr_alias ea1,
+       encntr_alias ea2,
+       encounter e,
+       person p
+plan br
+  where br.gen_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+;    where br.gen_dt_tm between cnvtdatetime(cnvtdate(12222022),0) and cnvtdatetime(cnvtdate(12222022),235959)
+    and br.active_ind = 1
+    and br.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and br.bill_class_cd = mf_cs21849_PATIENTSTATEMENT_CD
+join brt
+  where brt.corsp_activity_id = br.corsp_activity_id
+    and brt.parent_entity_name = 'BO_HP_RELTN'
+    and brt.active_ind = 1
+    and brt.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join bhr
+  where bhr.bo_hp_reltn_id = brt.parent_entity_id
+    and bhr.active_ind = 1
+    and bhr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join bo
+  where bo.benefit_order_id = bhr.benefit_order_id
+    and bo.active_ind = 1
+    and bo.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join pe
+  where pe.pft_encntr_id = bo.pft_encntr_id
+    and pe.active_ind = 1
+    and pe.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and pe.fin_class_cd in (mf_cs354_SELFPAY_CD)
+    and pe.billing_entity_id = mf_billng_entity_id
+;join be
+;  where be.billing_entity_id = pe.billing_entity_id
+;    and be.active_ind = 1
+;    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;    and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER')
+join ea1
+  where ea1.encntr_id = pe.encntr_id
+    and ea1.active_ind = 1
+    and ea1.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea1.encntr_alias_type_cd = mf_cs319_FIN_CD
+join ea2
+  where ea2.encntr_id = pe.encntr_id
+    and ea2.active_ind = 1
+    and ea2.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea2.encntr_alias_type_cd = mf_cs319_MRN_CD
+join e
+  where e.encntr_id = pe.encntr_id
+    and e.active_ind = 1
+    and e.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join p
+  where p.person_id = e.person_id
+    and p.active_ind = 1
+    and p.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+order by pe.encntr_id, ea1.beg_effective_dt_tm ; br.corsp_activity_id, pe.pft_encntr_id, ea1.beg_effective_dt_tm asc
+head report
+  m_rec->l_cnt = 0
+head pe.encntr_id ; br.corsp_activity_id
+  m_rec->l_cnt = m_rec->l_cnt + 1
+  stat = alterlist(m_rec->qual,m_rec->l_cnt)
+  m_rec->qual[m_rec->l_cnt].f_encntr_id = e.encntr_id
+  m_rec->qual[m_rec->l_cnt].f_person_id = p.person_id
+  m_rec->qual[m_rec->l_cnt].f_pe_encntr_id = pe.pft_encntr_id
+  m_rec->qual[m_rec->l_cnt].s_mrn = trim(cnvtalias(ea2.alias,ea2.alias_pool_cd),3)
+  m_rec->qual[m_rec->l_cnt].s_fin = trim(cnvtalias(ea1.alias,ea1.alias_pool_cd),3)
+  if (e.encntr_type_cd = mf_cs71_INPATIENT_CD)
+    m_rec->qual[m_rec->l_cnt].s_pat_class = 'I'
+  else
+    m_rec->qual[m_rec->l_cnt].s_pat_class = 'O'
+  endif
+  m_rec->qual[m_rec->l_cnt].s_pat_name = concat(trim(p.name_first,3),"~",trim(p.name_middle,3),"~",trim(p.name_last,3))
+  m_rec->qual[m_rec->l_cnt].s_dob = trim(format(p.birth_dt_tm,'MMDDYYYY;;q'),3)
+  if (p.sex_cd in (mf_cs57_FEMALE_CD, mf_cs57_MALE_CD))
+    m_rec->qual[m_rec->l_cnt].s_gender = substring(1,1,trim(uar_get_code_display(p.sex_cd),3))
+  else
+    m_rec->qual[m_rec->l_cnt].s_gender = 'U'
+  endif
+ 
+  m_rec->qual[m_rec->l_cnt].s_loc_service = GetAlias(e.loc_nurse_unit_cd, mf_cs73_HL7STDSRC_CD)
+  m_rec->qual[m_rec->l_cnt].s_admit_dt = trim(format(e.reg_dt_tm,'MMDDYYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].s_disch_dt = trim(format(e.disch_dt_tm, 'MMDDYYYY;;q'),3)
+  if (p.ethnic_grp_cd = mf_cs27_HISPANIC_CD)
+    m_rec->qual[m_rec->l_cnt].s_race = 'H'
+  else
+    if (p.race_cd = mf_cs282_BLACK_CD)
+      m_rec->qual[m_rec->l_cnt].s_race = 'B'
+    elseif (p.race_cd = mf_cs282_WHITE_CD)
+      m_rec->qual[m_rec->l_cnt].s_race = 'O'
+    elseif (p.race_cd = mf_cs282_AMINDIAN_CD)
+      m_rec->qual[m_rec->l_cnt].s_race = 'I'
+    elseif (p.race_cd = mf_cs282_ASIAN_CD )
+      m_rec->qual[m_rec->l_cnt].s_race = 'A'
+    elseif (p.race_cd = mf_cs282_PACISL_CD )
+      m_rec->qual[m_rec->l_cnt].s_race = 'P'
+    elseif (p.race_cd in (mf_cs282_DECLINE_CD, mf_cs282_UNAVAILABLE_CD ) )
+      m_rec->qual[m_rec->l_cnt].s_race = '7'
+    else
+      m_rec->qual[m_rec->l_cnt].s_race = 'E'
+    endif
+  endif
+ 
+  if (p.marital_type_cd in (mf_cs38_SINGLE_CD, mf_cs38_MARRIED_CD, mf_cs38_WIDOW_CD))
+    m_rec->qual[m_rec->l_cnt].s_marital_stat = substring(1,1,trim(uar_get_code_display(p.marital_type_cd),3))
+  endif
+ 
+  m_rec->qual[m_rec->l_cnt].s_reason_for_visit = trim(e.reason_for_visit,3)
+  m_rec->qual[m_rec->l_cnt].s_icd_ind = '0'
+with nocounter
+ 
+select into "nl:"
+  from address a
+plan a
+  where expand(ml_idx1,1,m_rec->l_cnt,a.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+    and a.parent_entity_name = "PERSON"
+    and a.address_type_cd = mf_cs212_HOME_ADDR_CD
+    and a.active_ind = 1
+    and a.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+order by a.parent_entity_id, a.address_type_seq asc
+head a.parent_entity_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,a.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+  while(ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_addr1 = trim(a.street_addr,3)
+    m_rec->qual[ml_idx2].s_addr2 = trim(a.street_addr2,3)
+    m_rec->qual[ml_idx2].s_city = trim(evaluate(a.city_cd,0.0,a.city,uar_get_code_display(a.city_cd)),3)
+    m_rec->qual[ml_idx2].s_state = trim(evaluate(a.state_cd,0.0,a.state,uar_get_code_display(a.state_cd)),3)
+    m_rec->qual[ml_idx2].s_zip = trim(substring(1,5,trim(a.zipcode_key,3)),3)
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt,a.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+  endwhile
+with nocounter,expand = 1
+ 
+select into "nl:"
+  from phone ph
+plan ph
+  where expand(ml_idx1,1,m_rec->l_cnt,ph.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+    and ph.parent_entity_name ="PERSON"
+    and ph.phone_type_cd = mf_cs43_HOME_PHONE_CD
+    and ph.active_ind = 1
+    and ph.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+order by ph.parent_entity_id, ph.phone_type_seq asc
+head ph.parent_entity_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,ph.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+  while(ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_pat_home_phone = trim(ph.phone_num_key,3)
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt,ph.parent_entity_id,m_rec->qual[ml_idx1].f_person_id)
+  endwhile
+with nocounter, expand = 1
+ 
+select into "nl:"
+  from person_alias pa
+plan pa
+  where expand(ml_idx1,1,m_rec->l_cnt,pa.person_id,m_rec->qual[ml_idx1].f_person_id)
+    and pa.person_alias_type_cd = mf_cs4_SSN_CD
+    and pa.active_ind = 1
+    and pa.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+order by pa.person_id, pa.beg_effective_dt_tm desc
+head pa.person_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,pa.person_id,m_rec->qual[ml_idx1].f_person_id)
+  while(ml_idx2 > 0)
+    m_rec->qual[ml_idx2].s_ssn = format(trim(pa.alias,3),"#########;P0")
+    ml_idx2 = locateval(ml_idx1,ml_idx2+1,m_rec->l_cnt,pa.person_id,m_rec->qual[ml_idx1].f_person_id)
+  endwhile
+with nocounter, expand = 1
+ 
+;get insurance
+select into 'nl:'
+  from encounter e,
+       encntr_plan_reltn epr,
+       health_plan hp,
+      ; person_person_reltn ppr,
+       encntr_person_reltn epr2,
+       health_plan_alias hpa
+plan e
+  where expand(ml_idx1,1,m_rec->l_cnt,e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+join epr
+  where epr.encntr_id = e.encntr_id
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join hp
+  where hp.health_plan_id = epr.health_plan_id
+    and hp.active_ind = 1
+    and hp.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;join ppr
+;  where ppr.person_id = e.person_id
+;    and ppr.related_person_id = epr.person_id
+;    and ppr.active_ind = 1
+;    and ppr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;    and ppr.person_reltn_type_cd = mf_cs351_INSURED_CD
+join epr2
+  where epr2.related_person_id = epr.person_id
+    and epr2.encntr_id = epr.encntr_id
+    and epr2.active_ind = 1
+    and epr2.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and epr2.person_reltn_type_cd = mf_cs351_INSURED_CD
+join hpa
+  where hpa.health_plan_id = outerjoin(epr.health_plan_id)
+    and hpa.active_ind = outerjoin(1)
+    and hpa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and hpa.plan_alias_type_cd = outerjoin(mf_cs27121_HEALTHPLANALIAS_CD)
+order by epr.encntr_id, epr.priority_seq asc
+head epr.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,epr.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+head epr.encntr_plan_reltn_id
+  m_rec->qual[ml_idx2].l_ins_cnt = m_rec->qual[ml_idx2].l_ins_cnt + 1
+  stat = alterlist(m_rec->qual[ml_idx2].ins,m_rec->qual[ml_idx2].l_ins_cnt)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].f_health_plan_id = hp.health_plan_id
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_group_num = trim(epr.group_nbr,3)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_ins_name = trim(hp.plan_name,3)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_priority = trim(cnvtstring(epr.priority_seq),3)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_ins_alias = trim(hpa.alias,3)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_policy_num = trim(epr.subs_member_nbr,3)
+  ;m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_reltn_to_sub = trim(uar_get_code_display(ppr.person_reltn_cd),3)
+  m_rec->qual[ml_idx2].ins[m_rec->qual[ml_idx2].l_ins_cnt].s_reltn_to_sub=trim(uar_get_code_display(epr2.related_person_reltn_cd),3)
+with nocounter, expand = 1
+ 
+ 
+;get providers
+select into 'nl:'
+  from encntr_prsnl_reltn epr,
+       prsnl p,
+       dummyt d1,
+       prsnl_alias pa
+plan epr
+  where expand(ml_idx1,1,m_rec->l_cnt,epr.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+    and epr.active_ind = 1
+    and epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and epr.encntr_prsnl_r_cd in (mf_cs333_ADMITDOC_CD, mf_cs333_ATTENDDOC_CD, mf_cs333_REFERDOC_CD, mf_cs333_EDDOC_CD)
+join p
+  where p.person_id = epr.prsnl_person_id
+join d1
+join pa
+  where pa.person_id = p.person_id
+    and pa.active_ind = 1
+    and pa.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and pa.prsnl_alias_type_cd in (mf_cs320_DOCDEA_CD,mf_cs320_DOCUPIN_CD, mf_cs320_NPI_CD, mf_cs320_LICENSENBR_CD,
+                                   mf_cs320_OTHER_CD) ;, mf_cs320_PRSNLPRIMID_CD )
+order by epr.encntr_id, epr.encntr_prsnl_r_cd, epr.beg_effective_dt_tm desc, pa.prsnl_alias_type_cd, pa.beg_effective_dt_tm desc
+head epr.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,epr.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+head epr.encntr_prsnl_r_cd
+  if (epr.encntr_prsnl_r_cd = mf_cs333_ADMITDOC_CD)
+    m_rec->qual[ml_idx2].f_admit_phys_id = p.person_id
+    m_rec->qual[ml_idx2].s_admit_phys_name = trim(p.name_full_formatted,3)
+    m_rec->qual[ml_idx2].s_admit_phys_speciality = trim(uar_get_code_display(p.position_cd),3)
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_ATTENDDOC_CD)
+    m_rec->qual[ml_idx2].f_attend_phys_id = p.person_id
+    m_rec->qual[ml_idx2].s_attend_phys_name = trim(p.name_full_formatted,3)
+    m_rec->qual[ml_idx2].s_attend_phys_speciality = trim(uar_get_code_display(p.position_cd),3)
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_REFERDOC_CD)
+    m_rec->qual[ml_idx2].f_refer_phys_id = p.person_id
+    m_rec->qual[ml_idx2].s_refer_phys_name = trim(p.name_full_formatted,3)
+    m_rec->qual[ml_idx2].s_refer_phys_speciality = trim(uar_get_code_display(p.position_cd),3)
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_EDDOC_CD)
+    m_rec->qual[ml_idx2].f_er_phys_id = p.person_id
+    m_rec->qual[ml_idx2].s_er_phys_name = trim(p.name_full_formatted,3)
+    m_rec->qual[ml_idx2].s_er_phys_speciality = trim(uar_get_code_display(p.position_cd),3)
+  endif
+detail
+  if (epr.encntr_prsnl_r_cd = mf_cs333_ADMITDOC_CD)
+    if (p.person_id = m_rec->qual[ml_idx2].f_admit_phys_id)
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCDEA_CD and size(trim(m_rec->qual[ml_idx2].s_admit_phys_dea,3)) = 0)
+        m_rec->qual[ml_idx2].s_admit_phys_dea = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCUPIN_CD and size(trim(m_rec->qual[ml_idx2].s_admit_phys_upin,3)) = 0)
+        m_rec->qual[ml_idx2].s_admit_phys_upin = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_NPI_CD and size(trim(m_rec->qual[ml_idx2].s_admit_phys_npi,3)) = 0)
+        m_rec->qual[ml_idx2].s_admit_phys_npi = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_LICENSENBR_CD and size(trim(m_rec->qual[ml_idx2].s_admit_phys_license,3)) = 0)
+        m_rec->qual[ml_idx2].s_admit_phys_license = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_OTHER_CD and pa.alias_pool_cd = mf_cs263_DICTATION_CD and
+          size(trim(m_rec->qual[ml_idx2].s_admit_phys_doc_nbr,3)) = 0)
+        m_rec->qual[ml_idx2].s_admit_phys_doc_nbr = trim(pa.alias,3)
+      endif
+    endif
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_ATTENDDOC_CD)
+    if (p.person_id = m_rec->qual[ml_idx2].f_attend_phys_id)
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCDEA_CD and size(trim(m_rec->qual[ml_idx2].s_attend_phys_dea,3)) = 0)
+        m_rec->qual[ml_idx2].s_attend_phys_dea = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCUPIN_CD and size(trim(m_rec->qual[ml_idx2].s_attend_phys_upin,3)) = 0)
+        m_rec->qual[ml_idx2].s_attend_phys_upin = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_NPI_CD and size(trim(m_rec->qual[ml_idx2].s_attend_phys_npi,3)) = 0)
+        m_rec->qual[ml_idx2].s_attend_phys_npi = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_LICENSENBR_CD and size(trim(m_rec->qual[ml_idx2].s_attend_phys_license,3)) = 0)
+        m_rec->qual[ml_idx2].s_attend_phys_license = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_OTHER_CD and pa.alias_pool_cd = mf_cs263_DICTATION_CD and
+          size(trim(m_rec->qual[ml_idx2].s_attend_phys_doc_nbr,3)) = 0)
+        m_rec->qual[ml_idx2].s_attend_phys_doc_nbr = trim(pa.alias,3)
+      endif
+    endif
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_REFERDOC_CD)
+    if (p.person_id = m_rec->qual[ml_idx2].f_refer_phys_id)
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCDEA_CD and size(trim(m_rec->qual[ml_idx2].s_refer_phys_dea,3)) = 0)
+        m_rec->qual[ml_idx2].s_refer_phys_dea = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCUPIN_CD and size(trim(m_rec->qual[ml_idx2].s_refer_phys_upin,3)) = 0)
+        m_rec->qual[ml_idx2].s_refer_phys_upin = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_NPI_CD and size(trim(m_rec->qual[ml_idx2].s_refer_phys_npi,3)) = 0)
+        m_rec->qual[ml_idx2].s_refer_phys_npi = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_LICENSENBR_CD and size(trim(m_rec->qual[ml_idx2].s_refer_phys_license,3)) = 0)
+        m_rec->qual[ml_idx2].s_refer_phys_license = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_OTHER_CD and pa.alias_pool_cd = mf_cs263_DICTATION_CD and
+          size(trim(m_rec->qual[ml_idx2].s_refer_phys_doc_nbr,3)) = 0)
+        m_rec->qual[ml_idx2].s_refer_phys_doc_nbr = trim(pa.alias,3)
+      endif
+    endif
+  elseif (epr.encntr_prsnl_r_cd = mf_cs333_EDDOC_CD)
+    if (p.person_id = m_rec->qual[ml_idx2].f_er_phys_id)
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCDEA_CD and size(trim(m_rec->qual[ml_idx2].s_er_phys_dea,3)) = 0)
+        m_rec->qual[ml_idx2].s_er_phys_dea = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_DOCUPIN_CD and size(trim(m_rec->qual[ml_idx2].s_er_phys_upin,3)) = 0)
+        m_rec->qual[ml_idx2].s_er_phys_upin = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_NPI_CD and size(trim(m_rec->qual[ml_idx2].s_er_phys_npi,3)) = 0)
+        m_rec->qual[ml_idx2].s_er_phys_npi = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_LICENSENBR_CD and size(trim(m_rec->qual[ml_idx2].s_er_phys_license,3)) = 0)
+        m_rec->qual[ml_idx2].s_er_phys_license = trim(pa.alias,3)
+      endif
+      if (pa.prsnl_alias_type_cd = mf_cs320_OTHER_CD and pa.alias_pool_cd = mf_cs263_DICTATION_CD and
+          size(trim(m_rec->qual[ml_idx2].s_er_phys_doc_nbr,3)) = 0)
+        m_rec->qual[ml_idx2].s_er_phys_doc_nbr = trim(pa.alias,3)
+      endif
+    endif
+  endif
+with nocounter, outerjoin = d1, expand = 1
+ 
+;get pcp
+select into 'nl:'
+  from encounter e,
+       person_prsnl_reltn ppr,
+       prsnl p,
+       prsnl_alias pa
+plan e
+  where expand(ml_idx1,1,m_rec->l_cnt,e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+join ppr
+  where ppr.person_id = e.person_id
+    and ppr.active_ind = 1
+    and ppr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ppr.person_prsnl_r_cd = mf_cs333_PCPDOC_CD
+join p
+  where p.person_id = ppr.prsnl_person_id
+    and p.active_ind = 1
+join pa
+  where pa.person_id = outerjoin(p.person_id)
+    and pa.active_ind = outerjoin(1)
+    and pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+order by e.encntr_id, ppr.person_prsnl_r_cd, ppr.beg_effective_dt_tm desc
+head e.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,e.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+head ppr.person_prsnl_r_cd
+  m_rec->qual[ml_idx2].f_prim_care_phys_id = p.person_id
+  m_rec->qual[ml_idx2].s_prim_care_phys_name = trim(p.name_full_formatted,3)
+  m_rec->qual[ml_idx2].s_prim_care_phys_speciality = trim(uar_get_code_display(p.position_cd),3)
+detail
+  if (pa.person_id = m_rec->qual[ml_idx2].f_prim_care_phys_id)
+    if (pa.prsnl_alias_type_cd = mf_cs320_DOCDEA_CD and size(trim(m_rec->qual[ml_idx2].s_prim_care_phys_dea,3)) = 0)
+      m_rec->qual[ml_idx2].s_prim_care_phys_dea = trim(pa.alias,3)
+    endif
+    if (pa.prsnl_alias_type_cd = mf_cs320_DOCUPIN_CD and size(trim(m_rec->qual[ml_idx2].s_prim_care_phys_upin,3)) = 0)
+      m_rec->qual[ml_idx2].s_prim_care_phys_upin = trim(pa.alias,3)
+    endif
+    if (pa.prsnl_alias_type_cd = mf_cs320_NPI_CD and size(trim(m_rec->qual[ml_idx2].s_prim_care_phys_npi,3)) = 0)
+      m_rec->qual[ml_idx2].s_prim_care_phys_npi = trim(pa.alias,3)
+    endif
+    if (pa.prsnl_alias_type_cd = mf_cs320_LICENSENBR_CD and size(trim(m_rec->qual[ml_idx2].s_prim_care_phys_license,3)) = 0)
+      m_rec->qual[ml_idx2].s_prim_care_phys_license = trim(pa.alias,3)
+    endif
+    if (pa.prsnl_alias_type_cd = mf_cs320_OTHER_CD and pa.alias_pool_cd = mf_cs263_DICTATION_CD and
+        size(trim(m_rec->qual[ml_idx2].s_prim_care_phys_doc_nbr,3)) = 0)
+      m_rec->qual[ml_idx2].s_prim_care_phys_doc_nbr = trim(pa.alias,3)
+    endif
+  endif
+with nocounter, expand = 1
+ 
+;get drg
+select into 'nl:'
+ from drg d,
+      nomenclature n
+plan d
+  where expand(ml_idx1,1,m_rec->l_cnt,d.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+    and d.active_ind = 1
+    and d.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join n
+  where n.nomenclature_id = d.nomenclature_id
+    and n.source_vocabulary_cd = mf_cs400_MSDRG_CD
+order by d.encntr_id
+head d.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,d.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+  m_rec->qual[ml_idx2].s_drg = trim(n.source_identifier,3)
+with nocounter, expand = 1
+ 
+ 
+ 
+;get diagnosis
+select into 'nl:'
+  from coding c,
+       diagnosis d,
+       nomenclature n
+plan c
+  where expand(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join d
+  where d.encntr_id = c.encntr_id
+    and d.active_ind = 1
+    and d.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and d.contributor_system_cd = c.contributor_system_cd
+join n
+  where n.nomenclature_id = d.nomenclature_id
+    and n.source_vocabulary_cd = mf_cs400_ICD10_CD
+order by c.encntr_id, d.diag_priority asc, d.diagnosis_id
+head c.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+head d.diagnosis_id
+  if (d.diag_type_cd = mf_cs17_ADMIT_CD)
+    if (size(trim(m_rec->qual[ml_idx2].s_admit_diag,3)) = 0)
+      m_rec->qual[ml_idx2].s_admit_diag = trim(n.source_identifier,3)
+    endif
+  elseif (d.diag_type_cd = mf_cs17_FINAL_CD)
+    if (m_rec->qual[ml_idx2].l_dg_cnt < 20)
+      m_rec->qual[ml_idx2].l_dg_cnt = m_rec->qual[ml_idx2].l_dg_cnt + 1
+      m_rec->qual[ml_idx2].diag[m_rec->qual[ml_idx2].l_dg_cnt].f_diag_id = d.diagnosis_id
+      m_rec->qual[ml_idx2].diag[m_rec->qual[ml_idx2].l_dg_cnt].s_diag_desc = trim(n.source_string,3)
+      m_rec->qual[ml_idx2].diag[m_rec->qual[ml_idx2].l_dg_cnt].s_diag_icd = trim(n.source_identifier,3)
+    endif
+  endif
+with nocounter, expand = 1
+ 
+;get procedures and cpt4 from procedures
+select into 'nl:'
+  from coding c,
+       procedure p,
+       nomenclature n
+plan c
+  where expand(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join p
+  where p.encntr_id = c.encntr_id
+    and p.contributor_system_cd = c.contributor_system_cd
+    and p.active_ind = 1
+    and p.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join n
+  where n.nomenclature_id = p.nomenclature_id
+    and n.source_vocabulary_cd in (mf_cs400_ICD10PCS_CD, mf_cs400_CPT_CD)
+order by p.encntr_id, p.proc_priority, p.procedure_id
+head c.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+head p.procedure_id
+  if (n.source_vocabulary_cd = mf_cs400_ICD10PCS_CD)
+    if (m_rec->qual[ml_idx2].l_pr_cnt < 20)
+      m_rec->qual[ml_idx2].l_pr_cnt = m_rec->qual[ml_idx2].l_pr_cnt + 1
+      m_rec->qual[ml_idx2].proc[m_rec->qual[ml_idx2].l_pr_cnt].f_proc_id = p.procedure_id
+      m_rec->qual[ml_idx2].proc[m_rec->qual[ml_idx2].l_pr_cnt].s_proc_desc = trim(n.source_string,3)
+      m_rec->qual[ml_idx2].proc[m_rec->qual[ml_idx2].l_pr_cnt].s_proc_icd = trim(n.source_identifier,3)
+    endif
+  elseif (n.source_vocabulary_cd = mf_cs400_CPT_CD)
+    if (m_rec->qual[ml_idx2].l_cpt_cnt < 20)
+      m_rec->qual[ml_idx2].l_cpt_cnt = m_rec->qual[ml_idx2].l_cpt_cnt + 1
+      m_rec->qual[ml_idx2].cpt[m_rec->qual[ml_idx2].l_cpt_cnt].s_cpt = trim(n.source_identifier,3)
+    endif
+  endif
+with nocounter, expand = 1
+ 
+;get cpt from charges
+select into 'nl:'
+  from charge c,
+       charge_mod cm
+plan c
+  where expand(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+    and c.active_ind = 1
+    and c.posted_dt_tm is not null
+join cm
+  where cm.charge_item_id = c.charge_item_id
+    and cm.active_ind = 1
+    and cm.field1_id in ( mf_cs14002_CPT4_CD, mf_cs14002_HCPCS_CD)
+order by c.encntr_id
+head c.encntr_id
+  ml_idx2 = locateval(ml_idx1,1,m_rec->l_cnt,c.encntr_id, m_rec->qual[ml_idx1].f_encntr_id)
+detail
+  if (m_rec->qual[ml_idx2].l_cpt_cnt < 20)
+    ml_idx3 = locateval(ml_idx1,1,m_rec->qual[ml_idx2].l_cpt_cnt,trim(cm.field6,3),m_rec->qual[ml_idx2].cpt[ml_idx1].s_cpt)
+    if (ml_idx3 = 0)
+      m_rec->qual[ml_idx2].l_cpt_cnt = m_rec->qual[ml_idx2].l_cpt_cnt + 1
+      m_rec->qual[ml_idx2].cpt[m_rec->qual[ml_idx2].l_cpt_cnt].s_cpt = trim(cm.field6,3)
+    endif
+  endif
+with nocounter, expand = 1
+ 
+;call echorecord(m_rec)
+ 
+ 
+;open file
+set stat = cclio("OPEN",frec)
+ 
+;write header row
+/*
+set frec->file_buf = build('UCRN#|'
+                        ,'Account#|'
+                        ,'MRN|'
+                        ,'Last Name|'
+                        ,'First Name|'
+                        ,'Patient Class|'
+                        ,'Patient Type|'
+                        ,'Location|'
+                        ,'Admit Date|'
+                        ,'Discharge Date|'
+                        ,'Facility Code'
+                        ,char(13),char(10))
+set stat = cclio("WRITE",frec)
+*/
+ 
+;write data
+for (ml_idx1 = 1 to m_rec->l_cnt)
+  set frec->file_buf = build('1|',m_rec->qual[ml_idx1].s_mrn
+                            ,'|',m_rec->qual[ml_idx1].s_fin
+                            ,'|',m_rec->qual[ml_idx1].s_pat_class
+                            ,'|',m_rec->qual[ml_idx1].s_pat_name
+                            ,'|',m_rec->qual[ml_idx1].s_dob
+                            ,'|',m_rec->qual[ml_idx1].s_gender
+                            ,'|',m_rec->qual[ml_idx1].s_ssn
+                            ,'|',m_rec->qual[ml_idx1].s_addr1
+                            ,'|',m_rec->qual[ml_idx1].s_addr2
+                            ,'|',m_rec->qual[ml_idx1].s_city
+                            ,'|',m_rec->qual[ml_idx1].s_state
+                            ,'|',m_rec->qual[ml_idx1].s_zip
+                            ,'|',m_rec->qual[ml_idx1].s_pat_home_phone
+                            ,'|',m_rec->qual[ml_idx1].s_loc_service
+                            ,'|',m_rec->qual[ml_idx1].s_admit_dt
+                            ,'|',m_rec->qual[ml_idx1].s_disch_dt
+                            ,'|',m_rec->qual[ml_idx1].s_race
+                            ,'|',m_rec->qual[ml_idx1].s_marital_stat
+                            ,char(13),char(10))
+  set stat = cclio("WRITE",frec)
+ 
+  set frec->file_buf = build('2|',m_rec->qual[ml_idx1].s_mrn
+                            ,'|',m_rec->qual[ml_idx1].s_fin
+                            ,'|',m_rec->qual[ml_idx1].s_pat_class
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_admit_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_attend_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_er_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_refer_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_prim_care_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_other1_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_name
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_upin
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_npi
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_doc_nbr
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_dea
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_license
+                            ,'|',m_rec->qual[ml_idx1].s_other2_phys_speciality
+                            ,'|',m_rec->qual[ml_idx1].s_drg
+                            ,'|',m_rec->qual[ml_idx1].s_reason_for_visit
+                            ,'|',m_rec->qual[ml_idx1].s_icd_ind
+                            ,'|',m_rec->qual[ml_idx1].s_admit_diag
+                            ,'|',m_rec->qual[ml_idx1].s_admit_dt)
+  for (ml_idx2 = 1 to m_rec->qual[ml_idx1].l_dg_cnt)
+    set frec->file_buf = build(frec->file_buf, '|', m_rec->qual[ml_idx1].diag[ml_idx2].s_diag_icd)
+  endfor
+  for (ml_idx2 = 1 to m_rec->qual[ml_idx1].l_pr_cnt)
+    set frec->file_buf = build(frec->file_buf, '|', m_rec->qual[ml_idx1].proc[ml_idx2].s_proc_icd)
+  endfor
+  for (ml_idx2 = 1 to m_rec->qual[ml_idx1].l_cpt_cnt)
+    set frec->file_buf = build(frec->file_buf, '|', m_rec->qual[ml_idx1].cpt[ml_idx2].s_cpt)
+  endfor
+ 
+  set frec->file_buf = build(frec->file_buf,char(13),char(10))
+  set stat = cclio("WRITE",frec)
+ 
+ 
+ 
+  for (ml_idx2 = 1 to m_rec->qual[ml_idx1].l_ins_cnt)
+    set frec->file_buf = build('4|',m_rec->qual[ml_idx1].ins[ml_idx2].s_ins_alias
+                            ,'|',m_rec->qual[ml_idx1].ins[ml_idx2].s_ins_name
+                            ,'|',m_rec->qual[ml_idx1].ins[ml_idx2].s_group_num
+                            ,'|',m_rec->qual[ml_idx1].ins[ml_idx2].s_policy_num
+                            ,'|',m_rec->qual[ml_idx1].ins[ml_idx2].s_priority
+                            ,'|',m_rec->qual[ml_idx1].ins[ml_idx2].s_reltn_to_sub
+                            ,char(13),char(10))
+    set stat = cclio("WRITE",frec)
+  endfor
+endfor
+ 
+;close file
+set stat = cclio("CLOSE",frec)
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+subroutine GetAlias(f_cv, f_contrib_sys_cd)
+  declare ml_cv_pos = i4 with noconstant(0)
+  declare ml_cs_pos = i4 with noconstant(0)
+  declare ml_idx = i4 with noconstant(0)
+  declare mf_code_set = f8 with noconstant(0)
+  declare s_ret_val = vc with noconstant(concat("CD::",trim(cnvtstring(f_cv,20),3)))
+ 
+  set mf_code_set = uar_get_code_set(f_cv)
+ 
+  if(mf_code_set > 0)
+    set ml_cs_pos = locatevalsort(ml_idx,1,m_out_alias->l_cs_cnt,mf_code_set,m_out_alias->qual[ml_idx].f_code_set)
+  else
+    return(s_ret_val)
+  endif
+ 
+  set ml_cv_pos = locatevalsort(ml_idx,1,m_out_alias->qual[ml_cs_pos].l_cv_cnt, f_cv,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_code_value, f_contrib_sys_cd,
+                  m_out_alias->qual[ml_cs_pos].qual[ml_idx].f_contrib_sys_cd)
+ 
+  if(ml_cv_pos > 0)
+    set s_ret_val = trim(m_out_alias->qual[ml_cs_pos].qual[ml_cv_pos].s_alias,3)
+  endif
+ 
+  return(s_ret_val)
+end
+ 
+subroutine LoadOutAlias(s_code_set, f_contrib_sys_cd)
+  declare l_ret_val = i2 with protect, noconstant(0)
+  ;declare l_cs_cnt = i4 with protect, noconstant(0)
+  declare l_cv_cnt = i4 with protect, noconstant(0)
+ 
+  if(f_contrib_sys_cd > 0.0)
+    select into "nl:"
+      from code_value_outbound cvo
+     where parser(build("cvo.code_set in (",s_code_set,")"))
+       and cvo.contributor_source_cd = f_contrib_sys_cd
+    order by cvo.code_set, cvo.code_value
+   ; head report
+   ;   m_out_alias->l_cs_cnt = 0
+    head cvo.code_set
+      m_out_alias->l_cs_cnt = m_out_alias->l_cs_cnt + 1
+      stat = alterlist(m_out_alias->qual,m_out_alias->l_cs_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].f_code_set = cvo.code_set
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = 0
+    detail
+      m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt = m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt  + 1
+      stat = alterlist(m_out_alias->qual[m_out_alias->l_cs_cnt]->qual,m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt)
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_code_value = cvo.code_value
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].s_alias = cvo.alias
+      m_out_alias->qual[m_out_alias->l_cs_cnt].qual[m_out_alias->qual[m_out_alias->l_cs_cnt].l_cv_cnt].f_contrib_sys_cd =
+                                                                                                           cvo.contributor_source_cd
+    with nocounter
+ 
+    if(m_out_alias->l_cs_cnt > 0)
+      set l_ret_val = 1
+    endif
+  endif
+  return(l_ret_val)
+end
+ 
+#EXIT_SCRIPT
+end
+go
+ 
