@@ -1,0 +1,275 @@
+drop program 1_maur_waystar_paroscore go
+create program 1_maur_waystar_paroscore
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+
+
+
+/**************************************************************
+
+; DVDev DECLARED VARIABLES
+**************************************************************/
+free record enc
+record enc
+(
+	1 cnt = i4
+	1 qual[*]	
+	2 eid 				= f8
+	2 pft_eid 			= f8
+	2 pid 				= f8 
+	2 facility_code		= vc 
+	2 mrn	            = vc 
+	2 fin				= vc ;account_number	
+	2 guarantor_pid		= f8
+	2 guarantor_name    = vc 
+	2 guarantor_add1	= vc 
+	2 guarantor_add2	= vc 
+	2 guarantor_city	= vc 
+	2 guarantor_state	= vc 
+	2 guarantor_zip	    = vc 
+	2 guarantor_phone	= vc ;(XXX) XXX- XXXX or XXX-XXX-XXXX
+	2 guarantor_ssn		= vc ;XXX-XX-XXXX
+	2 guarantor_dob		= vc ;mm/dd/yyyy
+	2 patient_name		= vc 
+	2 admit_date		= vc ;mm/dd/yyyy
+	2 discharge_date	= vc ;mm/dd/yyyy
+	2 balance	 		= vc ;plain numeric 50 character limit
+)
+
+
+declare payment_cd			= f8 with constant(uar_get_code_by("MEANING",18649,"PAYMENT")),protect
+declare adjustment_cd		= f8 with constant(uar_get_code_bY("MEANING",18649,"ADJUSTMENT")),protect
+declare fin_cd				= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+declare mrn_cd				= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;1079.0
+declare ssn_cd				= f8 with constant(uar_get_code_by("DISPLAYKEY",263,"SSN")),protect
+declare home_adr_cd			= f8 with constant(uar_get_code_by("DISPLAYKEY",212,"HOME")),protect ;1152
+declare mobile_phone_cd		= f8 with constant(uar_get_code_by("DISPLAYKEY",43,"MOBILE")),protect ;  
+declare home_phone_cd		= f8 with constant(uar_get_code_by("DISPLAYKEY",43,"MOBILE")),protect ;  
+declare business_phone_cd 	= f8 with constant(uar_get_code_by('DISPLAYKEY', 43, 'BUSINESS')),protect
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+;select distinct for scoring model
+select distinct into "nl:"
+	e.person_id
+;	pta.pft_trans_alias
+;	,e.encntr_id
+;	,e.person_id
+;	,pe.pft_encntr_id
+;	,trans_type_cd = uar_get_code_display(tl.trans_type_cd)
+;	,ptr.trans_type_cd
+;	,tl.trans_type_cd
+;	,tl.total_trans_amount
+;	,tl.beg_effective_dt_tm
+;	,tl.end_effective_dt_tm
+;	,tl.active_status_dt_tm
+;	,tl.created_dt_tm
+;	,tl.post_dt_tm
+;	,tl.updt_dt_tm
+from 
+	pft_trans_alias 	pta
+	,trans_log 			tl
+	,pft_trans_reltn 	ptr
+	,pft_encntr 		pe
+	,encounter			e
+	,encntr_alias 		ea ;fin
+	,encntr_alias 		ea2 ; mrn		
+	,person				p
+plan pta
+	where pta.pft_trans_alias = "66"  ;Charity Adjustment - Presumptive Charity
+join tl
+	where tl.trans_alias_id = pta.pft_trans_alias_id
+	and tl.trans_type_cd =       10978.00 ;Adjustment
+;	and tl.trans_type_cd = ADJUSTMENT_CD
+join ptr
+	where ptr.activity_id = tl.activity_id
+	and ptr.parent_entity_name = "PFTENCNTR"
+	and ptr.trans_type_cd =       10978.00	;Adjustment
+	and ptr.active_ind = 1
+ 	and ptr.end_effective_dt_tm > sysdate
+join pe
+	where pe.pft_encntr_id = ptr.parent_entity_id
+	and pe.active_ind = 1
+ 	and pe.end_effective_dt_tm > sysdate
+join e
+	where e.encntr_id = pe.encntr_id
+	and e.active_ind = 1
+	and e.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+	and e.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+; 	AND PE.BILLING_ENTITY_ID IN (MARSHALL_MC,MAURY_REGIONAL_MC,WAYNE_MC)
+join ea
+	where ea.encntr_id = e.encntr_id
+	and ea.encntr_alias_type_cd = fin_cd ; fin
+	and ea.active_ind = 1
+join ea2
+	where ea2.encntr_id = e.encntr_id
+	and ea2.encntr_alias_type_cd = mrn_cd; mrn
+	and ea2.active_ind = 1	
+join p
+	where p.person_id = e.person_id
+	and p.active_ind = 1	
+head report
+    cnt = 0
+    stat = alterlist(enc->qual,1000)
+HEAD e.encntr_id
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,1000)=1 and cnt !=1)
+        stat = alterlist(enc->qual,cnt+999)
+    endif	
+	
+	enc->qual[cnt].pid 					= p.person_id
+	enc->qual[cnt].eid 					= pe.encntr_id
+	enc->qual[cnt].pft_eid 				= pe.pft_encntr_id
+	enc->qual[cnt].mrn     				= ea.alias
+	enc->qual[cnt].fin 					= ea2.alias
+	enc->qual[cnt].patient_name			= p.name_full_formatted
+
+	enc->qual[cnt].discharge_date 		= format(e.disch_dt_tm, "mm/dd/yyyy")
+	enc->qual[cnt].facility_code		= uar_get_code_display(e.loc_facility_cd)
+	enc->qual[cnt].balance				= cnvtstring(pe.balance)
+
+
+	;logic to get admit based on availble registration fields
+	enc->qual[cnt].admit_date 			= trim(format(e.inpatient_admit_dt_tm, "mm/dd/yyyy"),3)
+	if (enc->qual[cnt].admit_date <= "")
+		enc->qual[cnt].admit_date 			= format(e.arrive_dt_tm, "mm/dd/yyyy")		
+	endif
+	
+	if (enc->qual[cnt].admit_date <= "")
+		enc->qual[cnt].admit_date 			= format(e.reg_dt_tm, "mm/dd/yyyy")
+	endif
+	
+		
+foot report
+	if(cnt>0)
+		stat = alterlist(enc->qual,cnt)
+		enc->cnt = cnt
+	endif    		
+with nocounter, format, separator = " ", FORMAT(DATE,"@SHORTDATETIME"),maxrec= 2000, time = 60
+
+;GUARANTOR NAME, SSN, DOB
+select into "nl:"
+	eid = ENC->qual[d1.seq].eid
+	,p1.name_full_formatted
+	,p1.birth_dt_tm
+;	,pa1.alias
+	,relation_disp = uar_get_code_display(epr.related_person_reltn_cd)
+	,epr.person_reltn_type_cd
+	,guar_relationship =uar_get_code_display(epr.person_reltn_type_cd)
+	,p1.person_id
+	,guar_ssn = pa.alias
+from
+ 	 encntr_person_reltn   epr
+	,person   p1
+	,person_alias pa
+;	,person_alias   pa1
+	,(dummyt   	d1  with seq=value(size(ENC->qual,5))) 
+	,dummyt 	d2		;outerjoin dummy table
+plan d1
+	where d1.seq > 0
+join epr
+	where epr.encntr_id = ENC->qual[d1.seq].eid
+	and epr.person_reltn_type_cd =              1150.00	;Default Guarantor ;def_guar_var
+join p1
+	where p1.person_id = epr.related_person_id
+	and p1.active_ind = 1
+	and p1.name_last_key != "ZZ*" and p1.name_last_key != "XXX*"
+join d2
+join pa
+	where pa.person_id 				= P1.person_id
+	and pa.person_alias_type_cd 	= ssn_cd
+	and pa.active_ind 				= 1
+	and pa.beg_effective_dt_tm 		<= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm 		>= cnvtdatetime(curdate, curtime3)
+detail
+	enc->qual[d1.seq].guarantor_pid			= p1.person_id
+ 	enc->qual[d1.seq].guarantor_name 		= p1.name_full_formatted
+ 	enc->qual[d1.seq].guarantor_ssn			= pa.alias
+ 	enc->qual[d1.seq].guarantor_dob			= format(P1.birth_dt_tm, "mm/dd/yyyy")
+with nocounter, outerjoin= d2, dontcare = d2, dontcare = pa, FORMAT, SEPARATOR = " "
+
+
+/**************************************************************
+; Guarantor Address
+**************************************************************/
+ 
+select into "nl:"
+from
+	  address	a ;guarantor address
+	  ,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join a
+	where a.parent_entity_id	= enc->qual[d1.seq].guarantor_pid
+	and a.address_type_cd 		= home_adr_cd
+	and a.active_ind 			= 1
+detail
+	enc->qual[d1.seq].guarantor_add1 	= a.street_addr
+	enc->qual[d1.seq].guarantor_add2	= a.street_addr2
+	enc->qual[d1.seq].guarantor_city	= a.city
+	enc->qual[d1.seq].guarantor_state	= uar_get_code_display(a.state_cd)
+	enc->qual[d1.seq].guarantor_zip		= format(a.zipcode,"#####-####");a.zipcode
+	
+	if (textlen(a.zipcode_key) > 5)
+		enc->qual[d1.seq].guarantor_zip		= format(a.zipcode,"#####-####");a.zipcode
+	else
+		enc->qual[d1.seq].guarantor_zip		= a.zipcode
+	endif
+with nocounter, format, separator = " ", FORMAT(DATE,"@SHORTDATETIME")
+
+/**************************************************************
+; Guarantor phone
+**************************************************************/
+ 
+select into $outdev; "nl:"
+	ph.phone_num
+	,guarantor = enc->qual[d1.seq].guarantor_name
+from
+	  ;person p		;guarantor 
+	  phone ph ;guarantor phone
+	  ,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0
+join ph
+	where ph.parent_entity_id 	= enc->qual[d1.seq].guarantor_pid
+	and ph.active_ind 			= 1
+	and ph.phone_type_cd 		= home_phone_cd;170.00; 
+	and ph.parent_entity_name 	= "PERSON"
+detail
+	enc->qual[d1.seq].guarantor_phone 	= format(ph.phone_num,"###-###-####")
+with nocounter, format, separator = " ", FORMAT(DATE,"@SHORTDATETIME")
+
+
+;OUTPUT TO SCREEN
+select into $OUTDEV
+	FACILITY_CODE		= enc->qual[d1.seq].facility_code 
+	,MRN				= enc->qual[d1.seq].mrn 
+	,ACCOUNT_NUMBER		= enc->qual[d1.seq].fin 
+	,GURARANTOR_NAME	= trim(substring(1,50,enc->qual[d1.seq].guarantor_name),3)
+	,GUARANTOR_ADD1		= trim(substring(1,50,enc->qual[d1.seq].guarantor_add1),3)
+	,GUARANTOR_ADD2		= trim(substring(1,50,enc->qual[d1.seq].guarantor_add2),3) 
+	,GUARANTOR_CITY		= trim(substring(1,50,enc->qual[d1.seq].guarantor_city),3) 
+	,GUARANTOR_STATE 	= enc->qual[d1.seq].guarantor_state 
+	,GUARANTOR_ZIP		= enc->qual[d1.seq].guarantor_zip 
+	,GUARANTOR_PHONE	= enc->qual[d1.seq].guarantor_phone 
+	,GUARANTOR_SSN		= enc->qual[d1.seq].guarantor_ssn 
+	,GUARANTOR_DOB		= enc->qual[d1.seq].guarantor_dob
+	,PATIENT_NAME		= trim(substring(1,50,enc->qual[d1.seq].patient_name),3) 
+	,ADMIT_DATE			= enc->qual[d1.seq].admit_date
+	,DISCHARGE_DATE		= enc->qual[d1.seq].discharge_date 
+	,BALANCE			= enc->qual[d1.seq].balance 
+FROM 
+(dummyt d1 with seq=value(size(enc->qual,5)))
+with nocounter, format, separator = " "
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
