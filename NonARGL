@@ -1,0 +1,300 @@
+drop program 1_amj_non_ar_gl go
+create program 1_amj_non_ar_gl
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "From GL Activity Date:" = "CURDATE"
+	, "Thru GL Activity Date:" = "CURDATE"
+	, "Billing Entity:" = 0.0 
+
+with OUTDEV, START_DATE, END_DATE, bentity
+
+declare non_argl_only_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",18736,"NONARGLONLY")),private
+declare billing_entity_parser_str 	= vc with noconstant("1 = 1"), protect
+declare opr_var 					= vc with protect		;billing entity
+declare cnt 						= i4 with protect
+
+;declare lcheck				= vc
+declare bdate 				= vc with protect
+declare eDate 				= vc with protect
+
+SET bdate = build2($START_DATE, " 00:00:00")
+set eDate = build2($END_DATE, " 23:59:59")
+
+
+ 
+
+
+;check to see if multiple values were selected at the glist (2nd) prompt
+set lcheck = substring(1,1,reflect(parameter(parameter2($BENTITY),0)))
+call echo(build2("BILLING ENTITY lcheck: ", lcheck))  
+
+
+if ($BENTITY > 0 )
+	SET billing_entity_parser_str = build2(' be.billing_entity_id = ', $BENTITY)
+endif
+
+call echo(build2(" billing_entity_parser_str->", billing_entity_parser_str))
+;if(lcheck = "L") ;if multiple selections were made at the $glist prompt
+	;call echo(build2("i am a list LCHECK: ", lcheck))
+	;set opr_var = "IN"
+;else
+	;call echo(build2("I AM NOT A LIST LCHECK: ", lcheck))
+	;A single value or ALL was selected at glist prompt
+	if($BENTITY = 0.0)
+		;call echo(build2("ALL was selected at FINCLASS prompt : ", $FINCLASS))
+		;set brec->list[1].disp = "All Billing Entities"
+		set opr_var = "!="
+	else
+		;call echo(build2("A SINGLE VALUE WAS selected at FINCLASS prompt : ", $FINCLASS))
+		set opr_var = "="
+	endif
+	;call echo("end inner if")
+;endif
+;call echo("end outer if")
+
+call echo(build2("opr_var --->   ",opr_var))
+  
+free record rec
+record rec
+(
+	1 cnt			= i4
+	1 tx[*]
+		2 billing_entity_name		= vc
+		2 payment_method 			= vc
+		2 payment_number 			= vc
+		2 post_date 				= vc
+		2 user_name 				= vc
+		2 batch_number				= f8
+		2 sequence_number			= i4 
+		2 batch_description			= vc
+		2 effective_date			= c10
+		2 gl_activity_date			= c10
+		2 trans_reason_alias		= vc	
+		2 transaction_reason		= vc
+		2 transaction_reason_cd		= f8
+		2 transaction_sub_type		= vc
+		2 account					= vc
+		2 company_alias	 			= vc
+		2 company_unit_alias		= vc
+		2 account_alias				= vc
+		2 amount					= f8
+		2 amount_formatted			= vc
+		2 comment					= c1000
+		2 alias						= vc
+		2 transaction				= vc
+		2 sub_type					= vc
+		2 type						= vc
+		2 dr_cr						= vc
+		2 dr_cr_flag				= i2	
+)
+
+select into $outdev
+	billing_entity_name 						= be.be_name
+	,be.billing_entity_id
+	,payment_method 							= uar_get_code_display(btf.payment_method_cd)
+	,payment_number 							= trim(btf.payment_num_desc) ;as "payment number"
+	,post_date 									= format(tl.post_dt_tm, 'MM/DD/YYYY')
+	,user_name 									= per.name_full_formatted
+	,batch_number 								= btf.batch_trans_id
+	,sequence_number 							= btf.sequence_nbr
+	,batch_description 							= bt.ext_batch_id_txt
+	,effective_date 							= format(ptr.beg_effective_dt_tm, 'MM/DD/YYYY')
+	,gl_activity_date 							= format(gtl.activity_dt_tm, 'MM/DD/YYYY')
+	,transaction_reason 						= uar_get_code_display(tl.trans_reason_cd)
+	,transaction_sub_type 						= uar_get_code_display(tl.trans_sub_type_cd) 
+	,ptr.dr_cr_flag
+	,a.dr_cr_flag
+	,account 									= cv.display
+	,company_alias 								= gtl.gl_company_alias_nbr
+	,company_unit_alias 						=  gtl.gl_company_unit_alias_nbr
+	,account_alias 								= gtl.gl_account_alias_nbr
+	; ,trim(to_char(decode(gtl.dr_cr_flag,2,(gtl.amount * -1.000000),gtl.amount), '$99999999.99')) as "amount"
+	,amount = if (gtl.dr_cr_flag = 2)
+				gtl.amount * -1.000000
+			  else 
+			  	gtl.amount
+			  endif
+	,comment = trim(replace(replace(lt.long_text, char(13), ' '), char(10), ' '))
+	;,comment = check(TRIM(REPLACE(REPLACE(LT.LONG_TEXT, CHAR(13), ' '), CHAR(10), ' ')),char(32),char(126))
+	;,alias= trim(substring(1,1000,check(LT.LONG_TEXT,char(32),char(126)))) ;TRIM(pta.pft_trans_alias,3)))
+	;,"last colzzzzzzzzzzzz"
+	
+from 
+   gl_trans_log gtl
+  ,code_value cv
+  ,pft_trans_reltn ptr
+  ,trans_log tl  
+  ,account a
+  ,billing_entity be
+  ,batch_trans_file btf
+  ,batch_trans bt
+  ,person per
+  ,dummyt d1					;outerjoin table
+  ,long_text lt
+plan gtl
+	where gtl.activity_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+	;where gtl.activity_dt_tm >= :from_dt_tm and gtl.activity_dt_tm < (:thru_dt_tm + 1)  
+	and not gtl.gl_interface_dt_tm is null
+	and gtl.active_ind = 1
+	and gtl.beg_effective_dt_tm <= sysdate
+	and gtl.end_effective_dt_tm > sysdate	
+
+	and gtl.gl_status_cd not in (select cv1.code_value
+									from code_value cv1
+									where cv1.code_set = 25571
+									and cv1.cdf_meaninG = 'ERROR')
+join cv
+	where cv.code_value = gtl.acct_type_cd
+	;and gtl.acct_type_cd = cv.code_value
+	and cv.code_set = 18736
+join ptr
+	where ptr.activity_id = gtl.activity_id
+	and ptr.parent_entity_name = 'ACCOUNT'
+	;and ptr.parent_entity_id = a.acct_id	
+	and ptr.active_ind = 1
+	and ptr.beg_effective_dt_tm <= sysdate
+	and ptr.end_effective_dt_tm > sysdate	
+join tl
+	where tl.activity_id = ptr.activity_id
+	and tl.active_ind = 1
+	and tl.beg_effective_dt_tm <= sysdate
+	and tl.end_effective_dt_tm > sysdate	
+join a
+	where a.acct_id = ptr.parent_entity_id
+	and a.acct_type_cd =      662345.00 ;  non_argl_only_cd ;662345.00 
+	and a.active_ind = 1
+	and a.beg_effective_dt_tm <= sysdate
+	and a.end_effective_dt_tm > sysdate	
+join be
+	where be.billing_entity_id = a.billing_entity_id
+	AND parser(billing_entity_parser_str)
+	;and operator(be.billing_entity_id,opr_var,$BENTITY)
+	and be.active_ind = 1
+	and be.beg_effective_dt_tm <= sysdate
+	and be.end_effective_dt_tm > sysdate	
+join btf
+	where btf.batch_trans_file_id = ptr.batch_trans_file_id
+	and btf.active_ind = 1
+	and btf.beg_effective_dt_tm <= sysdate
+	and btf.end_effective_dt_tm > sysdate	
+	and btf.batch_trans_id = 159098419
+
+join bt
+	where bt.batch_trans_id = btf.batch_trans_id
+	and bt.active_ind = 1
+	and bt.beg_effective_dt_tm <= sysdate
+	and bt.end_effective_dt_tm > sysdate	
+join per
+	where per.person_id = btf.updt_id
+	and per.active_ind = 1
+	and per.beg_effective_dt_tm <= sysdate
+	and per.end_effective_dt_tm > sysdate	
+join d1
+join lt
+	where lt.long_text_id = btf.long_text_id
+	and lt.active_ind = 1
+order by be.be_name, btf.batch_trans_id, btf.sequence_nbr	
+head report
+    rec->cnt = 0
+    stat = alterlist(rec->tx, 100)
+detail
+	rec->cnt = rec->cnt+1
+ 
+	;rec->cnt = acnt
+    if(mod(rec->cnt,99) = 1 and rec->cnt != 1)
+      stat = alterlist(rec->tx, rec->cnt + 99)
+    endif	
+    
+	rec->tx[rec->cnt].billing_entity_name 	= be.be_name
+	rec->tx[rec->cnt].payment_method 		= uar_get_code_display(btf.payment_method_cd)
+	rec->tx[rec->cnt].payment_number 		= trim(btf.payment_num_desc) ;as "payment number"
+	rec->tx[rec->cnt].post_date 			= format(tl.post_dt_tm, 'MM/DD/YYYY')
+	rec->tx[rec->cnt].user_name 			= per.name_full_formatted
+	rec->tx[rec->cnt].batch_number 			= btf.batch_trans_id
+	rec->tx[rec->cnt].sequence_number 		= btf.sequence_nbr
+	rec->tx[rec->cnt].batch_description 	= bt.ext_batch_id_txt
+	rec->tx[rec->cnt].effective_date 		= format(ptr.beg_effective_dt_tm, 'MM/DD/YYYY')
+	rec->tx[rec->cnt].gl_activity_date 		= format(gtl.activity_dt_tm, 'MM/DD/YYYY')
+	;rec->tx[cnt].trans_reason_alias = check(pta.pft_trans_alias,char(32),char(126))
+	rec->tx[rec->cnt].transaction_reason 	= uar_get_code_display(tl.trans_reason_cd)
+	rec->tx[rec->cnt].transaction_reason_cd	= tl.trans_reason_cd
+;	rec->tx[rec->cnt].dr_cr_flag			= a.dr_cr_flag
+	rec->tx[rec->cnt].dr_cr_flag			= ptr.dr_cr_flag
+	rec->tx[rec->cnt].transaction_sub_type 	= uar_get_code_display(tl.trans_sub_type_cd) 
+	rec->tx[rec->cnt].account 				= cv.display
+	rec->tx[rec->cnt].company_alias 		= gtl.gl_company_alias_nbr
+	rec->tx[rec->cnt].company_unit_alias 	= gtl.gl_company_unit_alias_nbr
+	rec->tx[rec->cnt].account_alias 		= gtl.gl_account_alias_nbr
+	rec->tx[rec->cnt].amount				= if (gtl.dr_cr_flag = 2)
+												gtl.amount * -1.000000
+											  else 
+											  	gtl.amount
+											  endif
+	rec->tx[rec->cnt].amount_formatted		= if (gtl.dr_cr_flag = 2)
+												format((gtl.amount * -1.000000),"##############.##;$,")
+											  else 
+											  	format(gtl.amount,"##############.##;$,")
+											  endif
+	
+	
+	;format(amount,"##############.##;$,")									  
+	rec->tx[rec->cnt].comment				= trim(replace(replace(lt.long_text,char(13),' '),char(10),' '))										  
+foot report
+		stat = alterlist(rec->tx,rec->cnt)
+with nocounter, format, separator = " ", maxrec = 100000,time = 600, check, outerjoin = d1, dontcare = d1, dontcare =lt
+
+
+select into $outdev
+	billing_entity_name = rec->tx[d1.seq].billing_entity_name 	
+	,payment_method = rec->tx[d1.seq].payment_method 		
+	,payment_number = rec->tx[d1.seq].payment_number 		
+	,post_date = rec->tx[d1.seq].post_date 					
+	,user_name = rec->tx[d1.seq].user_name 			
+	,batch_number 			= rec->tx[d1.seq].batch_number 			
+	,sequence_number 		= rec->tx[d1.seq].sequence_number 		
+	,batch_description 		= rec->tx[d1.seq].batch_description 	
+	,effective_date 		= rec->tx[d1.seq].effective_date 			
+	,gl_activity_date 		= rec->tx[d1.seq].gl_activity_date 			
+	,transaction_reason 	= rec->tx[d1.seq].transaction_reason 	
+	,transaction_reason_cd 	= rec->tx[d1.seq].transaction_reason_cd	
+	,dr_cr_flag 			= rec->tx[d1.seq].dr_cr_flag	
+	,trans_reason_alias		= check(pta.pft_trans_alias,char(32),char(126))	 		
+from 
+	pft_trans_alias pta
+	,(dummyt d1 with seq=value(size(rec->tx,5)))
+plan d1
+	where d1.seq > 0
+join pta
+	where pta.trans_reason_cd 	= rec->tx[d1.seq].transaction_reason_cd
+	and pta.dr_cr_flag			= rec->tx[d1.seq].dr_cr_flag
+;;detail
+;;	rec->tx[d1.seq].trans_reason_alias = 	check(pta.pft_trans_alias,char(32),char(126))	 
+with nocounter, format, separator = " ", check
+;
+
+;select into $outdev
+;	billing_entity_name 	= trim(substring(1,100,rec->tx[d1.seq].billing_entity_name),3)
+;	,payment_method 		= trim(substring(1,100,rec->tx[d1.seq].payment_method),3) 		
+;	,payment_number 		= trim(substring(1,100,rec->tx[d1.seq].payment_number),3) 		
+;	,post_date 				= rec->tx[d1.seq].post_date 					
+;	,user_name 				= trim(substring(1,100,rec->tx[d1.seq].user_name),3) 				
+;	,batch_number 			= rec->tx[d1.seq].batch_number
+;	,sequence_number 		= rec->tx[d1.seq].sequence_number 		
+;	,batch_description 		= trim(substring(1,1000,rec->tx[d1.seq].batch_description),3)
+;	,effective_date 		= rec->tx[d1.seq].effective_date 			
+;	,gl_activity_date 		= rec->tx[d1.seq].gl_activity_date 
+;	,trans_reason_alias 	= rec->tx[d1.seq].trans_reason_alias			
+;	,transaction_reason 	= trim(substring(1,100,rec->tx[d1.seq].transaction_reason),3) 
+;	,transaction_sub_type	= trim(substring(1,100,rec->tx[d1.seq].transaction_sub_type),3)		 	
+;	,account 				= trim(substring(1,100,rec->tx[d1.seq].account),3) 				
+;	,company_alias 			= trim(substring(1,100,rec->tx[d1.seq].company_alias),3) 		
+;	,company_unit_alias 	= trim(substring(1,100,rec->tx[d1.seq].company_unit_alias),3) 	
+;	,account_alias 			= trim(substring(1,100,rec->tx[d1.seq].account_alias),3) 		
+;	,amount					= rec->tx[d1.seq].amount_formatted
+;	,comment				= trim(substring(1,1000,rec->tx[d1.seq].comment),3)
+;from 	
+;	(dummyt d1 with seq=value(size(rec->TX,5)))
+;with nocounter, format, separator = " "
+end
+go
