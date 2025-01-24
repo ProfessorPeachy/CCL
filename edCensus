@@ -1,0 +1,244 @@
+drop program amj_ed_census go
+create program amj_ed_census
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+
+
+
+free record enc
+record enc
+(
+	1 cnt = i4
+	1 qual[*]	
+		2 eid 					= f8
+	 	2 pid 					= f8 
+	 	2 fin 					= vc	;Account/Visit Number (unique to patient stay)
+	 	2 mrn 					= vc	;Medical Record Number (unique to patient but not to visit)	 	 		
+		2 patient_name			= vc
+		2 patient_dob			= vc
+		2 location_code			= vc
+		2 location_name			= vc
+	 	2 ed_arrival_dt			= vc	;NEEDS to be populated with ED Arrival Date and Time
+	 	2 ed_arrival_tm			= vc	;NEEDS to be populated with ED Arrival Date and Time		
+	 	2 proc_description		= vc
+	 	2 proc_code				= vc
+	 	2 rendering_provider_id	= f8
+	 	2 rendering_provider	= vc
+	 	2 rendering_prov_npi	= vc
+	 	2 pat_ssn				= vc
+	 	2 disposition			= vc	;Indicates whether a patient has left without being seen etc.
+)
+
+declare fin_cd						= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+declare mrn_cd						= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;2.0
+declare wayne_facility_cd 			= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WAYNE")),protect
+declare wayne_emergency_dept_cd 	= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WMCED")),protect
+declare wayne_ed_hold_cd 			= f8 with Constant(uar_get_code_by("DISPLAYKEY",220,"WMCEDHOLD")),protect
+declare npi_cd						= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'NATIONALPROVIDERIDENTIFIER')); 4038127.00
+declare ssn_cd						= f8 WITH constant(uar_get_code_by("DISPLAYKEY",4,"SSN")),protect;2.0
+
+declare ecnt 						= i4
+
+;FILE NAME STUFF
+declare rundate 		= vc with constant(format(curdate,'mmddyyyy;;d')), protect
+declare filepath		= vc with constant("/cerner/d_p698/data/batch_files/ccl_extracts/zotecbilling/"), protect
+declare filename		= vc with constant(build2(rundate,"_wayne_zotec.csv")), protect
+declare filenamepath	= vc with noconstant(build2(filepath,filename))	, protect
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+select into $outdev
+	e.encntr_id
+	,e.disch_disposition_cd
+	,e.loc_nurse_unit_cd
+from 
+	encounter 			e
+
+plan e
+	where e.disch_dt_tm         >= cnvtdatetime($START_DATE)
+	and e.disch_dt_tm 			<= cnvtdatetime($END_DATE)
+	and e.loc_nurse_unit_cd 	= wayne_emergency_dept_cd
+	and e.beg_effective_dt_tm 	<= cnvtdatetime(curdate,curtime3)
+	and e.end_effective_dt_tm 	>= cnvtdatetime(curdate,curtime3)
+;	and e.beg_effective_dt_tm between cnvtdatetime(curdate-7,curtime3) and cnvtdatetime(curdate,curtime3)
+	and e.active_ind 			= 1
+head report
+    ecnt = 0
+    stat = alterlist(enc->qual, 100)
+head e.encntr_id
+
+    ecnt = ecnt + 1
+    if(mod(ecnt,100)=1 and ecnt != 1)
+        stat = alterlist(enc->qual,ecnt+99)
+    endif
+    
+    enc->cnt = ecnt
+    
+    enc->qual[ecnt].eid 					= e.encntr_id
+    enc->qual[ecnt].pid 					= e.person_id
+    enc->qual[ecnt].ed_arrival_dt 			= format(E.arrive_dt_tm, "MM/DD/YYYY ;;Q") ;format(e.arrive_dt_tm, "@SHORTDATE")
+    enc->qual[ecnt].ed_arrival_tm 			= format(E.arrive_dt_tm,"hhmm;;m")
+    enc->qual[ecnt].disposition				= uar_get_code_display(e.disch_disposition_cd)   	
+    enc->qual[ecnt].location_code			= uar_get_code_display(e.encntr_type_cd)
+    enc->qual[ecnt].location_name			= uar_get_code_display(e.loc_facility_cd)
+foot report
+	stat = alterlist(enc->qual, ecnt)
+with uar_code(D), format(date, ";;q"),MAXREC=1000, nocounter, format, separator = " ",time = 10
+
+
+select into $outdev
+	e.encntr_id
+;	provider_name = trim(substring(1,100,pr.name_full_formatted),3)
+	,o.orig_order_dt_tm 
+;	,oa.order_id
+	,order_mnemonic =trim(substring(1,100,o.order_mnemonic),3)
+;	,order_details = trim(substring(1,100,oa.order_detail_display_line),3)
+	,cpt = trim(substring(1,10,bim.key6),3)
+	,description = bim.key7
+	,pr.person_id
+	,pr.name_full_formatted
+	,bim.*
+from 
+	orders				o
+	,order_action		oa	
+	,prsnl 				pr
+	,bill_item			bi
+	,bill_item_modifier bim
+   ,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0 
+join o
+	where o.encntr_id = enc->qual[d1.seq].eid
+	;and o.orig_order_dt_tm <= 
+	;and o.orig_order_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+join oa
+	where oa.order_id = o.order_id
+	and oa.action_type_cd in (2534.00,2529.00,2539.00)
+join pr	
+	where pr.person_id = oa.order_provider_id
+	and pr.active_ind = 1
+join bi
+	where bi.ext_parent_reference_id 	= o.catalog_cd	
+join bim
+	where bim.bill_item_id = bi.bill_item_id		
+	and bim.key1_id = 615214;  .and bim.key1_id in (615214.0;cpt
+	and bim.end_effective_dt_tm > sysdate	
+detail
+    enc->qual[d1.seq].proc_description 		= trim(bim.key7,3)
+    enc->qual[d1.seq].proc_code 				= trim(bim.key6,3)
+    enc->qual[d1.seq].rendering_provider_id 	= pr.person_id
+    enc->qual[d1.seq].rendering_provider		= pr.name_full_formatted
+with uar_code(D), format(date, ";;q"),MAXREC=1000, nocounter, format, separator = " ",time = 10
+
+;patient fin
+select into "nl:"
+	fin.alias
+from 
+  encntr_alias fin
+  ,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0  
+join fin
+   	where fin.encntr_id = enc->qual[d1.seq].eid
+   	and fin.encntr_alias_type_cd = fin_cd
+   	and fin.active_ind = 1
+detail
+	enc->qual[d1.seq].fin = fin.alias
+with nocounter
+
+;patient mrn and patient information
+select into "nl:"
+	mrn.alias
+from 
+  encntr_alias  mrn
+  ,person 		p
+  ,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0  
+join p
+	where p.person_id = enc->qual[d1.seq].pid
+	and p.active_ind = 1
+join mrn
+   	where mrn.encntr_id = enc->qual[d1.seq].eid
+   	and mrn.encntr_alias_type_cd = mrn_cd
+   	and mrn.active_ind = 1
+detail
+	enc->qual[d1.seq].mrn = mrn.alias
+	enc->qual[d1.seq].patient_name = p.name_full_formatted
+	enc->qual[d1.seq].patient_dob = format(p.birth_dt_tm, "MM/DD/YYYY ;;Q")
+with nocounter
+
+;provider npi
+select into "nl:"
+	npi				= pa.alias
+from 
+	 prsnl_alias 	pa	;NPI
+  	,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0  	
+join pa
+	where pa.person_id = enc->qual[d1.seq].rendering_provider_id
+	and pa.prsnl_alias_type_cd =  npi_cd  ;	
+	and pa.active_ind = 1
+detail
+	enc->qual[d1.seq].rendering_prov_npi = pa.alias
+with nocounter
+
+;GET PATIENT SSN
+select into "nl:" ;$OUTDEV
+	ssn = pa.alias
+from
+	 person_alias pa
+  	,(dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0 
+join pa
+	where pa.person_id =  enc->qual[d1.seq].pid 
+	and pa.person_alias_type_cd = ssn_cd
+	and pa.active_ind = 1
+	and pa.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm >= cnvtdatetime(curdate, curtime3)
+detail
+	enc->qual[d1.seq].pat_ssn 	= ssn
+with nocounter,format, separator = " "
+
+;call echojson(enc,$OUTDEV)
+
+
+
+select into value(filenamepath) ; $OUTDEV
+	 FIN 					= trim(substring(1,20,enc->qual[d1.seq].fin),3)  
+	,MRN 					= trim(substring(1,20,enc->qual[d1.seq].mrn),3)  
+	,PATIENT_NAME			= trim(substring(1,100,enc->qual[d1.seq].patient_name),3) 
+	,PATIENT_DOB			= trim(substring(1,20,enc->qual[d1.seq].patient_dob),3)   
+	,LOCATION_CODE  		= trim(substring(1,20,enc->qual[d1.seq].location_code),3)  
+	,LOCATION_NAME			= trim(substring(1,20,enc->qual[d1.seq].location_name),3)   
+	,DATE_OF_SERVICE		= trim(substring(1,20,enc->qual[d1.seq].ed_arrival_dt),3)  
+	,TIME_OF_SERVICE		= trim(substring(1,20,enc->qual[d1.seq].ed_arrival_tm),3)   
+	,PROCEDURE_DESC			= trim(substring(1,200,enc->qual[d1.seq].proc_description),3) 
+	,PROCEDURE_CODE			= trim(substring(1,20,enc->qual[d1.seq].proc_code),3) 
+	,RENDERING_PROVIDER		= trim(substring(1,100,enc->qual[d1.seq].rendering_provider),3)
+	,RENDERING_NPI			= trim(substring(1,20,enc->qual[d1.seq].rendering_prov_npi),3)  
+	,RENDERING_HOSP_CODE	= " " 
+	,PATIENT_SSN			= trim(substring(1,20,enc->qual[d1.seq].pat_ssn),3)  
+	,DISPOSITION			= trim(substring(1,100,enc->qual[d1.seq].disposition),3) 	
+from 
+	 (dummyt d1 with seq=value(size(enc->qual,5)))
+plan d1
+	where d1.seq > 0  	
+with nocounter, pcformat ("", '|', 1, 1), format = stream, format, skipreport = 1	
+;with nocounter, FORMAT, SEPARATOR = " "
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
