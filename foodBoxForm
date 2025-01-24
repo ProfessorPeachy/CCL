@@ -1,0 +1,207 @@
+drop program 1_amj_tn_food_box_assessment go
+create program 1_amj_tn_food_box_assessment
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+
+;FIN #, Admit/Discharge Date & Time, Primary Insurance provider, Any Cancer diagnosis 
+
+declare fin_cd					= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+declare form_comp_cd = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",18189,"PRIMARYEVENTID"))
+
+
+free record rec
+record rec
+(
+	1 cnt					= i4
+	1 qual[*]
+		2 pid				= f8
+		2 eid				= f8
+		2 fin				= vc
+		2 name				= vc
+		2 form				= vc
+		2 form_activity_id  = f8
+		2 form_event_id		= f8
+		2 cancer_dx 		= vc
+		2 admit_dttm		= vc
+		2 disch_dttm		= vc
+		2 prim_insurance	= vc
+		2 encounter_type	= vc
+)
+
+;select into $outdev
+SELECT INTO "nl:";$outdev
+   dfa.description
+   ,beg_activity_dt_tm = format(dfa.beg_activity_dt_tm, "@SHORTDATETIME")
+   ,form_dt_tm = format(dfa.form_dt_tm, "@SHORTDATETIME")
+   ,fin = cnvtalias(fin.alias, fin.alias_pool_cd)
+   ,e.arrive_dt_tm
+   ,e.reg_dt_tm
+   ,e.disch_dt_tm
+   ,p.name_full_formatted
+   ,form_event_id = dfac.parent_entity_id
+   ,encounter_type = uar_get_code_display(e.encntr_type_cd)
+FROM
+	encounter			e
+	,dcp_forms_activity dfa
+	,dcp_forms_activity_comp dfac
+	,encntr_alias 		fin
+	,person 			p
+plan dfa
+	where dfa.updt_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)   
+	and dfa.description = "Food Box Assessment*"
+	and dfa.dcp_forms_ref_id =     621826095.00
+   	and dfa.active_ind 	= 1	
+   ;	and dfa.encntr_id in (   109602586.00,  109749097.00)
+join dfac
+    where dfac.dcp_forms_activity_id = dfa.dcp_forms_activity_id
+    and dfac.component_cd+0 = form_comp_cd
+    and dfac.parent_entity_name = "CLINICAL_EVENT"   	
+join e
+	where e.encntr_id 	= dfa.encntr_id
+	and e.active_ind 	= 1
+	;where e.beg_effective_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)
+join fin 
+	where fin.encntr_id 			= e.encntr_id
+   	and fin.encntr_alias_type_cd 	= fin_cd
+   	and fin.active_ind 				= 1
+   	and fin.beg_effective_dt_tm 	<= cnvtdatetime(curdate, curtime)
+   	and fin.end_effective_dt_tm 	>= cnvtdatetime(curdate, curtime) 
+join p
+	where p.person_id 	= e.person_id
+	and p.active_ind 	= 1
+ORDER BY p.person_id, e.encntr_id,  DFA.FORM_DT_TM DESC
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head p.person_id
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid 					= e.encntr_id
+    rec->qual[cnt].pid 					= p.person_id
+	rec->qual[cnt].fin 					= fin.alias
+	rec->qual[cnt].name					= p.name_full_formatted
+	rec->qual[cnt].admit_dttm 			= format(E.reg_dt_tm,"@SHORTDATETIME")
+	rec->qual[cnt].disch_dttm 			= format(E.disch_dt_tm,"@SHORTDATETIME")
+	rec->qual[cnt].form					= dfa.description
+	rec->qual[cnt].form_activity_id  	= dfa.dcp_forms_activity_id
+	rec->qual[cnt].form_event_id		= dfac.parent_entity_id
+	rec->qual[cnt].encounter_type		= uar_get_code_display(e.encntr_type_cd) 
+	;default to No, but change to YES if the form says YES
+	;rec->qual[cnt].cancer_dx			= "No"
+foot report
+	if(cnt>0)
+		stat = alterlist(rec->qual,cnt)
+		rec->cnt = cnt
+	endif
+with nocounter, format, separator = " ",time = 300
+
+
+
+select into $outdev;"nl:"; $outdev
+	pid = rec->qual[d1.seq].pid
+	,eid = rec->qual[d1.seq].eid
+	,fin = rec->qual[d1.seq].fin 
+	,name = rec->qual[d1.seq].name
+	,rec->qual[d1.seq].form_event_id
+	,rec->qual[d1.seq].form	
+	,ce2.event_title_text
+	,ce3.event_title_text, ce3.result_val
+from
+	(dummyt d1 with seq = rec->cnt)
+	,clinical_event ce2
+	,clinical_event ce3
+plan d1
+	where d1.seq > 0
+join ce2
+	where ce2.parent_event_id = rec->qual[d1.seq].form_event_id
+	and ce2.parent_event_id != ce2.event_id
+    and ce2.result_status_cd in (34,35,25) ;Authenticated Modified
+    and ce2.valid_until_dt_tm>cnvtdatetime(curdate,curtime3)
+join ce3
+     where ce3.parent_event_id = ce2.event_id
+     and ce3.event_title_text = "Any cancer diagnosis"		
+     and ce3.result_status_cd in (34,35,25) ;Authenticated Modified
+     and ce3.valid_until_dt_tm>cnvtdatetime(curdate,curtime3)
+order by pid, eid    
+detail
+	rec->qual[d1.seq].cancer_dx = CE3.result_val
+with nocounter, format, separator = " ", time = 300    	
+
+select distinct into "nl:"
+	eid = rec->qual[d1.seq].eid
+	,insurance_co = trim(cnvtupper(org.org_name),3)
+from
+	(dummyt   d1  with seq = value(size(rec->qual,5)))
+	,encntr_plan_reltn  e
+	,health_plan  h
+	,org_plan_reltn  o
+	,organization  org
+	,person  pe
+plan d1
+	where d1.seq > 0
+join e 
+	where e.encntr_id = rec->qual[d1.seq].eid
+	and e.active_ind= 1
+	and e.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+join pe
+	where e.person_id=pe.person_id
+join h
+	where h.health_plan_id=e.health_plan_id
+  	and h.active_ind= 1
+join o
+	where o.health_plan_id=h.health_plan_id
+  	and o.organization_id=e.organization_id
+  	and o.active_ind= 1
+join org
+	where org.organization_id=o.organization_id
+order by d1.seq, e.priority_seq,e.beg_effective_dt_tm desc
+head d1.seq
+	rec->qual[d1.seq].prim_insurance = trim(cnvtupper(org.org_name),3)
+with nocounter, format, separator = " ", format(DATE,"@SHORTDATETIME"),time = 300
+
+
+select into $outdev
+	fin 					= trim(substring(1,20,rec->qual[d1.seq].fin),3)
+	,name 					= trim(substring(1,20,rec->qual[d1.seq].name),3)
+	,admit_date_time 		= trim(substring(1,14,rec->qual[d1.seq].admit_dttm),3)
+	,discharge_date_time	= trim(substring(1,14,rec->qual[d1.seq].disch_dttm),3)
+	,primary_insurance		= trim(substring(1,100,rec->qual[d1.seq].prim_insurance),3)
+	,any_cancer_diagnosis	= trim(substring(1,5,rec->qual[d1.seq].cancer_dx),3)
+	,encounter_type			= trim(substring(1,50,rec->qual[d1.seq].encounter_type),3)
+from
+	(dummyt d1 with seq = rec->cnt)
+with nocounter, format, separator = " "
+
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+;    Your Code Goes Here
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
