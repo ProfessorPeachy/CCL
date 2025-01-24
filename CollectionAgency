@@ -1,0 +1,426 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+
+Time Frame	          : Records with Precollections or Collections dunning level
+
+
+************************************************************************************************************************
+*/
+drop program 1_amj_tn_medcylce_recon go
+create program 1_amj_tn_medcylce_recon
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Collection Agency" = 0
+ 
+with OUTDEV, CollectionAgency
+ 
+ 
+;set record structure
+;free record enc
+record enc (
+ 1 enc_cnt = i4
+  1 enc_qual[*]
+  	2 encntr_id = f8
+  	2 pft_encntr_id = f8
+  	2 fin = c13
+	2 combined_into_id = f8
+	2 fin_class_cd = vc
+	2 reg_dt_tm = c10
+	2 encntr_complete_dt = c10
+	2 disch_dt_tm = c10
+	2 dunning_level_cd = c30
+	2 balance = f8
+	2 bad_debt_balance = f8
+	2 billing_entity_id = f8
+	2 mill_encounter_id = f8
+	2 sp_balance_amt = f8
+	2 insurance_balance_amt = f8
+ 
+	2 person_id = f8
+	2 name_full_formatted = c30
+ 
+	2 agency_type = c25
+	2 agency_name = c40
+	2 sent_dt = c10
+	2 be_name = c30
+ 
+	2 fin2 = c13
+ 
+    2 guar_name  = c80;mod003
+	2 guar_addr1 = c40
+	2 guar_addr2 = c40
+	2 guar_city = c25
+	2 guar_state = c2
+	2 guar_zip = vc
+	2 guar_pid = f8		;009
+	2 guar_mrn = vc		;009
+	2 upt_dt_tm = c10
+	2 primary_hp = c25
+ 
+	)
+ 
+ /* Log Details 011 *
+ 
+ record rec(
+
+1 list[*]
+
+2 prog_level = i4
+
+2 prog_name = c30
+
+) with protect
+
+declare progname = vc
+
+declare num = i4
+
+set num = 1
+
+while (num > 0)
+
+set progname = curprog(num)
+
+if (progname != " ")
+
+   call echo(build("program name for level:",num," = ", progname))
+
+   call alterlist(rec->list,num)
+
+   set rec->list[num].prog_level = num
+
+   set rec->list[num].prog_name = progname
+
+   set num = num+1 
+
+else
+
+   set num = 0  ;stop loop
+
+endif
+endwhile
+
+SELECT into "recon_curprog_file.dat"
+
+run_dt_tm = format(cnvtdatetime(sysdate),";;Q")
+
+,LIST_PROG_LEVEL = REC->list[D1.SEQ].prog_level
+
+,LIST_PROG_NAME = REC->list[D1.SEQ].prog_name
+
+FROM
+
+(DUMMYT D1 WITH SEQ = SIZE(REC->list, 5))
+
+PLAN D1
+
+WITH NOCOUNTER, SEPARATOR=" ", FORMAT
+
+     ,append ;append new data to existing file
+ 
+ /* 011 end */
+;declare variables
+declare cs25095_COLL1 = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",25095,"COLLECTIONS1"))
+declare cs25095_COLL2 = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",25095,"COLLECTIONS2"))
+declare cs25095_COLL3 = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",25095,"COLLECTIONS3"))
+declare cs25095_PRECOLL1 = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",25095,"PRECOLLECTIONS1"))
+declare cs25095_PRECOLL2 = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",25095,"PRECOLLECTIONS2"))
+declare cs212_home_addr = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",212,"HOME"))
+declare cs351_guar_addr = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",351,"DEFAULTGUARANTOR"))
+declare cs27121_hp_alias = f8 with protect, constant(uar_get_code_by("DISPLAYKEY",27121,"HEALTHPLANALIAS"))
+declare guarantor_mrn_cd		= F8 WITH constant(uar_get_code_by("DISPLAYKEY",4,"MRN")),protect; 009
+declare pcnt = i4
+declare filepath = vc with protect, constant("/cerner/d_p698/data/batch_files/ccl_extracts/collagency/")
+declare filename = vc with protect, noconstant("")
+declare agencyname = vc with protect, noconstant("")
+declare outputfile = vc with protect, noconstant("")
+set pcnt = 0
+
+
+; 011
+declare rdate = vc
+set rdate = format(cnvtdatetime(curdate,curtime3),"YYYYMMDDHHMMSS;;Q")
+;011
+
+
+set outputfile = build("/cerner/d_p698/data/batch_files/ccl_extracts/collagency/amj_test.csv")
+
+
+;CREATE THE FILE PATH FOR THE OUTPUT FILE 
+if ($OUTDEV = "*\/*")		; a file and path were passed in
+	SET OUTPUTFILE $OUTDEV
+ELSE						
+	select into "nl:" ;$outdev
+		filename1 = outputfile
+		,path = filepath
+		,ca = $CollectionAgency
+		,O.org_name
+		,O.org_name_key
+	from organization o
+	plan o
+	where o.organization_id = $COLLECTIONAGENCY
+	head report
+		agencyname = o.org_name_key
+		if (agencyname = "*FROST*")
+			filename = "frost_recon.csv"
+		ELSEIF (agencyname = "*ACCELERATED*")
+			filename = "ars_recon.csv"
+		ELSEIF (agencyname = "MEDCYCLE*")
+			filename = "medcycle_recon.csv"
+		ELSE
+			filename = cnvtlower(build2(substring(1,8,o.org_name_key),"_recon.csv"))
+		ENDIF
+		
+		outputfile = build2(filepath,filename) ;011
+	with nocounter, format, separator = " "
+ENDIF
+
+select into "nl:"
+fn = filename
+,path = filepath
+,pathname = substring(1,200,outputfile)
+,agency = agencyname
+,ca = $CollectionAgency
+from dual
+with nocounter, format, separator = " "
+
+
+CALL ECHO(BUILD2("SEND FILE TO", OUTPUTFILE))
+
+
+;and p.organization_id in (3269965,3634119.00, 3634120.00)
+
+
+;get encounter, person and pft encounter data
+select into "nl:"
+    e.encntr_id
+    ,e.person
+from pft_collection_agency ca
+	, organization o
+	, pft_encntr_collection_reltn cr
+	, pft_encntr pe
+	, billing_entity be
+	, rc_f_patient_ar_balance r
+	, encounter e
+	, person p
+;	, address a
+	, encntr_person_reltn epr
+	, address a1
+	, person p1;mod003
+	, encntr_plan_reltn epr2;mod004
+    , health_plan_alias hpa;mod004
+ 
+plan ca ;where ca.agency_type_cd = $AgencyType;008
+where ca.organization_id = $CollectionAgency;008
+;plan ca where ca.agency_type_cd in (653609.0,653608.0)
+;and ca.organization_id in ($CollectionAgency)
+join o where o.organization_id = ca.organization_id
+join cr where cr.parent_entity_id = ca.pft_collection_agency_id
+	and cr.end_effective_dt_tm > cnvtdatetime(curdate-1,0)
+join pe where cr.pft_encntr_id = pe.pft_encntr_id
+join be where be.billing_entity_id = pe.billing_entity_id
+join r where r.mill_encounter_id = pe.pft_encntr_id
+	;and pe.dunning_level_cd IN (cs25095_COLL1,cs25095_COLL2,cs25095_COLL3,cs25095_PRECOLL1,cs25095_PRECOLL2);007
+	;and Pe.PFT_ENCNTR_ALIAS in ("200002173","200013281","900000247","200030400","200458248","200089546")
+join e where e.encntr_id = pe.encntr_id
+	and e.active_ind = 1
+    and e.end_effective_dt_tm >= cnvtdate(12312100)
+;AND pe.pft_encntr_id = 169060886.00
+join p where p.person_id = e.person_id
+	and p.active_ind = 1
+    and p.end_effective_dt_tm >= cnvtdate(12312100)
+join epr where pe.encntr_id = epr.encntr_id
+and epr.person_reltn_type_cd = cs351_guar_addr
+and epr.active_ind = 1
+join a1 where epr.related_person_id = a1.parent_entity_id
+and a1.active_ind = 1
+and a1.address_type_cd = cs212_home_addr
+/*start mod003*/
+join p1 where p1.person_id = epr.related_person_id
+and p1.active_ind = 1
+/*end mod003*/
+/*start mod004*/
+join epr2
+/*start mod006*/
+  where epr2.encntr_id = outerjoin(e.encntr_id)
+    and epr2.active_ind = outerjoin(1)
+    and epr2.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and epr2.priority_seq = outerjoin(1)
+/*end mod006*/
+join hpa
+  where hpa.health_plan_id = outerjoin(epr2.health_plan_id)
+    and hpa.active_ind = outerjoin(1)
+    and hpa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+    and hpa.plan_alias_type_cd = outerjoin(cs27121_hp_alias)
+/*end mod004*/
+ 
+order by pe.pft_encntr_id,r.activity_dt_nbr desc
+ 
+head pe.pft_encntr_id;e.encntr_id
+	enc->enc_cnt = enc->enc_cnt + 1
+	if(mod(enc->enc_cnt,1000)=1)
+		stat = alterlist(enc->enc_qual,enc->enc_cnt + 999)
+	endif
+ 
+	pcnt = enc->enc_cnt
+ 
+	enc->enc_qual[pcnt].encntr_id = e.encntr_id
+  	enc->enc_qual[pcnt].pft_encntr_id = pe.pft_encntr_id
+  	enc->enc_qual[pcnt].fin = pe.pft_encntr_alias
+	if (pe.recur_seq > 0)
+		enc->enc_qual[pcnt].fin = build(substring(1,9,enc->enc_qual[pcnt].fin), "-", pe.recur_seq)
+	endif
+	enc->enc_qual[pcnt].combined_into_id = pe.combined_into_id
+	enc->enc_qual[pcnt].fin_class_cd = uar_get_code_display(pe.fin_class_cd)
+	enc->enc_qual[pcnt].reg_dt_tm = trim(format(e.reg_dt_tm, 'MM/DD/YYYY;;q'),3)
+	   if (e.encntr_type_cd = 309314.00)
+		   	enc->enc_qual[pcnt].reg_dt_tm = trim(format(pe.beg_effective_dt_tm, 'MM/DD/YYYY;;q'),3)
+	  endif
+ 
+	  if(e.encntr_type_cd = 309314.00 and e.disch_dt_tm is null)
+			enc->enc_qual[pcnt].encntr_complete_dt = trim(format(datetimefind(pe.beg_effective_dt_tm,"M","E","E"),"MM/DD/YYYY;;q"),3)
+	; enc->enc_qual[pcnt].encntr_complete_dt = trim(format(e.encntr_complete_dt_tm, 'MM/DD/YYYY;;q'),3)
+	  endif
+	enc->enc_qual[pcnt].disch_dt_tm = trim(format(e.disch_dt_tm, 'MM/DD/YYYY;;q'),3)
+	enc->enc_qual[pcnt].dunning_level_cd = uar_get_code_display(pe.dunning_level_cd)
+	enc->enc_qual[pcnt].balance = r.balance_amt
+		if (ca.agency_type_cd = 653608.00 )
+			enc->enc_qual[pcnt].balance = pe.balance
+		endif
+	enc->enc_qual[pcnt].bad_debt_balance = pe.bad_debt_balance
+	enc->enc_qual[pcnt].billing_entity_id = pe.billing_entity_id
+	enc->enc_qual[pcnt].mill_encounter_id = r.mill_encounter_id
+	enc->enc_qual[pcnt].sp_balance_amt = r.sp_balance_amt
+	enc->enc_qual[pcnt].insurance_balance_amt = r.insurance_balance_amt
+	enc->enc_qual[pcnt].name_full_formatted = p.name_full_formatted
+	enc->enc_qual[pcnt].agency_type = uar_get_code_display(ca.agency_type_cd)
+	enc->enc_qual[pcnt].agency_name = substring(1,40,o.org_name)
+	enc->enc_qual[pcnt].sent_dt = trim(format(cr.send_dt_tm, 'MM/DD/YYYY;;q'),3)
+		if (ca.agency_type_cd = 653608.00)
+			enc->enc_qual[pcnt].sent_dt = trim(format(pe.bad_debt_dt_tm, 'MM/DD/YYYY;;q'),3)
+		endif
+	enc->enc_qual[pcnt].be_name = substring(1,30,be.be_name)
+	enc->enc_qual[pcnt].guar_name = p1.name_full_formatted;mod003
+	enc->enc_qual[pcnt].guar_pid	= p1.person_id ;009
+	enc->enc_qual[pcnt].guar_addr1 = substring(1,30,a1.street_addr)
+	enc->enc_qual[pcnt].guar_addr2 = substring(1,30,a1.street_addr2)
+	enc->enc_qual[pcnt].guar_city = substring(1,25,a1.city)
+	enc->enc_qual[pcnt].guar_state = substring(1,2,uar_get_code_display(a1.state_cd))
+	enc->enc_qual[pcnt].guar_zip = a1.zipcode
+	enc->enc_qual[pcnt].upt_dt_tm = trim(format(a1.updt_dt_tm, 'MM/DD/YYYY;;q'),3)
+ 	enc->enc_qual[pcnt].primary_hp = trim(substring(1,25,hpa.alias_key))
+ 
+foot report
+	stat = alterlist(enc->enc_qual,enc->enc_cnt)
+ 
+with nocounter
+ 
+;get combined encounter data
+select into "nl:"
+ 
+from (dummyt d with seq = enc->enc_cnt)
+	, pft_encntr pe2
+	;, pft_combine_log ; maybe ?
+ 
+plan d
+join pe2 where outerjoin(pe2.pft_encntr_id) = enc->enc_qual[d.seq].combined_into_id
+ 
+detail
+	enc->enc_qual[d.seq].fin2 = pe2.pft_encntr_alias
+	if (pe2.recur_seq > 0)
+		enc->enc_qual[d.seq].fin2 =
+		build(substring(1,9,enc->enc_qual[d.seq].fin2), "-", pe2.recur_seq)
+	endif
+ 
+with nocounter
+
+
+
+;009 guarantor mrn
+;GET GUARANTOR SSN AND MRN
+select into "nl:"
+from
+	 person_alias pa
+	,(dummyt d1 with seq = enc->enc_cnt)
+plan d1
+	where d1.seq > 0
+join pa
+	where pa.person_id 			=  enc->enc_qual[d1.seq].guar_pid
+	and pa.person_alias_type_cd = guarantor_mrn_cd
+	and pa.active_ind 			= 1
+	and pa.beg_effective_dt_tm 	<= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm 	>= cnvtdatetime(curdate, curtime3)
+detail
+	if (pa.person_alias_type_cd = guarantor_mrn_cd)
+		enc->enc_qual[d1.seq].guar_mrn	= pa.alias
+	endif
+with nocounter,format, separator = " "
+
+;011
+declare rs_fn = vc 
+set rs_fn = build2("cer_temp:rstrigger_",rdate,".dat")
+;call echoxml(enc,rs_fn,0)
+;001
+
+;call echorecord(enc)
+;Output to outdev
+;select into $outdev
+
+select into value(outputfile)
+	Agency_Type = trim(enc->enc_qual[d.seq].agency_type)
+	,Agency_Name = trim(enc->enc_qual[d.seq].agency_name)
+	,Patient_Name = trim(replace(enc->enc_qual[d.seq].name_full_formatted,','," "))
+	,Encounter_number = trim(enc->enc_qual[d.seq].fin)
+	,Combined_Into = trim(enc->enc_qual[d.seq].fin2)
+	,Primary_Financial_Class = enc->enc_qual[d.seq].fin_class_cd
+	,Admit_Recur_Date = enc->enc_qual[d.seq].reg_dt_tm
+	,Recur_Date = enc->enc_qual[d.seq].encntr_complete_dt
+	,Discharge_Date = enc->enc_qual[d.seq].disch_dt_tm
+	,Dunning_Level = enc->enc_qual[d.seq].dunning_level_cd
+	,Agency_Placement_Date = enc->enc_qual[d.seq].sent_dt
+	,Total_Encounter_Balance = enc->enc_qual[d.seq].balance
+	,Bad_Debt_Balance = enc->enc_qual[d.seq].bad_debt_balance
+	,Self_Pay_Balance = enc->enc_qual[d.seq].sp_balance_amt
+	,Insurance_Balance = enc->enc_qual[d.seq].insurance_balance_amt
+	,Billing_Entity = trim(enc->enc_qual[d.seq].be_name)
+	,Billing_Entity_ID = enc->enc_qual[d.seq].billing_entity_id
+	,Guar_MRN = trim(enc->enc_qual[d.seq].guar_mrn,3)	;mod009
+	,Guar_Name = trim(replace(enc->enc_qual[d.seq].guar_name,','," "));mod003
+	,Guar_Street1 = trim(enc->enc_qual[d.seq].guar_addr1)
+	,Guar_Street2 = trim(enc->enc_qual[d.seq].guar_addr2)
+	,Guar_City = trim(enc->enc_qual[d.seq].guar_city)
+	,Guar_State = trim(enc->enc_qual[d.seq].guar_state)
+	,Guar_Zip = trim(enc->enc_qual[d.seq].guar_zip)
+	,Guar_Addr_Update = enc->enc_qual[d.seq].upt_dt_tm
+	,Primary_Health_plan = trim(enc->enc_qual[d.seq].primary_hp);mod004
+ 
+from (dummyt d with seq = enc->enc_cnt)
+ 
+plan d
+ 
+head report
+ line =	build("Agency_Type",",","Agency_Name",",","Patient_Name",",","Encounter_number",",","Combined_Into"
+ 		,",","Primary_Financial_Class",",","Admit_Recur_Date",",","Recur_Date",",","Discharge_Date"
+ 		,",","Dunning_Level",",","Agency_Placement_Date",",","Total_Encounter_Balance",",","Bad_Debt_Balance"
+ 		,",","Self_Pay_Balance",",","Insurance_Balance",",","Billing_Entity",",","Billing_Entity_ID"
+ 		,",","Guar_MRN",",","Guar_Name",",","Guar_Street1",",","Guar_Street2",",","Guar_City",",","Guar_State",",","Guar_Zip"
+ 		,",","Guar_Addr_Update",",","Primary_Health_plan"
+ 		)
+ 
+ col 0 line
+ row+1
+ 
+detail
+   line2 = build(Agency_Type,",",Agency_Name,",",Patient_Name,",",Encounter_number,",",Combined_Into
+   			,",",Primary_Financial_Class,",",Admit_Recur_Date,",",Recur_Date,",",Discharge_Date
+			,",",Dunning_Level,",",Agency_Placement_Date,",",Total_Encounter_Balance,",",Bad_Debt_Balance
+			,",",Self_Pay_Balance,",",Insurance_Balance,",",Billing_Entity,",",Billing_Entity_ID
+			,",",Guar_Mrn,",",Guar_Name,",",Guar_Street1,",",Guar_Street2,",",Guar_City,",",Guar_State,",",Guar_Zip
+			,",",Guar_Addr_Update,",",Primary_Health_plan
+			)
+ 
+  col 0 line2
+  row+1
+with nocounter,maxcol=5000,format=variable,separator=",",maxrow=1,time=3900
+ 
+end go
