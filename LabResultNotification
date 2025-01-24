@@ -1,0 +1,1517 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ 
+
+**************************************************************************************************************************/
+ 
+DROP PROGRAM MAUR_TN_LAB_RES_NOTIFY_LOC :dba GO
+CREATE PROGRAM MAUR_TN_LAB_RES_NOTIFY_LOC :dba
+ 
+ prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Facility" = 0
+	, "Catalog Type" = 0
+	, "Order Status" = 0
+	, "Provider" = 0
+	, "Begin Date/Time" = "CURDATE"
+	, "End Date/Time" = "CURDATE"
+ 
+with OUTDEV, FAC, CATALOG_TYPE, ORD_STAT, ORD_PROV, BEG_DT_TM, END_DT_TM
+ 
+ SET ccps_debug = 1
+ DECLARE getreply (null ) = vc
+ DECLARE geterrorcount (null ) = i4
+ DECLARE ccps_json = i2 WITH protect ,constant (0 )
+ DECLARE ccps_xml = i2 WITH protect ,constant (1 )
+ DECLARE ccps_rec_listing = i2 WITH protect ,constant (2 )
+ DECLARE ccps_info_domain = vc WITH protect ,constant ("CCPS_SCRIPT_LOGGING" )
+ DECLARE ccps_none_ind = i2 WITH protect ,constant (0 )
+ DECLARE ccps_file_ind = i2 WITH protect ,constant (1 )
+ DECLARE ccps_msgview_ind = i2 WITH protect ,constant (2 )
+ DECLARE ccps_listing_ind = i2 WITH protect ,constant (3 )
+ DECLARE ccps_log_error = i2 WITH protect ,constant (0 )
+ DECLARE ccps_log_audit = i2 WITH protect ,constant (2 )
+ DECLARE ccps_error_disp = vc WITH protect ,noconstant ("ERROR" )
+ DECLARE ccps_audit_disp = vc WITH protect ,noconstant ("AUDIT" )
+ DECLARE ccps_delim1 = vc WITH protect ,noconstant ("*" )
+ DECLARE ccps_delim2 = vc WITH protect ,noconstant (";" )
+ DECLARE prev_ccps_delim1 = vc WITH protect ,noconstant (":" )
+ DECLARE prev_ccps_delim2 = vc WITH protect ,noconstant (";" )
+ DECLARE ccps_serrmsg = vc WITH protect ,noconstant (fillstring (132 ," " ) )
+ DECLARE ccps_ierrcode = i4 WITH protect ,noconstant (error (ccps_serrmsg ,1 ) )
+ 
+ EXECUTE msgrtl
+ 
+ IF (NOT (validate (debug_values ) ) )
+  RECORD debug_values (
+    1 log_program_name = vc
+    1 log_file_dest = vc
+    1 inactive_dt_tm = vc
+    1 log_level = i2
+    1 log_level_override = i2
+    1 logging_on = i2
+    1 rec_format = i2
+    1 suppress_rec = i2
+    1 suppress_msg = i2
+    1 debug_method = i4
+  ) WITH protect
+  SET debug_values->logging_on = false
+  SET debug_values->log_program_name = curprog
+ ENDIF
+ 
+ IF (NOT (validate (ccps_log ) ) )
+  RECORD ccps_log (
+    1 ecnt = i4
+    1 cnt = i4
+    1 qual [* ]
+      2 msg = vc
+      2 msg_type_id = i4
+      2 msg_type_display = vc
+  ) WITH protect
+ ENDIF
+ 
+ IF (NOT (validate (frec ) ) )
+  RECORD frec (
+    1 file_desc = i4
+    1 file_offset = i4
+    1 file_dir = i4
+    1 file_name = vc
+    1 file_buf = vc
+  ) WITH protect
+ ENDIF
+ 
+ IF (NOT (validate (reply ) ) )
+  RECORD reply (
+    1 status_data
+      2 status = c1
+      2 subeventstatus [1 ]
+        3 operationname = c25
+        3 operationstatus = c1
+        3 targetobjectname = c25
+        3 targetobjectvalue = vc
+  ) WITH protect
+ ENDIF
+ 
+ CALL setreply ("F" )
+ 
+ SELECT INTO "nl:"
+  FROM (dm_info dm )
+  PLAN (dm
+   WHERE (dm.info_domain = ccps_info_domain )
+   AND (dm.info_name = debug_values->log_program_name )
+   AND (dm.info_date >= cnvtdatetime (sysdate ) ) )
+  ORDER BY dm.info_name
+  HEAD dm.info_name
+   entity_cnt = 0 ,
+   component_cnt = 0 ,
+   entity = trim (piece (dm.info_char ,"," ,(entity_cnt + 1), "Not Found"),3 ) ,
+   component = fillstring (4000 ," " ) ,
+ 
+   WHILE ((component != "Not Found" ) )
+    component_cnt +=1 ,
+    IF ((findstring (ccps_delim2 ,entity ,1 ) = 0 ) )
+       component = trim(piece (entity , prev_ccps_delim2 ,component_cnt ,"Not Found" ) ,3 ) ,
+       component_head = trim(piece (cnvtlower(component ) ,prev_ccps_delim1 ,1 ,"Not Found" ) ,3 ) ,
+       component_value = trim(piece (component ,prev_ccps_delim1 ,2 ,"Not Found" ) ,3 )
+    ELSE component = trim (piece (entity ,ccps_delim2 ,component_cnt ,"Not Found" ) ,3 ) ,
+       component_head = trim (piece (cnvtlower (component ) ,ccps_delim1 ,1 ,"Not Found" ) ,3 ) ,
+       component_value = trim (piece (component ,ccps_delim1 ,2 ,"Not Found" ) ,3 )
+    ENDIF
+    ,
+    CASE (component_head )
+     OF "program" :
+      debug_values->log_program_name = component_value
+     OF "debug_method" :
+      IF ((component_value = "None" ) ) debug_values->debug_method = ccps_none_ind
+      ELSEIF ((component_value = "File" ) ) debug_values->debug_method = ccps_file_ind
+      ELSEIF ((component_value = "Message View" ) ) debug_values->debug_method = ccps_msgview_ind
+      ELSEIF ((component_value = "Listing" ) ) debug_values->debug_method = ccps_listing_ind
+      ENDIF
+     OF "file_name" :
+      debug_values->log_file_dest = component_value
+     OF "inactive_dt_tm" :
+      debug_values->inactive_dt_tm = component_value
+     OF "rec_type" :
+      debug_values->rec_format = cnvtint (component_value )
+     OF "suppress_rec" :
+      debug_values->suppress_rec = cnvtint (component_value )
+     OF "suppress_msg" :
+      debug_values->suppress_msg = cnvtint (component_value )
+    ENDCASE
+   ENDWHILE
+   ,
+   IF ((debug_values->debug_method != ccps_none_ind ) ) debug_values->logging_on = true
+   ELSE debug_values->logging_on = false
+   ENDIF
+  FOOT  dm.info_name
+   null
+  WITH nocounter
+ ;end select
+ 
+ IF (validate (ccps_debug ) )
+  IF (NOT (validate (ccps_file ) ) )
+   SET debug_values->log_file_dest = build (debug_values->log_program_name ,"_DBG.dat" )
+  ELSE
+   SET debug_values->log_file_dest = ccps_file
+  ENDIF
+ 
+  IF (NOT (validate (ccps_rec_format ) ) )
+   IF ((ccps_debug != ccps_listing_ind ) )
+    SET debug_values->rec_format = ccps_json
+   ELSE
+    SET debug_values->rec_format = ccps_rec_listing
+   ENDIF
+  ELSE
+   IF ((ccps_rec_format = ccps_xml ) )
+    SET debug_values->rec_format = ccps_xml
+   ELSEIF ((ccps_rec_format = ccps_json ) )
+    SET debug_values->rec_format = ccps_json
+   ELSE
+    SET debug_values->rec_format = ccps_rec_listing
+   ENDIF
+  ENDIF
+ 
+  IF (NOT (validate (ccps_suppress_rec ) ) )
+   SET debug_values->suppress_rec = false
+  ELSE
+   IF ((ccps_suppress_rec = true ) )
+    SET debug_values->suppress_rec = true
+   ELSE
+    SET debug_values->suppress_rec = false
+   ENDIF
+  ENDIF
+ 
+  IF (NOT (validate (ccps_suppress_msg ) ) )
+   SET debug_values->suppress_msg = false
+  ELSE
+   IF ((ccps_suppress_msg = true ) )
+    SET debug_values->suppress_msg = true
+   ELSE
+    SET debug_values->suppress_msg = false
+   ENDIF
+  ENDIF
+ 
+  CASE (ccps_debug )
+   OF ccps_none_ind :
+    SET debug_values->debug_method = ccps_none_ind
+    SET debug_values->logging_on = false
+   OF ccps_file_ind :
+    SET debug_values->debug_method = ccps_file_ind
+    SET debug_values->logging_on = true
+   OF ccps_msgview_ind :
+    SET debug_values->debug_method = ccps_msgview_ind
+    SET debug_values->logging_on = true
+   OF ccps_listing_ind :
+    SET debug_values->debug_method = ccps_listing_ind
+    SET debug_values->logging_on = true
+  ENDCASE
+ 
+ ENDIF
+ 
+ IF (debug_values->logging_on )
+  CALL echo ("****************************" )
+  CALL echo ("*** Logging is turned ON ***" )
+  CALL echo ("****************************" )
+ 
+  CASE (debug_values->debug_method )
+   OF ccps_file_ind :
+    CALL echo (build ("*** Will write to file: " ,debug_values->log_file_dest ,"***" ) )
+   OF ccps_msgview_ind :
+    CALL echo ("*****************************" )
+    CALL echo ("*** Will write to MsgView ***" )
+    CALL echo ("*****************************" )
+   OF ccps_listing_ind :
+    CALL echo ("*********************************" )
+    CALL echo ("*** Will write to the listing ***" )
+    CALL echo ("*********************************" )
+  ENDCASE
+ 
+  IF ((debug_values->suppress_rec = true ) )
+   CALL echo ("****************************" )
+   CALL echo ("***  Suppress Rec is ON  ***" )
+   CALL echo ("****************************" )
+  ENDIF
+ 
+  IF ((debug_values->suppress_msg = true ) )
+   CALL echo ("****************************" )
+   CALL echo ("***  Suppress Msg is ON  ***" )
+   CALL echo ("****************************" )
+  ENDIF
+ 
+ ELSE
+  CALL echo ("*****************************" )
+  CALL echo ("*** Logging is turned OFF ***" )
+  CALL echo ("*****************************" )
+ ENDIF
+ 
+ 
+ SUBROUTINE  (logmsg (mymsg =vc ,msglvl =i2 (value ,2 ) ) =null )
+  DECLARE seek_retval = i4 WITH private ,noconstant (0 )
+  DECLARE filelen = i4 WITH private ,noconstant (0 )
+  DECLARE write_stat = i2 WITH private ,noconstant (0 )
+  DECLARE imsglvl = i2 WITH private ,noconstant (0 )
+  DECLARE smsglvl = vc WITH private ,noconstant ("" )
+  DECLARE slogtext = vc WITH private ,noconstant ("" )
+  DECLARE start_char = i4 WITH private ,noconstant (0 )
+  SET imsglvl = msglvl
+  SET slogtext = mymsg
+  IF ((((debug_values->suppress_msg = false ) ) OR ((debug_values->suppress_msg = true )
+  AND (msglvl = ccps_log_error ) )) )
+   IF ((((imsglvl = ccps_log_error ) ) OR ((debug_values->logging_on = true ) )) )
+    SET ccps_log->cnt +=1
+    IF ((msglvl = ccps_log_error ) )
+     SET ccps_log->ecnt +=1
+    ENDIF
+    SET stat = alterlist (ccps_log->qual ,ccps_log->cnt )
+    SET ccps_log->qual[ccps_log->cnt ].msg = trim (mymsg ,3 )
+    SET ccps_log->qual[ccps_log->cnt ].msg_type_id = msglvl
+    IF ((msglvl = ccps_log_error ) )
+     SET ccps_log->qual[ccps_log->cnt ].msg_type_display = ccps_error_disp
+    ELSE
+     SET ccps_log->qual[ccps_log->cnt ].msg_type_display = ccps_audit_disp
+    ENDIF
+   ENDIF
+   CASE (imsglvl )
+    OF ccps_log_error :
+     SET smsglvl = "Error"
+    OF ccps_log_audit :
+     SET smsglvl = "Audit"
+   ENDCASE
+   IF ((imsglvl = ccps_log_error ) )
+    CALL writemlgmsg (slogtext ,imsglvl )
+    CALL populatesubeventstatus (ccps_log->ecnt ,ccps_error_disp ,"F" ,build (curprog) ,trim (mymsg,3 ) )
+   ENDIF
+   IF ((debug_values->logging_on = true ) )
+    IF ((debug_values->debug_method = ccps_msgview_ind )
+    AND (msglvl != ccps_log_error ) )
+     CALL writemlgmsg (slogtext ,imsglvl )
+    ELSEIF ((debug_values->debug_method = ccps_file_ind ) )
+     SET frec->file_name = debug_values->log_file_dest
+     SET frec->file_buf = "ab"
+     SET stat = cclio ("OPEN" ,frec )
+     SET frec->file_dir = 2
+     SET seek_retval = cclio ("SEEK" ,frec )
+     SET filelen = cclio ("TELL" ,frec )
+     SET frec->file_offset = filelen
+     SET frec->file_buf = build2 (format (cnvtdatetime (sysdate ) ,"mm/dd/yyyy hh:mm:ss;;d" ) ,
+      fillstring (5 ," " ) ,"{" ,smsglvl ,"}" ,fillstring (5 ," " ) ,mymsg ,char (13 ) ,char (10 ) )
+     SET write_stat = cclio ("WRITE" ,frec )
+     SET stat = cclio ("CLOSE" ,frec )
+    ELSEIF ((debug_values->debug_method = ccps_listing_ind ) )
+     CALL echo (build2 ("*** " ,format (cnvtdatetime (sysdate ) ,"mm/dd/yyyy hh:mm:ss;;d" ) ,
+       fillstring (5 ," " ) ,"{" ,smsglvl ,"}" ,fillstring (5 ," " ) ,mymsg ) )
+    ENDIF
+   ENDIF
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (logrecord (myrecstruct =vc (ref ) ) =null )
+  IF ((debug_values->suppress_rec = false ) )
+   DECLARE smsgtype = vc WITH private ,noconstant ("" )
+   DECLARE write_stat = i4 WITH private ,noconstant (0 )
+   SET smsgtype = "Audit"
+   IF ((debug_values->logging_on = true ) )
+    IF ((debug_values->debug_method = ccps_file_ind ) )
+     SET frec->file_name = debug_values->log_file_dest
+     SET frec->file_buf = "ab"
+     SET stat = cclio ("OPEN" ,frec )
+     SET frec->file_dir = 2
+     SET seek_retval = cclio ("SEEK" ,frec )
+     SET filelen = cclio ("TELL" ,frec )
+     SET frec->file_offset = filelen
+     SET frec->file_buf = build2 (format (cnvtdatetime (sysdate ) ,"mm/dd/yyyy hh:mm:ss;;d" ) ,
+      fillstring (5 ," " ) ,"{" ,smsgtype ,"}" ,fillstring (5 ," " ) )
+     IF ((debug_values->rec_format = ccps_xml ) )
+      CALL echoxml (myrecstruct ,debug_values->log_file_dest ,1 )
+     ELSEIF ((debug_values->rec_format = ccps_json ) )
+      CALL echojson (myrecstruct ,debug_values->log_file_dest ,1 )
+     ELSE
+      CALL echorecord (myrecstruct ,debug_values->log_file_dest ,1 )
+     ENDIF
+     SET frec->file_buf = build (frec->file_buf ,char (13 ) ,char (10 ) )
+     SET write_stat = cclio ("WRITE" ,frec )
+     SET stat = cclio ("CLOSE" ,frec )
+    ELSEIF ((debug_values->debug_method = ccps_listing_ind ) )
+     CALL echo (build2 ("*** " ,format (cnvtdatetime (sysdate ) ,"mm/dd/yyyy hh:mm:ss;;d" ) ,
+       fillstring (5 ," " ) ,"{" ,smsgtype ,"}" ,fillstring (5 ," " ) ) )
+     IF ((debug_values->rec_format = ccps_xml ) )
+      CALL echoxml (myrecstruct )
+     ELSEIF ((debug_values->rec_format = ccps_json ) )
+      CALL echojson (myrecstruct )
+     ELSE
+      CALL echorecord (myrecstruct )
+     ENDIF
+    ENDIF
+   ENDIF
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (catcherrors (mymsg =vc ) =i2 )
+  DECLARE ccps_ierroroccurred = i2 WITH private ,noconstant (0 )
+  SET ccps_ierrcode = error (ccps_serrmsg ,0 )
+  WHILE ((ccps_ierrcode > 0 )
+  AND (ccps_log->ecnt < 50 ) )
+   SET ccps_ierroroccurred = 1
+   CALL logmsg (trim (build2 (mymsg ," -- " ,trim (ccps_serrmsg ,3 ) ) ,3 ) ,ccps_log_error )
+   SET ccps_ierrcode = error (ccps_serrmsg ,1 )
+  ENDWHILE
+  RETURN (ccps_ierroroccurred )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  geterrorcount (null )
+  RETURN (ccps_log->ecnt )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (finalizemsgs (outdest =vc (value ,"" ) ,recsizezflag =i4 (value ,1 ) ) =null )
+  DECLARE errcnt = i4 WITH noconstant (0 ) ,private
+  SET stat = catcherrors ("Performing final check for errors..." )
+  SET errcnt = geterrorcount (null )
+  IF ((errcnt > 0 ) )
+   CALL setreply ("F" )
+  ELSEIF ((recsizezflag = 0 ) )
+   CALL setreply ("Z" )
+  ELSE
+   CALL setreply ("S" )
+  ENDIF
+  IF ((ccps_log->ecnt > 0 )
+  AND (cnvtstring (outdest ) != "" ) )
+   SELECT INTO value (outdest )
+    FROM (dummyt d WITH seq = ccps_log->cnt )
+    PLAN (d
+     WHERE (ccps_log->qual[d.seq ].msg_type_id = ccps_log_error ) )
+    HEAD REPORT
+     CALL print (build2 (
+      "*** Errors have occurred in the CCL Script.  Please contact your System Administrator " ,
+      "and/or Cerner for assistance with resolving the issue. ***" ,char(13) ,char(10),char(13),char(10) ) )
+    DETAIL
+     CALL print (ccps_log->qual[d.seq ].msg ) ,
+     row + 1
+    FOOT REPORT
+     null
+    WITH nocounter ,maxcol = 500
+   ;end select
+  ENDIF
+  IF ((debug_values->debug_method = ccps_listing_ind ) )
+   CALL echo ("********************************" )
+   CALL echo ("*** Printing Logging Summary ***" )
+   CALL echo ("********************************" )
+   CALL logrecord (ccps_log )
+   CALL logrecord (reply )
+  ENDIF
+ 
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (setreply (mystat =vc ) =null )
+  IF ((validate (reply->status_data.status ) = 1 ) )
+   SET reply->status_data.status = mystat
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  getreply (null )
+  IF ((validate (reply->status_data.status ) = 1 ) )
+   RETURN (reply->status_data.status )
+  ELSE
+   RETURN ("Z" )
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (getcodewithcheck (type =vc ,code_set =i4 (value ,0 ) ,expression =vc (value ,"" ) ,
+  msglvl =i2 (value ,2 ) ) =f8 )
+  DECLARE cki_flag = i2 WITH private ,noconstant (0 )
+  IF ((code_set = 0 ) )
+   DECLARE tmp_code_value = f8 WITH private ,noconstant (uar_get_code_by_cki (type ) )
+   SET cki_flag = 1
+  ELSE
+   DECLARE tmp_code_value = f8 WITH private ,noconstant (uar_get_code_by (type ,code_set ,expression) )
+  ENDIF
+  IF ((tmp_code_value <= 0 ) )
+   IF ((cki_flag = 0 ) )
+    CALL logmsg (build2 ("*** ! Code value from code set " ,trim (cnvtstring (code_set ) ,3 ) ,
+      " with " ,type ," of " ,expression ," was not found !" ) ,msglvl )
+   ELSE
+    CALL logmsg (build2 ("*** ! Code value with CKI of " ,type ," was not found !" ) ,msglvl )
+   ENDIF
+  ENDIF
+  RETURN (tmp_code_value )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (populatesubeventstatus (errorcnt =i4 (value ) ,operationname =vc (value ) ,
+  operationstatus =vc (value ) ,targetobjectname =vc (value ) ,targetobjectvalue =vc (value ) ) =i2 )
+  DECLARE ccps_isubeventcnt = i4 WITH protect ,noconstant (0 )
+  DECLARE ccps_isubeventsize = i4 WITH protect ,noconstant (0 )
+  IF ((validate (reply->ops_event ) = 1 )
+  AND (errorcnt = 1 ) )
+   SET reply->ops_event = targetobjectvalue
+  ENDIF
+  IF ((validate (reply->status_data.status ,"-1" ) != "-1" ) )
+   SET ccps_isubeventcnt = size (reply->status_data.subeventstatus ,5 )
+   IF ((ccps_isubeventcnt > 0 ) )
+    SET ccps_isubeventsize = size (trim (reply->status_data.subeventstatus[ccps_isubeventcnt].operationname ) )
+    SET ccps_isubeventsize +=size (trim (reply->status_data.subeventstatus[ccps_isubeventcnt].operationstatus ) )
+    SET ccps_isubeventsize +=size (trim (reply->status_data.subeventstatus[ccps_isubeventcnt].targetobjectname ) )
+    SET ccps_isubeventsize +=size (trim (reply->status_data.subeventstatus[ccps_isubeventcnt].targetobjectvalue ) )
+   ENDIF
+   IF ((ccps_isubeventsize > 0 ) )
+    SET ccps_isubeventcnt +=1
+    SET iloggingstat = alter (reply->status_data.subeventstatus ,ccps_isubeventcnt )
+   ENDIF
+   IF ((ccps_isubeventcnt > 0 ) )
+    SET reply->status_data.subeventstatus[ccps_isubeventcnt ].operationname = substring (1 ,25 ,
+     operationname )
+    SET reply->status_data.subeventstatus[ccps_isubeventcnt ].operationstatus = substring (1 ,1 ,
+     operationstatus )
+    SET reply->status_data.subeventstatus[ccps_isubeventcnt ].targetobjectname = substring (1 ,25 ,
+     targetobjectname )
+    SET reply->status_data.subeventstatus[ccps_isubeventcnt ].targetobjectvalue = targetobjectvalue
+   ENDIF
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (writemlgmsg (msg =vc ,lvl =i2 ) =null )
+  DECLARE sys_handle = i4 WITH noconstant (0 ) ,private
+  DECLARE sys_status = i4 WITH noconstant (0 ) ,private
+  CALL uar_syscreatehandle (sys_handle ,sys_status )
+  IF ((sys_handle > 0 ) )
+   CALL uar_msgsetlevel (sys_handle ,lvl )
+   CALL uar_sysevent (sys_handle ,lvl ,nullterm (debug_values->log_program_name ) ,nullterm (msg ) )
+   CALL uar_sysdestroyhandle (sys_handle )
+  ENDIF
+ END ;Subroutine
+ 
+ 
+ SET lastmod = "004 01/19/2017 ML011047"
+ IF (NOT (validate (list_in ) ) )
+  DECLARE list_in = i2 WITH protect ,constant (1 )
+ ENDIF
+ IF (NOT (validate (list_not_in ) ) )
+  DECLARE list_not_in = i2 WITH protect ,constant (2 )
+ ENDIF
+ IF (NOT (validate (ccps_records ) ) )
+  RECORD ccps_records (
+    1 cnt = i4
+    1 list [* ]
+      2 name = vc
+    1 num = i4
+  ) WITH persistscript
+ ENDIF
+ 
+ 
+ SUBROUTINE  (ispromptany (which_prompt =i2 ) =i2 )
+  DECLARE prompt_reflect = vc WITH private ,noconstant (reflect (parameter (which_prompt ,0 ) ) )
+  DECLARE return_val = i2 WITH private ,noconstant (0 )
+  IF ((prompt_reflect = "C1" ) )
+   IF ((ichar (value (parameter (which_prompt ,1 ) ) ) = 42 ) )
+    SET return_val = 1
+   ENDIF
+  ENDIF
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+;;Prompts;;
+ SUBROUTINE  (ispromptlist (which_prompt =i2 ) =i2 )
+  DECLARE prompt_reflect = vc WITH private ,noconstant (reflect (parameter (which_prompt ,0 ) ) )
+  DECLARE return_val = i2 WITH private ,noconstant (0 )
+  IF ((substring (1 ,1 ,prompt_reflect ) = "L" ) )
+   SET return_val = 1
+  ENDIF
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (ispromptsingle (which_prompt =i2 ) =i2 )
+  DECLARE prompt_reflect = vc WITH private ,noconstant (reflect (parameter (which_prompt ,0 ) ) )
+  DECLARE return_val = i2 WITH private ,noconstant (0 )
+  IF ((textlen (trim (prompt_reflect ,3 ) ) > 0 )
+  AND NOT (ispromptany (which_prompt ) )
+  AND NOT (ispromptlist (which_prompt ) ) )
+   SET return_val = 1
+  ENDIF
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (ispromptempty (which_prompt =i2 ) =i2 )
+  DECLARE prompt_reflect = vc WITH private ,noconstant (reflect (parameter (which_prompt ,0 ) ) )
+  DECLARE return_val = i2 WITH private ,noconstant (0 )
+  IF ((textlen (trim (prompt_reflect ,3 ) ) = 0 ) )
+   SET return_val = 1
+  ELSEIF (ispromptsingle (which_prompt ) )
+   IF ((substring (1 ,1 ,prompt_reflect ) = "C" ) )
+    IF ((textlen (trim (value (parameter (which_prompt ,0 ) ) ,3 ) ) = 0 ) )
+     SET return_val = 1
+    ENDIF
+   ELSE
+    IF ((cnvtreal (value (parameter (which_prompt ,1 ) ) ) = 0 ) )
+     SET return_val = 1
+    ENDIF
+   ENDIF
+  ENDIF
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (getpromptlist (which_prompt =i2 ,which_column =vc ,which_option =i2 (value ,list_in )
+  ) =vc )
+  DECLARE prompt_reflect = vc WITH noconstant (reflect (parameter (which_prompt ,0 ) ) ) ,private
+  DECLARE count = i4 WITH noconstant (0 ) ,private
+  DECLARE item_num = i4 WITH noconstant (0 ) ,private
+  DECLARE option_str = vc WITH noconstant ("" ) ,private
+  DECLARE return_val = vc WITH noconstant ("0=1" ) ,private
+  IF ((which_option = list_not_in ) )
+   SET option_str = " NOT IN ("
+  ELSE
+   SET option_str = " IN ("
+  ENDIF
+  IF (ispromptany (which_prompt ) )
+   SET return_val = "1=1"
+  ELSEIF (ispromptlist (which_prompt ) )
+   SET count = cnvtint (substring (2 ,(textlen (prompt_reflect ) - 1 ) ,prompt_reflect ) )
+  ELSEIF (ispromptsingle (which_prompt ) )
+   SET count = 1
+  ENDIF
+  IF ((count > 0 ) )
+   SET return_val = concat ("(" ,which_column ,option_str )
+   FOR (item_num = 1 TO count )
+    IF ((mod (item_num ,1000 ) = 1 )
+    AND (item_num > 1 ) )
+     SET return_val = replace (return_val ,"," ,")" ,2 )
+     SET return_val = concat (return_val ," or " ,which_column ,option_str )
+    ENDIF
+    IF ((substring (1 ,1 ,reflect (parameter (which_prompt ,item_num ) ) ) = "C" ) )
+     SET return_val = concat (return_val ,"'" ,value (parameter (which_prompt ,item_num ) ) ,"'" ,
+      "," )
+    ELSE
+     SET return_val = build (return_val ,value (parameter (which_prompt ,item_num ) ) ,"," )
+    ENDIF
+   ENDFOR
+   SET return_val = replace (return_val ,"," ,")" ,2 )
+   SET return_val = concat (return_val ,")" )
+  ENDIF
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (getpromptexpand (which_prompt =i2 ,which_column =vc ,which_option =i2 (value ,list_in
+   ) ) =vc )
+  DECLARE record_name = vc WITH private ,noconstant (" " )
+  DECLARE return_val = vc WITH private ,noconstant ("0=1" )
+  IF (ispromptany (which_prompt ) )
+   SET return_val = "1=1"
+  ELSEIF (((ispromptlist (which_prompt ) ) OR (ispromptsingle (which_prompt ) )) )
+   SET record_name = getpromptrecord (which_prompt ,which_column )
+   IF ((textlen (trim (record_name ,3 ) ) > 0 ) )
+    SET return_val = createexpandparser (which_column ,record_name ,which_option )
+   ENDIF
+  ENDIF
+  CALL logmsg (concat ("GetPromptExpand: return value = " ,return_val ) )
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (getpromptrecord (which_prompt =i2 ,which_rec =vc ) =vc )
+  DECLARE record_name = vc WITH private ,noconstant (" " )
+  DECLARE prompt_reflect = vc WITH private ,noconstant (reflect (parameter (which_prompt ,0 ) ) ) ,
+  private
+  DECLARE count = i4 WITH private ,noconstant (0 )
+  DECLARE item_num = i4 WITH private ,noconstant (0 )
+  DECLARE idx = i4 WITH private ,noconstant (0 )
+  DECLARE data_type = vc WITH private ,noconstant (" " )
+  DECLARE alias_parser = vc WITH private ,noconstant (" " )
+  DECLARE cnt_parser = vc WITH private ,noconstant (" " )
+  DECLARE alterlist_parser = vc WITH private ,noconstant (" " )
+  DECLARE data_type_parser = vc WITH private ,noconstant (" " )
+  DECLARE return_val = vc WITH private ,noconstant (" " )
+  IF (((NOT (ispromptany (which_prompt ) ) ) OR (NOT (ispromptempty (which_prompt ) ) )) )
+   SET record_name = createrecord (which_rec )
+   IF ((textlen (trim (record_name ,3 ) ) > 0 ) )
+    IF (ispromptlist (which_prompt ) )
+     SET count = cnvtint (substring (2 ,(textlen (prompt_reflect ) - 1 ) ,prompt_reflect ) )
+    ELSEIF (ispromptsingle (which_prompt ) )
+     SET count = 1
+    ENDIF
+    IF ((count > 0 ) )
+     SET alias_parser = concat ("set curalias = which_rec_alias " ,record_name ,"->list[idx] go" )
+     SET cnt_parser = build2 ("set " ,record_name ,"->cnt = " ,count ," go" )
+     SET alterlist_parser = build2 ("set stat = alterlist(" ,record_name ,"->list," ,record_name ,
+      "->cnt) go" )
+     SET data_type = cnvtupper (substring (1 ,1 ,reflect (parameter (which_prompt ,1 ) ) ) )
+     SET data_type_parser = concat ("set " ,record_name ,"->data_type = '" ,data_type ,"' go" )
+     CALL parser (alias_parser )
+     CALL parser (cnt_parser )
+     CALL parser (alterlist_parser )
+     CALL parser (data_type_parser )
+     CALL logmsg (concat ("GetPromptRecord: alias_parser = " ,alias_parser ) )
+     CALL logmsg (concat ("GetPromptRecord: cnt_parser = " ,cnt_parser ) )
+     CALL logmsg (concat ("GetPromptRecord: alterlist_parser = " ,alterlist_parser ) )
+     CALL logmsg (concat ("GetPromptRecord: data_type_parser = " ,data_type_parser ) )
+     FOR (item_num = 1 TO count )
+      SET idx +=1
+      CASE (data_type )
+       OF "I" :
+        SET which_rec_alias->number = cnvtreal (value (parameter (which_prompt ,item_num ) ) )
+       OF "F" :
+        SET which_rec_alias->number = cnvtreal (value (parameter (which_prompt ,item_num ) ) )
+       OF "C" :
+        SET which_rec_alias->string = value (parameter (which_prompt ,item_num ) )
+      ENDCASE
+     ENDFOR
+     SET cnt_parser = concat (record_name ,"->cnt" )
+     IF ((validate (parser (cnt_parser ) ,0 ) > 0 ) )
+      SET return_val = record_name
+     ELSE
+      CALL cclexception (999 ,"E" ,
+       "GetPromptRecord: failed to add the prompt values to the new record" )
+     ENDIF
+     SET alias_parser = concat ("set curalias which_rec_alias off go" )
+     CALL parser (alias_parser )
+     CALL logmsg (concat ("GetPromptRecord: cnt_parser = " ,cnt_parser ) )
+     CALL logmsg (concat ("GetPromptRecord: alias_parser = " ,alias_parser ) )
+    ELSE
+     CALL logmsg ("GetPromptRecord: zero records found" )
+    ENDIF
+   ENDIF
+  ELSE
+   CALL logmsg ("GetPromptRecord: prompt value is any(*) or empty" )
+  ENDIF
+  IF ((textlen (trim (record_name ,3 ) ) > 0 ) )
+   CALL parser (concat ("call logRecord(" ,record_name ,") go" ) )
+  ENDIF
+  CALL logmsg (concat ("GetPromptRecord: return value = " ,return_val ) )
+  CALL catcherrors ("An error occurred in GetPromptRecord()" )
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (createrecord (which_rec =vc (value ,"" ) ) =vc )
+  DECLARE record_name = vc WITH private ,noconstant (" " )
+  DECLARE record_parser = vc WITH private ,noconstant (" " )
+  DECLARE new_record_ind = i2 WITH private ,noconstant (0 )
+  DECLARE return_val = vc WITH private ,noconstant (" " )
+  IF ((textlen (trim (which_rec ,3 ) ) > 0 ) )
+   IF ((findstring ("." ,which_rec ,1 ,0 ) > 0 ) )
+    SET record_name = concat ("ccps_" ,trim (which_rec ,3 ) ,"_rec" )
+   ELSE
+    SET record_name = trim (which_rec ,3 )
+   ENDIF
+  ELSE
+   SET record_name = build ("ccps_temp_" ,(ccps_records->cnt + 1 ) ,"_rec" )
+  ENDIF
+  SET record_name = concat (trim (replace (record_name ,concat (
+      'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 !"#$%&' ,
+      "'()*+,-./:;<=>?@[\]^_`{|}~" ) ,concat (
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_______" ,
+      "__________________________" ) ,3 ) ,3 ) )
+  CALL logmsg (concat ("CreateRecord: record_name = " ,record_name ) )
+  IF (NOT (validate (parser (record_name ) ) ) )
+   SET record_parser = concat ("record " ,record_name ," (1 cnt = i4" ,
+    " 1 list[*] 2 string = vc 2 number = f8" ," 1 data_type = c1 1 num = i4)" ,
+    " with persistscript go" )
+   CALL logmsg (concat ("CreateRecord: record parser = " ,record_parser ) )
+   CALL parser (record_parser )
+   IF (validate (parser (record_name ) ) )
+    SET return_val = record_name
+    SET ccps_records->cnt +=1
+    SET stat = alterlist (ccps_records->list ,ccps_records->cnt )
+    SET ccps_records->list[ccps_records->cnt ].name = record_name
+   ELSE
+    CALL cclexception (999 ,"E" ,"CreateRecord: failed to create record" )
+   ENDIF
+  ELSE
+   CALL cclexception (999 ,"E" ,"CreateRecord: record already exists" )
+   CALL parser (concat ("call logRecord(" ,record_name ,") go" ) )
+  ENDIF
+  CALL logrecord (ccps_records )
+  CALL logmsg (concat ("CreateRecord: return value = " ,return_val ) )
+  CALL catcherrors ("An error occurred in CreateRecord()" )
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (createexpandparser (which_column =vc ,which_rec =vc ,which_option =i2 (value ,list_in
+   ) ) =vc )
+  DECLARE return_val = vc WITH private ,noconstant ("0=1" )
+  DECLARE option_str = vc WITH private ,noconstant (" " )
+  DECLARE record_member = vc WITH private ,noconstant (" " )
+  DECLARE data_type = vc WITH private ,noconstant (" " )
+  DECLARE data_type_parser = vc WITH private ,noconstant (" " )
+  IF (validate (parser (which_rec ) ) )
+   IF ((which_option = list_not_in ) )
+    SET option_str = " NOT"
+   ENDIF
+   SET data_type_parser = concat ("set data_type = " ,which_rec ,"->data_type go" )
+   CALL parser (data_type_parser )
+   CASE (data_type )
+    OF "I" :
+     SET record_member = "number"
+    OF "F" :
+     SET record_member = "number"
+    OF "C" :
+     SET record_member = "string"
+   ENDCASE
+   SET return_val = build (option_str ," expand(" ,which_rec ,"->num" ,"," ,"1," ,which_rec ,
+    "->cnt," ,which_column ,"," ,which_rec ,"->list[" ,which_rec ,"->num]." ,record_member ,")" )
+  ELSE
+   CALL logmsg (concat ("CreateExpandParser: " ,which_rec ," does not exist" ) )
+  ENDIF
+  CALL logmsg (concat ("CreateExpandParser: return value = " ,return_val ) )
+  CALL catcherrors ("An error occurred in CreateExpandParser()" )
+  RETURN (return_val )
+ END ;Subroutine
+ 
+ 
+ CALL logmsg ("sc_cps_get_prompt_list 007 11/02/2012 ML011047" )
+ 
+ SUBROUTINE  (parsedateprompt (date_str =vc ,default_date =vc ,time =i4 ) =dq8 )
+  DECLARE _return_val = dq8 WITH noconstant (0.0 ) ,private
+  DECLARE _time = i4 WITH constant (cnvtint (time ) ) ,private
+  DECLARE _date = i4 WITH constant (_parsedate (date_str ) ) ,private
+  IF ((_date = 0.0 ) )
+   CASE (substring (1 ,1 ,reflect (default_date ) ) )
+    OF "F" :
+     SET _return_val = cnvtdatetime (cnvtdate (default_date ) ,_time )
+    OF "C" :
+     SET _return_val = cnvtdatetime (_evaluatedatestr (default_date ) ,_time )
+    OF "I" :
+     SET _return_val = cnvtdatetime (default_date ,_time )
+    ELSE
+     SET _return_val = 0
+   ENDCASE
+  ELSE
+   SET _return_val = cnvtdatetime (_date ,_time )
+  ENDIF
+  RETURN (_return_val )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (_parsedate (date_str =vc ) =i4 )
+  DECLARE _return_val = dq8 WITH noconstant (0.0 ) ,private
+  DECLARE _time = i4 WITH constant (0 ) ,private
+  IF (isnumeric (date_str ) )
+   DECLARE _date = vc WITH constant (trim (cnvtstring (date_str ) ) ) ,private
+   SET _return_val = cnvtdatetime (cnvtdate (_date ) ,_time )
+   IF ((_return_val = 0.0 ) )
+    SET _return_val = cnvtdatetime (cnvtint (_date ) ,_time )
+   ENDIF
+  ELSE
+   DECLARE _date = vc WITH constant (trim (date_str ) ) ,private
+   IF ((textlen (trim (_date ) ) = 0 ) )
+    SET _return_val = 0
+   ELSE
+    IF ((_date IN ("*CURDATE*" ) ) )
+     SET _return_val = cnvtdatetime (_evaluatedatestr (_date ) ,_time )
+    ELSE
+     SET _return_val = cnvtdatetime (cnvtdate2 (_date ,"DD-MMM-YYYY" ) ,_time )
+    ENDIF
+   ENDIF
+  ENDIF
+  RETURN (cnvtdate (_return_val ) )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (_evaluatedatestr (date_str =vc ) =i4 )
+  DECLARE _dq8 = dq8 WITH noconstant (0.0 ) ,private
+  DECLARE _parse = vc WITH constant (concat ("set _dq8 = cnvtdatetime(" ,date_str ,", 0) go" ) ) ,
+  private
+  CALL parser (_parse )
+  RETURN (cnvtdate (_dq8 ) )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  (ccps_csvwrapper (field_value =vc ,delimiter =c1 ) =vc )
+  DECLARE return_string = vc WITH noconstant ("" )
+  DECLARE delimiter_position = i4 WITH noconstant (0 )
+  DECLARE cr_position = i4 WITH noconstant (0 )
+  DECLARE lf_position = i4 WITH noconstant (0 )
+  DECLARE quote_position = i4 WITH noconstant (0 )
+  DECLARE current_position = i4 WITH noconstant (0 )
+  DECLARE next_position = i4 WITH noconstant (0 )
+  DECLARE counter = i4 WITH noconstant (0 )
+  DECLARE max_quotes = i4 WITH constant (1000 )
+  SET delimiter_position = findstring (delimiter ,field_value )
+  SET cr_position = findstring (char (13 ) ,field_value )
+  SET lf_position = findstring (char (10 ) ,field_value )
+  SET quote_position = findstring ('"' ,field_value )
+  IF (((((delimiter_position + quote_position ) + cr_position ) + lf_position ) = 0 ) )
+   SET return_string = field_value
+  ELSE
+   SET current_position = 1
+   SET next_position = 0
+   SET return_string = '"'
+   SET done = false
+   SET counter = 0
+   WHILE (NOT (done )
+   AND (counter < max_quotes ) )
+    SET counter +=1
+    SET next_position = findstring ('"' ,field_value ,current_position )
+    IF ((next_position > 0 ) )
+     SET return_string = concat (return_string ,substring (current_position ,(next_position -
+       current_position ) ,field_value ) ,'""' )
+     SET current_position = (next_position + 1 )
+    ELSE
+     SET return_string = concat (return_string ,substring (current_position ,((size (field_value ,3
+        ) - current_position ) + 1 ) ,field_value ) )
+     SET done = true
+    ENDIF
+   ENDWHILE
+   SET return_string = concat (return_string ,'"' )
+   IF ((counter = max_quotes ) )
+    SET return_string = '"ERROR - Could not display the proper data."'
+    CALL echo (build2 ("Error - More than " ,max_quotes ,
+      " quotes exist in a string being sent to a CSV file." ) )
+   ENDIF
+  ENDIF
+  RETURN (return_string )
+ END ;Subroutine
+ 
+ 
+ DECLARE getorderlist (null ) = i2
+ DECLARE getpatlocinfo (null ) = i2
+ DECLARE getproviderinfo (null ) = i2
+ DECLARE getblobtext (null ) = i2
+ DECLARE getreminderind (null ) = i2
+ DECLARE facility_parser = vc WITH protect ,noconstant ("0=1" )
+ DECLARE catalog_parser = vc WITH protect ,noconstant ("0=1" )
+ DECLARE provider_parser = vc WITH protect ,noconstant ("0=1" )
+ DECLARE ord_stat_parser = vc WITH protect ,noconstant ("0=1" )
+ DECLARE request_start_date = f8 WITH protect ,constant (51.00 )
+ 
+ DECLARE csv_fileloc = vc WITH protect ,constant (
+  "/cerner/d_p698/data/batch_files/ccl_extracts/labresultsreport" )
+ 
+ DECLARE csv_filename = vc WITH protect ,noconstant (" " )
+ DECLARE blob_text = vc WITH protect ,noconstant (" " )
+ DECLARE blob_string = vc WITH protect ,noconstant (" " )
+ 
+ DECLARE 43_business_phone = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!9598" ) )
+ DECLARE 43_fax_phone = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!9529" ) )
+ DECLARE 43_home_phone = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!4017" ) )
+ DECLARE 43_cell_phone = f8 WITH protect ,constant (getcodewithcheck ("displaykey" ,43 ,"mobile" ) )
+ DECLARE 53_event_class_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!3804" ) )
+ DECLARE 72_remind_event_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,72 , "REMINDERS" ) )
+ DECLARE 79_complete_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!2791" ) )
+ DECLARE 120_ocf_comp_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!5098" ) )
+ DECLARE 212_business_add = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!8009" ) )
+ DECLARE 212_home_add = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!4018" ) )
+ DECLARE 6004_ord_canc_status_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!3099"  ) )
+ DECLARE 6004_ord_void_status_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!44311" ) )
+ DECLARE 6027_complete_ta_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!3266" ) )
+ DECLARE 4002218_mcc_cd = f8 WITH protect ,constant (getcodewithcheck ("CKI.CODEVALUE!4107105466" ) )
+ 
+ SET csv_filename = build2 (csv_fileloc ,"/" ,"MAUR_TN_LAB_RESULT_NOTIFICATION" ,"_" ,format (
+   curdate ,"mmddyyyy;;d" ) ,"_" ,format (curtime3 ,"hhmmss;3;m" ) ,".csv" )
+ 
+ CALL echo (build2 ("CSV:" ,csv_filename ) )
+ SET begindate = parsedateprompt ( $BEG_DT_TM ,curdate ,000000 )
+ SET enddate = parsedateprompt ( $END_DT_TM ,curdate ,235959 )
+ DECLARE idx = i4 WITH protect ,noconstant (0 )
+ 
+ IF ((enddate < begindate ) )
+  SELECT INTO  $OUTDEV
+   FROM (dummyt d1 )
+   DETAIL
+    row 0 ,
+    col 10 ,
+    "Please enter a date range where the end date is greater than the begin date."
+   WITH pcformat
+  ;end select
+  GO TO exit_script
+ ENDIF
+ 
+ IF (((ispromptany (2 ) ) OR (ispromptempty (2 ) )) )
+  SET facility_parser = "1=1"
+ ELSEIF (((ispromptlist (2 ) ) OR (ispromptsingle (2 ) )) )
+  CALL getpromptrecord (2 ,"fac_rec" )
+  SET facility_parser = createexpandparser ("e.loc_facility_cd" ,"fac_rec" )
+ ENDIF
+ 
+ IF (((ispromptany (3 ) ) OR (ispromptempty (3 ) )) )
+  SET catalog_parser = "oc.catalog_type_cd in (23276383.00, 2513.00, 2517.0)"
+ ELSEIF (((ispromptlist (3 ) ) OR (ispromptsingle (3 ) )) )
+  CALL getpromptrecord (3 ,"cat_rec" )
+  SET catalog_parser = createexpandparser ("o.catalog_type_cd" ,"cat_rec" )
+ ENDIF
+ 
+ IF (((ispromptany (4 ) ) OR (ispromptempty (4 ) )) )
+  SET ord_stat_parser = "o.order_status_cd not in (2544.00, 2542.00)"
+ ELSEIF (((ispromptlist (4 ) ) OR (ispromptsingle (4 ) )) )
+  CALL getpromptrecord (4 ,"ord_stat_rec" )
+  SET ord_stat_parser = createexpandparser ("o.order_status_cd" ,"ord_stat_rec" )
+ ENDIF
+ 
+ IF (((ispromptany (5 ) ) OR (ispromptempty (5 ) )) )
+  SET provider_parser = "1=1"
+ ELSEIF (((ispromptlist (5 ) ) OR (ispromptsingle (5 ) )) )
+  CALL getpromptrecord (5 ,"ord_prov_rec" )
+  SET provider_parser = createexpandparser ("oa.order_provider_id" ,"ord_prov_rec" )
+ ENDIF
+ 
+ RECORD ord_notify (
+   1 rec_cnt = i4
+   1 orders [* ]
+   	 2 finnbr = vc ;abs
+     2 encntr_loc_name = c255
+     2 encntr_loc_ID = f8
+     2 encntr_loc_FAC = c255
+     2 encntr_loc_BLDG = c255
+     2 encntr_loc_UNIT = c255
+     2 encntr_loc_add = c100
+     2 encntr_loc_add2 = c100
+     2 encntr_loc_add3 = c100
+     2 encntr_loc_add4 = c100
+     2 encntr_loc_city = c100
+     2 encntr_loc_state = c100
+     2 encntr_loc_zip = c25
+     2 encntr_loc_bus_phone = c100
+     2 encntr_loc_fax_phone = c100
+     2 ord_id = f8
+     2 ord_dt_tm = dq8
+     2 ord_prov_id = f8
+     2 ord_name_first = c200
+     2 ord_name_last = c200
+     2 ord_name_mid = c200
+     2 ord_prov_name_full_format = c100
+     2 ord_as_mnemonic = c100
+     2 ord_req_st_dt_tm = c255
+     2 ord_status_cd = f8
+     2 referral_order_service = c255
+     2 encntr_id = f8
+     2 orig_encntr_id = f8
+     2 pat_id = f8
+     2 pat_dob = dq8
+     2 pat_name_full = c200
+     2 pat_name_first = c200
+     2 pat_name_last = c200
+     2 pat_name_mid = c200
+     2 pat_birth_tz = i4
+     2 parent_event_id = f8
+     2 remind_comp_ind = i2
+     2 blob_cnt = i4
+     2 blobs [* ]
+       3 blob_uncomp = vc
+       3 reminder_message = vc
+       3 event_id = f8
+     2 output_string = vc
+ )
+ 
+ FREE RECORD csv_frec
+ RECORD csv_frec (
+   1 file_desc = i4
+   1 file_offset = i4
+   1 file_dir = i4
+   1 file_name = vc
+   1 file_buf = vc
+ )
+ 
+ 
+/*Call main subroutines  */
+ 
+ CALL getorderlist (null )
+ CALL getpatlocinfo (null )
+ CALL getproviderinfo (null )
+ CALL getblobtext (null )
+ CALL getreminderind (null )
+ 
+ IF ((ord_notify->rec_cnt > 0 ) )
+  CALL echo ("Inside if" )
+  SET csv_frec->file_name = csv_filename
+  SET csv_frec->file_buf = "w"
+  IF (NOT (cclio ("OPEN" ,csv_frec ) ) )
+   CALL logmsg (build2 ("Failed to open " ,curprog ) )
+   GO TO exit_script
+  ENDIF
+ 
+  FOR (x = 1 TO ord_notify->rec_cnt )
+   SET blob_string = " "
+   SET ord_notify->orders[x ].output_string = build2 (trim (ord_notify->orders[x ].pat_name_last ,3) ,"|" ,
+    trim (ord_notify->orders[x ].pat_name_first ,3 ) ,"|" ,
+    trim (ord_notify->orders[x ].pat_name_mid ,3 ) ,"|" ,
+      format(cnvtdatetimeutc(datetimezone(ord_notify->orders[x].pat_dob,ord_notify->orders[x].pat_birth_tz),1) ,
+      "MM/DD/YYYY;;Q" ) ,"|" ,
+    trim (ord_notify->orders[x ].ord_as_mnemonic ,3 ) ,"|" ,format (cnvtdatetimeutc (ord_notify->orders[x ].ord_dt_tm ,1 ) ,
+     "MM/DD/YYYY;;Q" ) ,"|" ,trim (ord_notify->orders[x ].ord_req_st_dt_tm ,3 ) ,"|" ,
+    trim (ord_notify->orders[x ].ord_prov_name_full_format ,3 ) ,"|" ,
+    trim (uar_get_code_display(ord_notify->orders[x ].ord_status_cd ) ,3 ) ,"|" 
+  ;  trim (uar_get_code_display(ord_notify->orders[x ].referral_order_service ) ,3 ) ,"|" 
+    )
+ 
+   IF ((ord_notify->orders[x ].remind_comp_ind = 0 ) )
+ 
+    IF ((ord_notify->orders[x ].blob_cnt > 0 ) )
+     FOR (y = 1 TO ord_notify->orders[x ].blob_cnt )
+      SET blob_text = ccps_csvwrapper (trim (ord_notify->orders[x ].blobs[y ].reminder_message ,3 ) ,
+       "|" )
+      IF ((textlen (blob_string ) = 0 ) )
+       SET blob_string = build2 (blob_text )
+      ELSE
+       SET blob_string = build2 (blob_string ,"|" ,blob_text )
+      ENDIF
+     ENDFOR
+    ELSEIF ((ord_notify->orders[x ].blob_cnt = 0 ) )
+     SET stat = alterlist (ord_notify->orders[x ].blobs ,1 )
+     SET ord_notify->orders[x ].blob_cnt = 1
+     SET ord_notify->orders[x ].blobs[1 ].reminder_message =
+     "There are no reminders for this event."
+     SET blob_string = "There are no reminders for this event."
+    ENDIF
+ 
+   ENDIF
+ 
+  ENDFOR
+ 
+  SET stat = cclio ("CLOSE" ,csv_frec )
+  CALL echo (build2 ("close stat->" ,stat ) )
+ 
+;  EXECUTE maur_tn_lab_result_notify_lyt :dba  $OUTDEV            ;;;execute layout
+ 
+; CALL ECHORECORD(ord_notify)
+ 
+ 
+ SELECT INTO  $OUTDEV
+     patient_name = ord_notify->orders[d.seq].pat_name_full
+,    date_of_birth = format(cnvtdatetimeutc(datetimezone(ord_notify->orders[d.seq].pat_dob,ord_notify->orders[d.seq]
+	.pat_birth_tz),1) ,"MM/DD/YYYY;;Q" ) ;format(ord_notify->orders[d.seq].pat_dob ,"MM/DD/YYYY;;q")
+,    order_date = ord_notify->orders[d.seq].ord_dt_tm  "@SHORTDATETIME"
+,    Ordered_test = ord_notify->orders[d.seq].ord_as_mnemonic
+,    Ordering_Provider = ord_notify->orders[d.seq].ord_prov_name_full_format
+,    Order_status = uar_get_code_display(ord_notify->orders[d.seq].ord_status_cd)
+,    Requested_start_date = ord_notify->orders[d.seq].ord_req_st_dt_tm
+,	 Referral_Order_Service = trim(substring(1,100,ord_notify->orders[d.seq].referral_order_service),3)
+,	 facility = trim(substring(1,100,ord_notify->orders[d.seq].encntr_loc_FAC),3)
+,	 BUILDING = trim(substring(1,100,ord_notify->orders[d.seq].encntr_loc_bldg),3)
+,	 unit = trim(substring(1,100,ord_notify->orders[d.seq].encntr_loc_unit),3)
+;,	 LOC_NAME = trim(substring(1,100,ord_notify->orders[d.seq].encntr_loc_name),3)
+;,    FIN = ord_notify->orders[d.seq].finnbr
+ from
+   (dummyt d with seq =  value(size(ord_notify->orders,5)))
+ plan d where d.seq > 0
+ and ord_notify->orders[d.seq].remind_comp_ind != 1
+ with nocounter, format,separator = " "
+ 
+ ELSE
+  SELECT INTO  $OUTDEV
+   FROM (dummyt d1 )
+   DETAIL
+    row 0 ,
+    col 10 ,
+    "Nothing qualified.  Please try another date range."
+   WITH pcformat
+  ;end select
+  GO TO exit_script
+ ENDIF
+ 
+/* Main Subroutines   */
+ 
+ SUBROUTINE  getorderlist (null )
+  CALL logmsg ("getorderlist begin subroutine." ,ccps_log_audit )
+ 
+  SELECT INTO "nl:"
+FROM
+	orders   o
+	, order_catalog   oc
+	, order_action   oa
+	, order_detail   od
+	, encounter   e
+	, person   p
+	;, ENCNTR_ALIAS   EA ;abs
+ 
+PLAN (o
+    WHERE (o.orig_order_dt_tm BETWEEN cnvtdatetime (begindate ) AND cnvtdatetime (enddate ) )
+    AND parser (ord_stat_parser ) 
+    )
+   JOIN (oc
+    WHERE (oc.catalog_cd = o.catalog_cd )
+    AND parser (catalog_parser )
+    AND (oc.active_ind = 1 ) )
+   JOIN (oa
+    WHERE (oa.order_id = o.order_id )
+    AND parser (provider_parser ) )
+   JOIN (od
+    WHERE (od.order_id = Outerjoin(oa.order_id ))
+    AND (od.oe_field_meaning_id = Outerjoin(request_start_date )
+    ;	or (od.oe_field_meaning = Outerjoin("REFERRALORDERSERVICECD" ))
+    ) 
+    
+    )
+   JOIN (e
+    WHERE (((e.encntr_id = o.encntr_id ) ) OR ((e.encntr_id = o.originating_encntr_id ) ))
+    AND parser (facility_parser ) 
+;    and e.encntr_id =   108852401.00
+    )
+;   JOIN (ea
+;   	WHERE(ea.encntr_id = e.encntr_id)
+;   	AND (pa.alias_pool_cd  =     38741899.00))
+   JOIN (p
+    WHERE (p.person_id = o.person_id ) )
+ 
+ORDER BY
+	p.name_last_key
+	, p.name_first_key
+	, p.person_id
+	, o.orig_order_dt_tm
+	, o.order_mnemonic;amj added
+	,od.updt_dt_tm desc ;amj added
+ 
+HEAD REPORT
+    cnt = 0 ,
+    pos = 0
+   HEAD p.name_last_key
+    null
+   HEAD p.name_first_key
+    null
+   HEAD p.person_id
+    null
+   HEAD o.orig_order_dt_tm
+    null
+   head o.order_mnemonic ;amj
+   null					; amj
+   HEAD o.order_id
+    pos = locateval (idx ,1 ,cnt ,o.order_id ,ord_notify->orders[idx ].ord_id ) ,
+ 
+    IF ((pos = 0 ) )
+    	cnt +=1 ,
+    	stat = alterlist (ord_notify->orders ,cnt ) ,
+    	ord_notify->orders[cnt ].ord_id = o.order_id ,
+    	ord_notify->orders[cnt ].ord_prov_id = oa.order_provider_id ,
+    	ord_notify->orders[cnt ].ord_as_mnemonic = o.hna_order_mnemonic ,
+    	ord_notify->orders[cnt ].ord_dt_tm = o.orig_order_dt_tm ,
+    	ord_notify->orders[cnt ].encntr_id = o.encntr_id ,
+    	;ord_notify->orders[cnt ].finnbr = ea.alias
+    	ord_notify->orders[cnt ].orig_encntr_id = o.originating_encntr_id ,
+    	ord_notify->orders[cnt ].pat_id = o.person_id ,
+        ord_notify->orders[cnt ].pat_name_first = trim (p.name_first ,3 ) ,
+        ord_notify->orders[cnt ].pat_name_last = trim (p.name_last ,3 ) ,
+        ord_notify->orders[cnt ].pat_name_mid = trim (p.name_middle ,3 ) ,
+        ord_notify->orders[cnt ].pat_name_full = trim (p.name_full_formatted ,3 ) ,
+        ord_notify->orders[cnt ].pat_dob = p.birth_dt_tm ,
+        ord_notify->orders[cnt ].pat_birth_tz = p.birth_tz ,
+        ord_notify->orders[cnt ].ord_status_cd = o.order_status_cd ,
+     IF ((od.oe_field_meaning_id = 51.00 ) )
+       ord_notify->orders[cnt ].ord_req_st_dt_tm = trim (od.oe_field_display_value ,3 )
+     ENDIF
+     
+;     IF ((od.oe_field_meaning = "REFERRALORDERSERVICECD" ) ) ;            3594.00
+;       ord_notify->orders[cnt ].referral_order_service = trim (od.oe_field_display_value ,3 )
+;     ENDIF     
+    ENDIF
+ 
+   FOOT  o.order_id
+    null
+   FOOT  o.orig_order_dt_tm
+    null
+   FOOT  p.person_id
+    null
+   FOOT  p.name_first_key
+    null
+   FOOT  p.name_last_key
+    null
+   FOOT REPORT
+    ord_notify->rec_cnt = cnt
+ 
+WITH format ,nocounter ,expand = 2
+
+;get referral order service
+SELECT INTO $outdev;"nl:"
+	od.order_id
+	,od.oe_field_meaning_id
+	,od.oe_field_display_value
+FROM
+	order_detail   od
+ 	,(dummyt d1 with seq = value(size(ord_notify->orders,5)))
+plan d1
+WHERE d1.seq > 0
+JOIN od
+    WHERE od.order_id =ord_notify->orders[d1.seq].ord_id
+    AND  od.oe_field_meaning = "REFERRALORDERSERVICECD"
+order by od.order_id, od.updt_dt_tm desc
+head od.order_id
+	ord_notify->orders[d1.seq].referral_order_service = trim (od.oe_field_display_value ,3 )
+WITH format ,nocounter ,expand = 2
+
+
+
+call echorecord(ord_notify)
+  ;end select
+ 
+  IF (catcherrors ("error in getorderlist." ) )
+   CALL logmsg ("error in getorderlist." ,ccps_log_error )
+   SET retval = 0
+  ELSE
+   CALL logmsg ("getorderlist completed successfully." ,ccps_log_audit )
+   SET retval = 1
+  ENDIF
+  RETURN (retval )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  getpatlocinfo (null )
+  CALL logmsg ("getpatlocinfo begin subroutine." ,ccps_log_audit )
+  DECLARE idx = i4 WITH protect ,noconstant (0 )
+ 
+  SELECT INTO "nl:"
+   FROM (encounter e ),
+    (location l ),
+    (address a ),
+    (phone p ),
+    (phone p2 ),
+    (code_value cv )
+   PLAN (e
+    WHERE expand (idx ,1 ,ord_notify->rec_cnt ,e.encntr_id ,ord_notify->orders[idx ].encntr_id ) )
+   JOIN (l
+    WHERE (l.location_cd = e.loc_facility_cd )
+    AND (l.active_ind = 1 )
+    AND (l.beg_effective_dt_tm <= cnvtdatetime (sysdate ) )
+    AND (l.end_effective_dt_tm > cnvtdatetime (sysdate ) ) )
+   JOIN (a
+    WHERE (a.parent_entity_id = Outerjoin(l.organization_id ))
+    AND (a.parent_entity_name = Outerjoin("ORGANIZATION" ))
+    AND (a.active_ind = Outerjoin(1 ))
+    AND (a.beg_effective_dt_tm <= Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (a.end_effective_dt_tm > Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (a.address_type_cd = Outerjoin(212_business_add )) )
+   JOIN (p
+    WHERE (p.parent_entity_id = Outerjoin(l.organization_id ))
+    AND (p.parent_entity_name = Outerjoin("ORGANIZATION" ))
+    AND (p.active_ind = Outerjoin(1 ))
+    AND (p.beg_effective_dt_tm <= Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (p.end_effective_dt_tm > Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (p.phone_type_cd = Outerjoin(43_business_phone )) )
+   JOIN (p2
+    WHERE (p2.parent_entity_id = Outerjoin(l.organization_id ))
+    AND (p2.parent_entity_name = Outerjoin("ORGANIZATION" ))
+    AND (p2.active_ind = Outerjoin(1 ))
+    AND (p2.beg_effective_dt_tm <= Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (p2.end_effective_dt_tm > Outerjoin(cnvtdatetime (sysdate ) ))
+    AND (p2.phone_type_cd = Outerjoin(43_fax_phone )) )
+   JOIN (cv
+    WHERE (cv.code_value = e.loc_facility_cd ) )
+   HEAD REPORT
+    pos = 0
+   DETAIL
+    pos = locateval (idx ,1 ,ord_notify->rec_cnt ,e.encntr_id ,ord_notify->orders[idx ].encntr_id ) ,
+    WHILE ((pos > 0 ) )
+     ord_notify->orders[pos ].encntr_loc_name = trim (cv.description ,3 ) ,
+     ord_notify->orders[pos ].encntr_loc_ID = cv.code_value ,
+     ord_notify->orders[pos ].encntr_loc_FAC = trim (uar_get_code_Display(e.loc_facility_cd),3 ) ,
+     ord_notify->orders[pos ].encntr_loc_BLDG = trim (uar_get_code_Display(e.loc_building_cd),3 ) ,
+     ord_notify->orders[pos ].encntr_loc_UNIT = trim (uar_get_code_display(e.loc_nurse_unit_cd),3 ) ,
+     ord_notify->orders[pos ].encntr_loc_bus_phone = trim (cnvtphone (p.phone_num ,p.phone_format_cd ) ,3 ) ,
+     ord_notify->orders[pos ].encntr_loc_fax_phone = trim (cnvtphone (p2.phone_num ,p.phone_format_cd ) ,3 ) ,
+     IF ((textlen (trim (a.street_addr ,3 ) ) > 0 ) )
+        ord_notify->orders[pos ].encntr_loc_add = trim(a.street_addr ,3 )
+     ENDIF
+     ,
+     IF ((textlen (trim (a.street_addr2 ,3 ) ) > 0 ) ) ord_notify->orders[pos ].encntr_loc_add2 =
+      trim (a.street_addr2 ,3 )
+     ENDIF
+     ,
+     IF ((textlen (trim (a.street_addr3 ,3 ) ) > 0 ) ) ord_notify->orders[pos ].encntr_loc_add3 =
+      trim (a.street_addr3 ,3 )
+     ENDIF
+     ,
+     IF ((textlen (trim (a.street_addr4 ,3 ) ) > 0 ) ) ord_notify->orders[pos ].encntr_loc_add4 =
+      trim (a.street_addr4 ,3 )
+     ENDIF
+     ,
+     IF ((a.city_cd > 0 ) ) ord_notify->orders[pos ].encntr_loc_city = trim (uar_get_code_display (a.city_cd),3 )
+     ELSEIF ((textlen (trim (a.city ,3 ) ) > 0 ) ) ord_notify->orders[pos ].encntr_loc_city = trim (a.city,3)
+     ENDIF
+     ,
+     IF ((a.state_cd > 0 ) ) ord_notify->orders[pos ].encntr_loc_state = trim (uar_get_code_display(a.state_cd),3 )
+     ELSEIF ((textlen (trim (a.state ,3 ) ) > 0 ) )
+     	ord_notify->orders[pos ].encntr_loc_state = trim(a.state ,3 )
+     ENDIF
+     ,
+     IF ((textlen (trim (a.zipcode ,3 ) ) > 0 ) ) ord_notify->orders[pos ].encntr_loc_zip = trim (a.zipcode ,3 )
+     ENDIF
+     ,pos = locateval (idx ,(pos + 1 ) ,ord_notify->rec_cnt ,e.encntr_id ,ord_notify->orders[idx ].encntr_id )
+    ENDWHILE
+   FOOT REPORT
+    null
+   WITH nocounter ,expand = 2
+  ;end select
+ 
+  IF (catcherrors ("error in getpatlocinfo." ) )
+   CALL logmsg ("error in getpatlocinfo." ,ccps_log_error )
+   SET retval = 0
+  ELSE
+   CALL logmsg ("getpatlocinfo completed successfully." ,ccps_log_audit )
+   SET retval = 1
+  ENDIF
+  RETURN (retval )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  getproviderinfo (null )
+  CALL logmsg ("getproviderinfo begin subroutine." ,ccps_log_audit )
+  DECLARE p_idx = i4 WITH protect ,noconstant (0 )
+  DECLARE p_idx2 = i4 WITH protect ,noconstant (0 )
+ 
+  SELECT INTO "nl:"
+   FROM (person p )
+   PLAN (p
+    WHERE expand (p_idx ,1 ,ord_notify->rec_cnt ,p.person_id ,ord_notify->orders[p_idx ].ord_prov_id
+     ) )
+   HEAD REPORT
+    pos = 0
+   DETAIL
+    pos = locateval (p_idx2 ,1 ,ord_notify->rec_cnt ,p.person_id ,ord_notify->orders[p_idx2 ].ord_prov_id ) ,
+    WHILE ((pos > 0 ) )
+     ord_notify->orders[pos ].ord_name_first = trim (p.name_first ,3 ) ,
+     ord_notify->orders[pos ].ord_name_last = trim (p.name_last ,3 ) ,
+     ord_notify->orders[pos ].ord_name_mid = trim (p.name_middle ,3 ) ,
+     ord_notify->orders[pos ].ord_prov_name_full_format = trim (p.name_full_formatted,3) ,
+     pos = locateval (p_idx2,(pos+1),ord_notify->rec_cnt ,p.person_id ,ord_notify->orders[p_idx2].ord_prov_id )
+    ENDWHILE
+   WITH format ,nocounter ,expand = 2
+  ;end select
+ 
+  IF (catcherrors ("error in getproviderinfo." ) )
+   CALL logmsg ("error in getproviderinfo." ,ccps_log_error )
+   SET retval = 0
+  ELSE
+   CALL logmsg ("getproviderinfo completed successfully." ,ccps_log_audit )
+   SET retval = 1
+  ENDIF
+  RETURN (retval )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  getblobtext (null )
+  CALL logmsg ("getblobtext begin subroutine." ,ccps_log_audit )
+  DECLARE ce_idx = i4 WITH protect ,noconstant (0 )
+  DECLARE ce_idx2 = i4 WITH protect ,noconstant (0 )
+  DECLARE ce_idx3 = i4 WITH protect ,noconstant (0 )
+ 
+  SELECT INTO "nl:"
+   textlen_cb_blob_contents = textlen (cb.blob_contents )
+   FROM (clinical_event ceo ),
+    (ce_result_set_link crsl ),
+    (ce_result_set_link crsl2 ),
+    (clinical_event ce ),
+    (ce_blob cb )
+   PLAN (ceo
+    WHERE expand (ce_idx ,1 ,ord_notify->rec_cnt ,ceo.order_id ,ord_notify->orders[ce_idx ].ord_id )
+    AND (ceo.valid_until_dt_tm > sysdate ) )
+   JOIN (crsl
+    WHERE (crsl.event_id = ceo.event_id )
+    AND (crsl.valid_until_dt_tm > sysdate ) )
+   JOIN (crsl2
+    WHERE (crsl2.result_set_id = crsl.result_set_id )
+    AND (crsl2.relation_type_cd = 4002218_mcc_cd )
+    AND (crsl2.valid_until_dt_tm > sysdate ) )
+   JOIN (ce
+    WHERE (ce.parent_event_id = crsl2.event_id )
+    AND (ce.event_class_cd = 53_event_class_cd )
+    AND (ce.valid_until_dt_tm > sysdate ) )
+   JOIN (cb
+    WHERE (cb.event_id = ce.event_id )
+    AND (cb.valid_until_dt_tm > sysdate ) )
+   ORDER BY ceo.order_id ,
+    ce.event_id
+   HEAD REPORT
+    pos = 0
+   HEAD ceo.order_id
+    blob_nbr = 0
+   DETAIL
+    pos = locateval (ce_idx2 ,1 ,ord_notify->rec_cnt ,ceo.order_id ,ord_notify->orders[ce_idx2 ].ord_id ) ,
+    WHILE ((pos > 0 ) )
+     IF ((ce.event_cd = 72_remind_event_cd ) ) ord_notify->orders[pos ].parent_event_id = ce.parent_event_id
+     ENDIF
+     ,pos2 = locateval (ce_idx3 ,1 ,ord_notify->orders[pos ].blob_cnt ,ce.event_id ,
+       ord_notify->orders[pos ].blobs[ce_idx3 ].event_id ) ,
+    ; WHILE ((pos2 = 0 ) ) ;CAUSING AN INFINITE LOOP; 002 AMJ 9/14/2023
+     WHILE ((pos2 > 0 ) )  ;new code
+      blob_nbr +=1 ,
+      stat = alterlist (ord_notify->orders[pos ].blobs ,blob_nbr ) ,
+             ord_notify->orders[pos].blobs[blob_nbr].event_id = ce.event_id ,
+ 
+      IF ((cb.compression_cd = 120_ocf_comp_cd ) ) blob_out = fillstring (32000 ," " ) ,blob_out2 =
+       fillstring (32000 ," " ) ,mcnote = fillstring (32000 ," " ) ,
+       CALL uar_ocf_uncompress (cb.blob_contents ,textlen_cb_blob_contents ,blob_out ,32000 ,0 ) ,
+       CALL uar_rtf2 (blob_out ,textlen (blob_out ) ,blob_out2 ,32000 ,32000 ,0 ) ,
+       CALL uar_rtf2 (blob_out2 ,textlen (blob_out2 ) ,mcnote ,32000 ,32000 ,0 ) ,
+        blob_out2 = trim(blob_out ,3 ) ,
+        ord_notify->orders[pos ].blobs[blob_nbr ].blob_uncomp = blob_out2 ,
+        ord_notify->orders[pos ].blobs[blob_nbr ].reminder_message = mcnote
+      ELSE
+       CALL echo (build2 ("blob nbr else: " ,blob_nbr ) ) ,
+        blob_out2 = replace (cb.blob_contents,"ocf_blob" ,"" ) ,
+        ord_notify->orders[pos ].blobs[blob_nbr ].blob_uncomp = blob_out2 ,
+        ord_notify->orders[pos ].blobs[blob_nbr ].reminder_message = mcnote
+      ENDIF
+      ,pos2 = locateval (ce_idx3 ,(pos2 + 1 ) ,ord_notify->rec_cnt ,ce.event_id ,
+       ord_notify->orders[pos].blobs[ce_idx3 ].event_id )
+     ENDWHILE
+     ,ord_notify->orders[pos ].blob_cnt = blob_nbr ,pos = locateval (ce_idx2 ,(pos + 1 ) ,
+      ord_notify->orders[pos ].blob_cnt ,ceo.order_id ,ord_notify->orders[ce_idx2 ].ord_id )
+    ENDWHILE
+   FOOT  ceo.order_id
+    null
+   WITH format ,nocounter ,expand = 2
+  ;end select
+ 
+  IF (catcherrors ("error in getproviderinfo." ) )
+   CALL logmsg ("error in getproviderinfo." ,ccps_log_error )
+   SET retval = 0
+  ELSE
+   CALL logmsg ("getproviderinfo completed successfully." ,ccps_log_audit )
+   SET retval = 1
+  ENDIF
+  RETURN (retval )
+ END ;Subroutine
+ 
+ 
+ SUBROUTINE  getreminderind (null )
+  CALL logmsg ("getreminderind begin subroutine." ,ccps_log_audit )
+  DECLARE ce_idx = i4 WITH protect ,noconstant (0 )
+  DECLARE ce_idx2 = i4 WITH protect ,noconstant (0 )
+ 
+  SELECT INTO "nl:"
+   FROM (clinical_event ce ),
+    (task_activity ta ),
+    (task_activity_assignment taa )
+   PLAN (ce
+    WHERE expand (ce_idx ,1 ,ord_notify->rec_cnt ,ce.parent_event_id ,ord_notify->orders[ce_idx ].parent_event_id )
+    AND (ce.valid_until_dt_tm > sysdate ) )
+   JOIN (ta
+    WHERE (ta.event_id = ce.parent_event_id )
+    AND (ta.event_cd = 72_remind_event_cd )
+    AND (ta.task_activity_cd = 6027_complete_ta_cd ) )
+   JOIN (taa
+    WHERE (taa.task_id = ta.task_id )
+    AND (taa.task_status_cd = 79_complete_cd ) )
+   HEAD REPORT
+    pos = 0
+   DETAIL
+    pos = locateval(ce_idx2,1,ord_notify->rec_cnt,ce.parent_event_id ,ord_notify->orders[ce_idx2].parent_event_id) ,
+    WHILE ((pos > 0 ) )
+     ord_notify->orders[pos ].remind_comp_ind = 1 ,
+     pos = locateval (ce_idx2 ,(pos + 1 ) ,ord_notify->rec_cnt,ce.parent_event_id,ord_notify->orders[ce_idx2].parent_event_id)
+    ENDWHILE
+   WITH format ,nocounter ,expand = 2
+  ;end select
+ 
+  IF (catcherrors ("error in getreminderind." ) )
+   CALL logmsg ("error in getreminderind." ,ccps_log_error )
+   SET retval = 0
+  ELSE
+   CALL logmsg ("getreminderind completed successfully." ,ccps_log_audit )
+   SET retval = 1
+  ENDIF
+  RETURN (retval )
+ END ;Subroutine
+ 
+ 
+ CALL echorecord (ord_notify )
+#exit_script
+END GO
+ 
