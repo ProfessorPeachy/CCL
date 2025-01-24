@@ -1,0 +1,1223 @@
+/***************************************************************************************************************************
+
+***************************************************************************************************************************/
+ 
+DROP PROGRAM amj_tn_mr_ip_disch:DBA GO
+CREATE PROGRAM amj_tn_mr_ip_disch:DBA
+ 
+prompt
+	"OUTPUT TO FILE/PRINTER/MINE" = "MINE"
+	, "Please select the encounter type class." = 0
+	, "Please select the bill status." = 0
+	, "Please select the start date." = "CURDATE"
+	, "Please select the end date." = "CURDATE"
+ 
+with OUTDEV, ENCNTR_TYPE, BILL_STATUS, START_DATE, END_DATE
+ 
+/**************************************************************
+DEBUGGING
+ 
+The variables for debugging and ops jobs are set here.
+**************************************************************/
+ 
+/* Declaring the variables that enable the prompts to be automatically
+entered in Debugging mode, or manually entered otherwise */
+DECLARE DEBUGGING_ON = I1 WITH CONSTANT(FALSE), PROTECT ; Debugging off
+;DECLARE DEBUGGING_ON = I1 WITH CONSTANT(TRUE), PROTECT	; Debugging on
+ 
+/* Declares the set of variables that may be altered for the purposes
+of debugging the report. */
+DECLARE pENC_TYPE = VC WITH NOCONSTANT("E.ENCNTR_TYPE_CD IN("), PROTECT
+DECLARE pBILL_STATUS = VC WITH NOCONSTANT("BE.BILL_STATUS_CD IN("), PROTECT
+DECLARE pSTART_DATE = C20 WITH NOCONSTANT(""), PROTECT
+DECLARE pEND_DATE = C20 WITH NOCONSTANT(""), PROTECT
+DECLARE vPAR = C20 WITH NOCONSTANT(REFLECT(PARAMETER(2,0))), PROTECT
+DECLARE vNUM = I4 WITH NOCONSTANT(0), PROTECT
+
+;001
+declare npi_cd	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'NATIONALPROVIDERIDENTIFIER')); 4038127.00
+ 
+/* Sets the values of the variables for use in debugging */
+IF (DEBUGGING_ON = TRUE)
+ 
+	SET pENC_TYPE = CONCAT(pENC_TYPE, "VALUE(UAR_GET_CODE_BY('DISPLAYKEY', 71, 'INPATIENT')))")
+	SET pBILL_STATUS = CONCAT(pBILL_STATUS, "VALUE(UAR_GET_CODE_BY('DISPLAYKEY', 18935, 'TRANSMITTED')))")
+	SET pSTART_DATE = "01-JAN-2019 00:00:00"
+	SET pEND_DATE = "31-JAN-2019 23:59:59"
+ 
+/* Sets the values of the variables for use in production */
+ELSE
+ 
+	;Encounter type
+	;IF Any(*) was selected for the encounter type
+	IF (SUBSTRING(1, 1, vPAR) = "C")
+ 
+		SET pENC_TYPE = "1 = 1"
+ 
+	;If a single encounter type was selected
+	ELSEIF (SUBSTRING(1, 1, vPAR) = "F")
+ 
+		SET pENC_TYPE = CONCAT(pENC_TYPE, CNVTSTRING(VALUE($ENCNTR_TYPE)), ")")
+ 
+	;If multiple encounter types were selected
+	ELSEIF (SUBSTRING(1, 1, vPAR) = "L")
+ 
+		SET vNUM = 1
+ 
+		WHILE (vNUM > 0)
+ 
+			;Sets the variable to the parameter value in the list
+			SET vPAR = REFLECT(PARAMETER(2, vNUM))
+ 
+			;If no value exists (meaning that it has reached the end of the list)
+			IF (vPAR = " " OR vPAR = "")
+ 
+				SET vNUM = 0
+				;Close out the string with the last parentheses value
+				SET pENC_TYPE = CONCAT(pENC_TYPE, ")")
+ 
+			ELSE
+ 
+				IF (vNUM = 1)
+ 
+					;Add the first value in the list
+					SET pENC_TYPE = CONCAT(pENC_TYPE, CNVTSTRING(PARAMETER(2, vNUM)))
+ 
+				ELSE
+ 
+					;Add all subsequent pararmeter values to the string
+					SET pENC_TYPE = CONCAT(pENC_TYPE, ", ", CNVTSTRING(PARAMETER(2, vNUM)))
+ 
+				ENDIF
+ 
+				SET vNUM = vNUM + 1
+ 
+			ENDIF
+ 
+		ENDWHILE
+ 
+	ENDIF
+ 
+	;Bill Status
+	;IF Any(*) was selected for the encounter type
+ 
+	SET vPAR = REFLECT(PARAMETER(3,0))
+	SET vNUM = 0
+ 
+	IF (SUBSTRING(1, 1, vPAR) = "C")
+ 
+		SET pBILL_STATUS = "1 = 1"
+ 
+	;If a single encounter type was selected
+	ELSEIF (SUBSTRING(1, 1, vPAR) = "F")
+ 
+		SET pBILL_STATUS = CONCAT(pBILL_STATUS, CNVTSTRING(VALUE($BILL_STATUS)), ")")
+ 
+	;If multiple encounter types were selected
+	ELSEIF (SUBSTRING(1, 1, vPAR) = "L")
+ 
+		SET vNUM = 1
+ 
+		WHILE (vNUM > 0)
+ 
+			;Sets the variable to the parameter value in the list
+			SET vPAR = REFLECT(PARAMETER(3, vNUM))
+ 
+			;If no value exists (meaning that it has reached the end of the list)
+			IF (vPAR = " " OR vPAR = "")
+ 
+				SET vNUM = 0
+				;Close out the string with the last parentheses value
+				SET pBILL_STATUS = CONCAT(pBILL_STATUS, ")")
+ 
+			ELSE
+ 
+				IF (vNUM = 1)
+ 
+					;Add the first value in the list
+					SET pBILL_STATUS = CONCAT(pBILL_STATUS, CNVTSTRING(PARAMETER(3, vNUM)))
+ 
+				ELSE
+ 
+					;Add all subsequent pararmeter values to the string
+					SET pBILL_STATUS = CONCAT(pBILL_STATUS, ", ", CNVTSTRING(PARAMETER(3, vNUM)))
+ 
+				ENDIF
+ 
+				SET vNUM = vNUM + 1
+ 
+			ENDIF
+ 
+		ENDWHILE
+ 
+	ENDIF
+ 
+	SET pSTART_DATE = CONCAT($START_DATE, " 00:00:00")
+	SET pEND_DATE = CONCAT($END_DATE, " 23:59:59")
+ 
+ENDIF
+ 
+CALL ECHO(BUILD2("pENC_TYPE = ", pENC_TYPE))
+ 
+/**************************************************************
+RECORD STRUCTURES
+ 
+Declaring the record structure for the report
+**************************************************************/
+ 
+FREE RECORD DATA
+RECORD DATA
+(
+	1 CNT							= I4
+	1 REC[*]
+	    2 rPERSON_ID				= F8
+	    2 rENCNTR_ID				= F8
+	    2 rENCNTR_PLAN_RELTN_ID		= F8
+	    2 rFIN						= C15
+	    2 rACCT_NUMBER				= C20
+	    2 rMRN						= C15
+	    2 rPATIENT_LOCATION			= F8
+	    2 rMEDICAL_SERVICE			= F8
+	    2 rREGISTRATION_DT_TM		= DQ8
+	    2 rINPATIENT_ADMIT_DT_TM	= DQ8
+	    2 rDISCHARGE_DATE			= DQ8
+	    2 rPATIENT_NAME				= C100
+	    2 rENCNTR_HEALTH_PLAN1		= C100
+	    2 rPRIMARY_FIN_CLASS		= F8
+	    2 rENCNTR_HEALTH_PLAN2		= C100
+	    2 rSECONDARY_FIN_CLASS		= F8
+	    2 rPERSON_HEALTH_PLAN		= C100
+;	    2 rPAYOR_BILLED				= C100
+	    2 rPAYMENT_RECEIVED			= C100
+;	    2 rLAST_PAYMENT_DATE		= DQ8
+	    2 rDRG						= C18
+	    2 rLOS						= F8
+	    2 rDISPOSITION_CODE			= F8
+	    2 rDX_1						= C8  /*Kate made this an 8*/
+	    2 rDX_2						= C8
+	    2 rDX_3						= C8  /*Donna made this an 8*/
+	    2 rDX_4						= C8
+	    2 rDX_5						= C8
+	    2 rCPT_1					= C100
+	    2 rCPT_2					= C100
+	    2 rCPT_3					= C100
+	    2 rCPT_4					= C100
+	    2 rCPT_5					= C100
+	    2 rHCPC_1					= C100
+	    2 rHCPC_2					= C100
+	    2 rHCPC_3					= C100
+	    2 rHCPC_4					= C100
+	    2 rHCPC_5					= C100
+	    2 rOrdProviderId			= f8 	;001
+	    2 rOrdProvider				= c100	;001
+	    2 rOrdProviderNpi			= c100	;001   
+	    2 rCODER					= C50
+	    2 CLM[*]
+		    3 rCLAIM_NUMBER			= C100
+		    3 rCORSP_ACTIVITY_ID	= F8
+		    3 rBO_HP_RELTN_ID		= F8
+		    3 rPAYOR_BILLED			= C100
+		    3 rPAYMENT_PAYOR		= C100
+		    3 rLAST_PAYMENT_DATE	= DQ8
+;		    2 rCLAIM_NUMBER_2		= C100
+;		    2 rCORSP_ACTIVITY_ID_2	= F8
+;		    2 rPAYOR_BILLED_2		= C100
+;		    2 rPAYMENT_PAYOR_2		= C100
+;		    2 rLAST_PAYMENT_DATE_2	= DQ8
+;		    2 rCLAIM_NUMBER_3		= C100
+;		    2 rCORSP_ACTIVITY_ID_3	= F8
+;		    2 rPAYOR_BILLED_3		= C100
+;		    2 rPAYMENT_PAYOR_3		= C100
+;		    2 rLAST_PAYMENT_DATE_3	= DQ8
+;		    2 rCLAIM_NUMBER_4		= C100
+;		    2 rCORSP_ACTIVITY_ID_4	= F8
+;		    2 rPAYOR_BILLED_4		= C100
+;		    2 rPAYMENT_PAYOR_4		= C100
+;		    2 rLAST_PAYMENT_DATE_4	= DQ8
+)
+ 
+/*****************************************************************
+REPORT VARIABLES
+ 
+Declaring variables for the report
+******************************************************************/
+ 
+DECLARE vVERSION = VC WITH CONSTANT("CUST_SCRIPT:DPT_ORG_PROGRAM_NAME - 1.0"), PROTECT
+;Array Index counter
+DECLARE CNT = I4 WITH NOCONSTANT(0),PROTECT
+DECLARE ACNT = I4 WITH NOCONSTANT(0),PROTECT
+DECLARE BCNT = I4 WITH NOCONSTANT(0),PROTECT
+DECLARE vCUR_DT_TM = VC WITH CONSTANT(FORMAT(SYSDATE, "DD-MMM-YYYY HH:MM;;D")), PROTECT
+DECLARE vDATE_DSP = VC WITH CONSTANT(CONCAT("REPORT RUN DATE: ", vCUR_DT_TM)), PROTECT
+DECLARE NUM = I4 WITH NOCONSTANT(0), PROTECT
+DECLARE POS = I4 WITH NOCONSTANT(0), PROTECT
+ 
+;Code value variables
+DECLARE cACTIVE = F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE")), PROTECT
+ 
+;Variable for displaying the name of the person running this report
+DECLARE vUSR_NM = VC WITH PROTECT
+ 
+;Select to get USERNAME of report runner
+SELECT INTO "NL:"
+ 
+FROM PRSNL P
+ 
+WHERE P.PERSON_ID = REQINFO -> UPDT_ID
+ 
+DETAIL
+	vUSR_NM = P.NAME_FULL_FORMATTED
+ 
+WITH NOCOUNTER
+ 
+DECLARE vRUN_DSP = VC WITH CONSTANT(CONCAT("RUN BY: ", vUSR_NM)), PROTECT
+ 
+ 
+/*****************************************************************
+PRIMARY DATA COLLECTION
+ 
+This section contains the primary qualifiers for the report and
+gathers the initial set of data.
+******************************************************************/
+ 
+SELECT DISTINCT INTO "NL:"
+	qPERSON_ID = P.PERSON_ID
+	, qENCNTR_ID = E.ENCNTR_ID
+	, qDISCHARGE_DATE = E.DISCH_DT_TM
+	, qPATIENT_NAME = P.NAME_FULL_FORMATTED
+	, qLOS = DATETIMEDIFF(E.DISCH_DT_TM, E.INPATIENT_ADMIT_DT_TM)
+	, qDISPOSITION_CODE = E.DISCH_DISPOSITION_CD
+	, qPATIENT_LOCATION = E.LOC_FACILITY_CD
+	, qMEDICAL_SERVICE = E.MED_SERVICE_CD
+	, qREGISTRATION_DT_TM = E.REG_DT_TM
+	, qINPATIENT_ADMIT_DT_TM = E.INPATIENT_ADMIT_DT_TM
+	, qCLAIM_NUMBER = BE.BILL_NBR_DISP
+	, qLAST_PAYMENT_DATE = B.LAST_PAYMENT_DT_TM
+	, qCORSP_ACTIVITY_ID = BE.CORSP_ACTIVITY_ID
+	, qENCNTR_PLAN_RELTN_ID = EP.ENCNTR_PLAN_RELTN_ID
+	, qBO_HP_RELTN_ID = B.BO_HP_RELTN_ID
+ 
+FROM
+	ENCOUNTER E
+	, PERSON P
+	, ENCNTR_PLAN_RELTN EP
+	, BO_HP_RELTN B
+	, BILL_RELTN BR
+	, BILL_REC BE
+ 
+PLAN E
+	WHERE PARSER(pENC_TYPE)
+	AND E.DISCH_DT_TM BETWEEN CNVTDATETIME(pSTART_DATE) AND CNVTDATETIME(pEND_DATE)
+	AND E.ACTIVE_IND = 1
+	AND E.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN P
+	WHERE P.PERSON_ID = E.PERSON_ID
+	AND P.ACTIVE_IND = 1
+	AND P.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN EP
+	WHERE EP.ENCNTR_ID = E.ENCNTR_ID
+	AND EP.ACTIVE_IND = 1
+	AND EP.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN B
+	WHERE B.ENCNTR_PLAN_RELTN_ID = EP.ENCNTR_PLAN_RELTN_ID
+	AND B.ACTIVE_IND = 1
+	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN BR
+	WHERE BR.PARENT_ENTITY_ID = B.BO_HP_RELTN_ID
+ 
+JOIN BE
+	WHERE BE.CORSP_ACTIVITY_ID = BR.CORSP_ACTIVITY_ID
+	AND PARSER(pBILL_STATUS)
+	AND BE.BALANCE > 0
+	AND BE.ACTIVE_IND = 1
+	AND BE.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+	AND BE.BILL_TYPE_CD =      627628.00  ;CHOOSES HCFA 1450, BY KATE
+ 
+ORDER BY
+	qENCNTR_ID
+ 
+HEAD qENCNTR_ID
+ 
+	ACNT = ACNT + 1
+ 
+	STAT = ALTERLIST(DATA->REC, ACNT)
+ 
+	DATA->REC[ACNT].rPERSON_ID = qPERSON_ID
+	DATA->REC[ACNT].rENCNTR_ID = qENCNTR_ID
+	DATA->REC[ACNT].rREGISTRATION_DT_TM = qREGISTRATION_DT_TM
+	DATA->REC[ACNT].rINPATIENT_ADMIT_DT_TM = qINPATIENT_ADMIT_DT_TM
+	DATA->REC[ACNT].rDISCHARGE_DATE = qDISCHARGE_DATE
+	DATA->REC[ACNT].rPATIENT_NAME = qPATIENT_NAME
+	DATA->REC[ACNT].rLOS = qLOS
+	DATA->REC[ACNT].rDISPOSITION_CODE = qDISPOSITION_CODE
+	DATA->REC[ACNT].rPATIENT_LOCATION = qPATIENT_LOCATION
+	DATA->REC[ACNT].rMEDICAL_SERVICE = qMEDICAL_SERVICE
+	DATA->REC[ACNT].rENCNTR_PLAN_RELTN_ID = qENCNTR_PLAN_RELTN_ID
+ 
+	/* Any string records in the record structure not populated in this query
+	must be set to "" here */
+	DATA->REC[ACNT].rFIN = ""
+	DATA->REC[ACNT].rACCT_NUMBER = ""
+	DATA->REC[ACNT].rMRN = ""
+	DATA->REC[ACNT].rENCNTR_HEALTH_PLAN1 = ""
+	DATA->REC[ACNT].rENCNTR_HEALTH_PLAN2 = ""
+	DATA->REC[ACNT].rPERSON_HEALTH_PLAN = ""
+	DATA->REC[ACNT].rPAYMENT_RECEIVED = ""
+	DATA->REC[ACNT].rDRG = ""
+	DATA->REC[ACNT].rDX_1 = ""
+	DATA->REC[ACNT].rDX_2 = ""
+	DATA->REC[ACNT].rDX_3 = ""
+	DATA->REC[ACNT].rDX_4 = ""
+	DATA->REC[ACNT].rDX_5 = ""
+	DATA->REC[ACNT].rCPT_1 = ""
+	DATA->REC[ACNT].rCPT_2 = ""
+	DATA->REC[ACNT].rCPT_3 = ""
+	DATA->REC[ACNT].rCPT_4 = ""
+	DATA->REC[ACNT].rCPT_5 = ""
+	DATA->REC[ACNT].rHCPC_1 = ""
+	DATA->REC[ACNT].rHCPC_2 = ""
+	DATA->REC[ACNT].rHCPC_3 = ""
+	DATA->REC[ACNT].rHCPC_4 = ""
+	DATA->REC[ACNT].rHCPC_5 = ""
+	DATA->REC[ACNT].rCODER = ""
+ 
+	BCNT = 0
+ 
+DETAIL
+ 
+	BCNT = BCNT + 1
+	STAT = ALTERLIST(DATA->REC[ACNT].CLM, BCNT)
+ 
+	DATA->REC[ACNT]->CLM[BCNT].rCLAIM_NUMBER = qCLAIM_NUMBER
+	DATA->REC[ACNT]->CLM[BCNT].rLAST_PAYMENT_DATE = qLAST_PAYMENT_DATE
+	DATA->REC[ACNT]->CLM[BCNT].rCORSP_ACTIVITY_ID = qCORSP_ACTIVITY_ID
+	DATA->REC[ACNT]->CLM[BCNT].rBO_HP_RELTN_ID = qBO_HP_RELTN_ID
+ 
+	DATA->REC[ACNT]->CLM[BCNT].rPAYOR_BILLED = ""
+	DATA->REC[ACNT]->CLM[BCNT].rPAYMENT_PAYOR = ""
+ 
+FOOT REPORT
+	DATA->CNT = ACNT
+ 
+WITH COUNTER, TIME = 600
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+IF (ACNT = 0)
+	GO TO END_REPORT
+ENDIF
+ 
+/*****************************************************************
+FIN QUERY
+ 
+This section queries for the patient's FIN.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qFIN = E.ALIAS
+ 
+FROM
+	ENCNTR_ALIAS E
+ 
+PLAN E
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+	AND E.ENCNTR_ALIAS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 319, "FINNBR"))
+	AND E.ACTIVE_IND = 1
+	AND E.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	DATA->REC[POS].rFIN = qFIN
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+ACCOUNT NUMBER QUERY
+ 
+This section queries for the patient's account number.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qACCT_NUMBER = P.ALIAS
+ 
+FROM
+	ENCOUNTER E
+	, PERSON_ALIAS P
+ 
+PLAN E
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+JOIN P
+	WHERE P.PERSON_ID = E.PERSON_ID
+	AND P.PERSON_ALIAS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 4, "ACCOUNTNUMBER"))
+	AND P.ACTIVE_IND = 1
+	AND P.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	DATA->REC[POS].rACCT_NUMBER = qACCT_NUMBER
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+MRN QUERY
+ 
+This section queries for the patient's MRN.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qMRN = P.ALIAS
+ 
+FROM
+	ENCOUNTER E
+	, PERSON_ALIAS P
+ 
+PLAN E
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+JOIN P
+	WHERE P.PERSON_ID = E.PERSON_ID
+	AND P.PERSON_ALIAS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 4, "MRN"))
+	AND P.ACTIVE_IND = 1
+	AND P.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	DATA->REC[POS].rMRN = qMRN
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+ENCOUNTER HEALTH PLAN
+ 
+This section queries for the primary and secondary health plans
+associated with the patient's encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qENCNTR_HEALTH_PLAN = H.PLAN_NAME
+	, qFINANCIAL_CLASS = H.FINANCIAL_CLASS_CD
+ 
+FROM
+	ENCNTR_PLAN_RELTN E
+	, HEALTH_PLAN H
+ 
+PLAN E
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+	AND E.PRIORITY_SEQ IN (1, 2)
+	AND E.ACTIVE_IND = 1
+	AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN H
+	WHERE H.HEALTH_PLAN_ID = E.HEALTH_PLAN_ID
+	AND H.ACTIVE_IND = 1
+	AND H.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	IF (E.PRIORITY_SEQ = 1)
+ 
+		DATA->REC[POS].rENCNTR_HEALTH_PLAN1 = qENCNTR_HEALTH_PLAN
+		DATA->REC[POS].rPRIMARY_FIN_CLASS = qFINANCIAL_CLASS
+ 
+	ELSEIF (E.PRIORITY_SEQ = 2)
+ 
+		DATA->REC[POS].rENCNTR_HEALTH_PLAN2 = qENCNTR_HEALTH_PLAN
+		DATA->REC[POS].rSECONDARY_FIN_CLASS = qFINANCIAL_CLASS
+ 
+	ENDIF
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+PATIENT HEALTH PLAN
+ 
+This section queries for the health plan at the patient level.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qPERSON_HEALTH_PLAN = H.PLAN_NAME
+ 
+FROM
+	PERSON_PLAN_RELTN P
+	, HEALTH_PLAN H
+ 
+PLAN P
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), P.PERSON_ID, DATA->REC[NUM].rPERSON_ID)
+	AND P.PERSON_PLAN_R_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 353, "SUBSCRIBER"))
+	AND P.PRIORITY_SEQ = 1
+	AND P.ACTIVE_IND = 1
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN H
+	WHERE H.HEALTH_PLAN_ID = P.HEALTH_PLAN_ID
+	AND H.ACTIVE_IND = 1
+	AND H.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), P.PERSON_ID, DATA->REC[NUM].rPERSON_ID)
+ 
+	DATA->REC[POS].rPERSON_HEALTH_PLAN = qPERSON_HEALTH_PLAN
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+DRG QUERY
+ 
+This section queries for the DRG associated with the paitent's
+encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qDRG = N.SOURCE_IDENTIFIER
+ 
+FROM
+	DRG   DR
+	, NOMENCLATURE   N
+ 
+PLAN DR
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), DR.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+	AND DR.CONTRIBUTOR_SYSTEM_CD = 459.00  ;SELECTS 3M CODING, BY KATE HUDDLESTON
+	AND DR.ACTIVE_IND = 1
+	AND DR.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN N
+	WHERE N.NOMENCLATURE_ID = DR.NOMENCLATURE_ID
+	AND N.SOURCE_VOCABULARY_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 400, "MSDRG"))
+	AND N.ACTIVE_IND = 1
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), DR.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	DATA->REC[POS].rDRG = qDRG
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+ 
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+DIAGNOSIS QUERY
+ 
+This section queries for the diagnoses associated with the
+patient's encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qDX = N.SOURCE_IDENTIFIER
+	, qENCNTR_ID = DI.ENCNTR_ID
+	, qDIAG_TYPE = DI.DIAG_TYPE_CD
+	, qDIAG_PRIORITY = DI.DIAG_PRIORITY
+ 
+FROM
+	DIAGNOSIS   DI
+	, NOMENCLATURE   N
+ 
+PLAN DI
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), DI.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+	AND DI.CONTRIBUTOR_SYSTEM_CD = 459.00  ;SELECTS 3M CODING, BY KATE HUDDLESTON
+	AND DI.DIAG_TYPE_CD IN
+	(
+		VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 17, "ADMITTING"))
+		, VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 17, "FINAL"))
+	)
+	AND DI.ACTIVE_IND = 1
+	AND DI.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN N
+	WHERE N.NOMENCLATURE_ID = DI.NOMENCLATURE_ID
+	AND N.SOURCE_VOCABULARY_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 400, "ICD10CM"))
+	AND N.ACTIVE_IND = 1
+	;AND N.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3); DKH removed
+ 
+ORDER BY
+	qENCNTR_ID
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), DI.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	IF (qDIAG_TYPE = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 17, "ADMITTING")))
+ 
+		DATA->REC[POS].rDX_1 = qDX
+ 
+	ELSE
+ 
+		CASE(qDIAG_PRIORITY)
+ 
+			OF 1 : DATA->REC[POS].rDX_2 = qDX
+			OF 2 : DATA->REC[POS].rDX_3 = qDX
+			OF 3 : DATA->REC[POS].rDX_4 = qDX
+			OF 4 : DATA->REC[POS].rDX_5 = qDX
+ 
+		ENDCASE
+ 
+	ENDIF
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+ 
+WITH COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+CPT CODES QUERY
+ 
+This section queries for the CPT codes associated with the
+patient's encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qCPT = CM.FIELD6
+	, qENCNTR_ID = PE.ENCNTR_ID
+ 
+FROM
+	PFT_ENCNTR PE
+	, PFT_TRANS_RELTN PTR
+	, PFT_CHARGE PC
+	, CHARGE C
+	, CHARGE_MOD CM
+ 
+PLAN PE
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), PE.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+JOIN PTR
+	WHERE PTR.PARENT_ENTITY_ID = PE.PFT_ENCNTR_ID
+	AND PTR.PARENT_ENTITY_NAME = "PFTENCNTR"
+	AND PTR.ACTIVE_IND = 1
+	AND PTR.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN PC
+	WHERE PC.ACTIVITY_ID = PTR.ACTIVITY_ID
+	AND PC.ACTIVE_IND = 1
+ 
+JOIN C
+	WHERE C.CHARGE_ITEM_ID = PC.CHARGE_ITEM_ID
+ 
+JOIN CM
+	WHERE CM.CHARGE_ITEM_ID = C.CHARGE_ITEM_ID
+	AND CM.FIELD1_ID = 615214.0
+	AND CM.ACTIVE_IND = 1
+	AND CM.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+ORDER BY
+	qENCNTR_ID
+ 
+HEAD qENCNTR_ID
+ 
+	CNT = 0
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), PE.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+DETAIL
+ 
+	CNT = CNT + 1
+	
+	DATA->REC[pos].rOrdProviderId 		= c.ord_phys_id		;001
+	
+	CASE(CNT)
+ 
+		OF 1 : DATA->REC[POS].rCPT_1 = qCPT
+		OF 2 : DATA->REC[POS].rCPT_2 = qCPT
+		OF 3 : DATA->REC[POS].rCPT_3 = qCPT
+		OF 4 : DATA->REC[POS].rCPT_4 = qCPT
+		OF 5 : DATA->REC[POS].rCPT_5 = qCPT
+ 
+	ENDCASE
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH  COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+
+ 
+/*****************************************************************
+HCPC CODES QUERY
+ 
+This section queries for the HCPC codes associated with the
+patient's encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qHCPC = CM.FIELD6
+	, qENCNTR_ID = PE.ENCNTR_ID
+ 
+FROM
+	PFT_ENCNTR PE
+	, PFT_TRANS_RELTN PTR
+	, PFT_CHARGE PC
+	, CHARGE C
+	, CHARGE_MOD CM
+ 
+PLAN PE
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), PE.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+JOIN PTR
+	WHERE PTR.PARENT_ENTITY_ID = PE.PFT_ENCNTR_ID
+	AND PTR.PARENT_ENTITY_NAME = "PFTENCNTR"
+	AND PTR.ACTIVE_IND = 1
+	AND PTR.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN PC
+	WHERE PC.ACTIVITY_ID = PTR.ACTIVITY_ID
+	AND PC.ACTIVE_IND = 1
+ 
+JOIN C
+	WHERE C.CHARGE_ITEM_ID = PC.CHARGE_ITEM_ID
+ 
+JOIN CM
+	WHERE CM.CHARGE_ITEM_ID = C.CHARGE_ITEM_ID
+	AND CM.FIELD1_ID = 615215.0
+	AND CM.ACTIVE_IND = 1
+	AND CM.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+ORDER BY
+	qENCNTR_ID
+ 
+HEAD qENCNTR_ID
+ 
+	CNT = 0
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), PE.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+DETAIL
+ 
+	CNT = CNT + 1
+ 
+	CASE(CNT)
+ 
+		OF 1 : DATA->REC[POS].rHCPC_1 = qHCPC
+		OF 2 : DATA->REC[POS].rHCPC_2 = qHCPC
+		OF 3 : DATA->REC[POS].rHCPC_3 = qHCPC
+		OF 4 : DATA->REC[POS].rHCPC_4 = qHCPC
+		OF 5 : DATA->REC[POS].rHCPC_5 = qHCPC
+ 
+	ENDCASE
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH  COUNTER, TIME = 180, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+CLAIM NUMBER QUERY
+ 
+This section queries for the claim numbers associated with the
+patient's encounter.
+******************************************************************/
+ 
+;SELECT INTO "NL:"
+;	qENCNTR_ID = E.ENCNTR_ID
+;	, qCLAIM_NUMBER = BE.BILL_NBR_DISP
+;	, qLAST_PAYMENT_DATE = B.LAST_PAYMENT_DT_TM
+;	, qCORSP_ACTIVITY_ID = BE.CORSP_ACTIVITY_ID
+;	, qENCNTR_PLAN_RELTN_ID = E.ENCNTR_PLAN_RELTN_ID
+;	, qBO_HP_RELTN_ID = B.BO_HP_RELTN_ID
+;
+;FROM
+;	ENCNTR_PLAN_RELTN E
+;	, BO_HP_RELTN B
+;	, BILL_RELTN BR
+;	, BILL_REC BE
+;
+;PLAN E
+;	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+;	AND E.ACTIVE_IND = 1
+;	AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;JOIN B
+;	WHERE B.ENCNTR_PLAN_RELTN_ID = E.ENCNTR_PLAN_RELTN_ID
+;	AND B.ACTIVE_IND = 1
+;	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;JOIN BR
+;	WHERE BR.PARENT_ENTITY_ID = B.BO_HP_RELTN_ID
+;
+;JOIN BE
+;	WHERE BE.CORSP_ACTIVITY_ID = BR.CORSP_ACTIVITY_ID
+;	AND BE.BILL_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 18935, "TRANSMITTED"))
+;	AND BE.BALANCE > 0
+;	AND BE.ACTIVE_IND = 1
+;	AND BE.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;ORDER BY
+;	qENCNTR_ID
+;
+;HEAD qENCNTR_ID
+;
+;	CNT = 0
+;
+;	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+;
+;	DATA->REC[POS].rENCNTR_PLAN_RELTN_ID = qENCNTR_PLAN_RELTN_ID
+;
+;DETAIL
+;
+;	CNT = CNT + 1
+;
+;	STAT = ALTERLIST(DATA->REC[POS].CLM, CNT)
+;
+;	DATA->REC[POS]->CLM[CNT].rCLAIM_NUMBER = qCLAIM_NUMBER
+;	DATA->REC[POS]->CLM[CNT].rLAST_PAYMENT_DATE = qLAST_PAYMENT_DATE
+;	DATA->REC[POS]->CLM[CNT].rCORSP_ACTIVITY_ID = qCORSP_ACTIVITY_ID
+;	DATA->REC[POS]->CLM[CNT].rBO_HP_RELTN_ID = qBO_HP_RELTN_ID
+;
+;	DATA->REC[POS]->CLM[CNT].rPAYOR_BILLED = ""
+;	DATA->REC[POS]->CLM[CNT].rPAYMENT_PAYOR = ""
+;
+;/* If the report is known to run longer than 60 seconds, change the value below */
+;WITH COUNTER, TIME = 300, EXPAND = 1
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+PAYOR PAYMENT QUERY
+ 
+This section queries for the payor/s responsible for making
+payments for the patient's encounter.
+******************************************************************/
+ 
+SELECT DISTINCT INTO "NL:"
+	qCORSP_ACTIVITY_ID = P.PARENT_ENTITY_ID
+	, qPAYMENT_PAYOR = O.ORG_NAME
+ 
+FROM
+	(DUMMYT D1 WITH SEQ = VALUE(DATA->CNT))
+	, (DUMMYT D2 WITH SEQ = 1)
+	, BO_HP_RELTN B
+	, PFT_TRANS_RELTN   P
+	, ORGANIZATION O
+ 
+PLAN D1
+	WHERE MAXREC(D2, SIZE(DATA->REC[D1.SEQ].CLM, 5))
+ 
+JOIN D2
+ 
+JOIN B
+	WHERE B.ENCNTR_PLAN_RELTN_ID = DATA->REC[D1.SEQ].rENCNTR_PLAN_RELTN_ID
+	AND B.ACTIVE_IND = 1
+	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN P
+	WHERE P.BENEFIT_ORDER_ID = B.BO_HP_RELTN_ID
+	AND P.BENEFIT_ORDER_ID = DATA->REC[D1.SEQ]->CLM[D2.SEQ].rBO_HP_RELTN_ID
+	AND P.TRANS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 18649, "PAYMENT"))
+	AND P.PARENT_ENTITY_NAME = "BILL"
+ 
+JOIN O
+	WHERE O.ORGANIZATION_ID = B.PAYOR_ORG_ID
+	AND O.ACTIVE_IND = 1
+	AND O.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	DATA->REC[D1.SEQ]->CLM[D2.SEQ].rPAYMENT_PAYOR = qPAYMENT_PAYOR
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 301
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+PAYOR BILLED QUERY
+ 
+This section queries for the payor that was billed for the
+patient's claim number/s.
+******************************************************************/
+ 
+;SELECT DISTINCT INTO "NL:"
+;	qPAYOR_BILLED = O.ORG_NAME
+;
+;FROM
+;	(DUMMYT D1 WITH SEQ = VALUE(DATA->CNT))
+;	, (DUMMYT D2 WITH SEQ = 1)
+;	, BO_HP_RELTN   B
+;	, BILL_RELTN   BR
+;	, BILL_REC   BE
+;	, BATCH_TRANS_FILE   BT
+;	, ORGANIZATION   O
+;
+;PLAN D1
+;	WHERE MAXREC(D2, SIZE(DATA->REC[D1.SEQ].CLM, 5))
+;
+;JOIN D2
+;
+;JOIN B
+;	WHERE B.ENCNTR_PLAN_RELTN_ID = DATA->REC[D1.SEQ].rENCNTR_PLAN_RELTN_ID
+;	AND B.ACTIVE_IND = 1
+;	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;JOIN BR
+;	WHERE BR.PARENT_ENTITY_ID = B.BO_HP_RELTN_ID
+;	AND BR.PARENT_ENTITY_NAME = "BO_HP_RELTN"
+;
+;JOIN BE
+;	WHERE BE.CORSP_ACTIVITY_ID = BR.CORSP_ACTIVITY_ID
+;	AND BE.BALANCE > 0
+;	AND BE.ACTIVE_IND = 1
+;	AND BE.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;JOIN BT
+;	WHERE BT.CORSP_ACTIVITY_ID = BE.CORSP_ACTIVITY_ID
+;	AND BT.CORSP_ACTIVITY_ID = DATA->REC[D1.SEQ]->CLM[D2.SEQ].rCORSP_ACTIVITY_ID
+;	AND BT.TRANS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 18649, "PAYMENT"))
+;
+;JOIN O
+;	WHERE O.ORGANIZATION_ID = BT.PAYOR_ORG_ID
+;	AND O.ACTIVE_IND = 1
+;	AND O.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+;
+;DETAIL
+;
+;	DATA->REC[D1.SEQ]->CLM[D2.SEQ].rPAYOR_BILLED = qPAYOR_BILLED
+;
+;/* If the report is known to run longer than 60 seconds, change the value below */
+;WITH  COUNTER, TIME = 302
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+CODER QUERY
+ 
+This section queries for the coder associated with the patient's
+encounter.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qCODER = P.NAME_FULL_FORMATTED
+ 
+FROM
+	ENCNTR_PLAN_RELTN E
+	, CODING C
+	, PERSON P
+ 
+PLAN E
+	WHERE EXPAND(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+	AND E.ACTIVE_IND = 1
+	AND E.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN C
+	WHERE C.ENCNTR_ID = E.ENCNTR_ID
+	AND C.ACTIVE_IND = 1
+	AND C.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN P
+	WHERE P.PERSON_ID = C.CODING_PRSNL_ID
+	AND P.ACTIVE_IND = 1
+	AND P.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+DETAIL
+ 
+	POS = LOCATEVALSORT(NUM, 1, SIZE(DATA->REC, 5), E.ENCNTR_ID, DATA->REC[NUM].rENCNTR_ID)
+ 
+	DATA->REC[POS].rCODER = qCODER
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH COUNTER, TIME = 300, EXPAND = 1
+
+
+
+;ordering provider
+SELECT INTO "nl:";$OUTDEV
+FROM
+	(DUMMYT D1 WITH SEQ = VALUE(DATA->CNT))
+	, (DUMMYT D2 WITH SEQ = 1)
+	, prsnl	pr
+	, prsnl_alias pa
+ 	, dummyt d3 		;for outerjoin on npi
+PLAN D1
+	WHERE MAXREC(D2, SIZE(DATA->REC[D1.SEQ].CLM, 5))
+ 
+JOIN D2
+join pr
+	where pr.person_id = DATA->REC[D1.SEQ].rOrdProviderId
+	and pr.active_ind = 1
+join d3 ; for outerjoin
+join pa	
+where pa.person_id = pr.person_id
+	and pa.prsnl_alias_type_cd =  npi_cd  ;	
+	and pa.active_ind = 1 
+detail
+	DATA->REC[D1.SEQ].rOrdProvider 		= pr.name_full_formatted
+	DATA->REC[D1.SEQ].rOrdProviderNpi	= pa.alias
+WITH COUNTER, FORMAT, SEPARATOR = " ", TIME = 60
+,outerjoin = d3
+,dontcare = d3, dontcare = pa
+
+
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+REPORT OUTPUT
+ 
+This section generates the output for the report.
+******************************************************************/
+ 
+;CALL ECHORECORD(DATA)
+ 
+SELECT INTO $OUTDEV
+	FIN = DATA->REC[D1.SEQ].rFIN
+	, ACCT_NUMBER = DATA->REC[D1.SEQ].rACCT_NUMBER
+	, MRN = DATA->REC[D1.SEQ].rMRN
+	, REGISTRATION_DATE_TIME = FORMAT(DATA->REC[D1.SEQ].rREGISTRATION_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+	, INPATIENT_ADMISSION_DATE_TIME = FORMAT(DATA->REC[D1.SEQ].rINPATIENT_ADMIT_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+	, DISCHARGE_DATE_TIME = FORMAT(DATA->REC[D1.SEQ].rDISCHARGE_DATE, "DD-MMM-YYYY HH:MM;;D")
+	, PATIENT_NAME = DATA->REC[D1.SEQ].rPATIENT_NAME
+	, PRIMARY_ENCOUNTER_HEALTH_PLAN = DATA->REC[D1.SEQ].rENCNTR_HEALTH_PLAN1
+	, PRIMARY_FINANCIAL_CLASS = UAR_GET_CODE_DISPLAY(DATA->REC[D1.SEQ].rPRIMARY_FIN_CLASS)
+	, SECONDARY_ENCOUNTER_HEALTH_PLAN = DATA->REC[D1.SEQ].rENCNTR_HEALTH_PLAN2
+	, SECONDARY_FINANCIAL_CLASS = UAR_GET_CODE_DISPLAY(DATA->REC[D1.SEQ].rSECONDARY_FIN_CLASS)
+	, PATIENT_HEALTH_PLAN = DATA->REC[D1.SEQ].rPERSON_HEALTH_PLAN
+	, PATIENT_LOCATION = UAR_GET_CODE_DISPLAY(DATA->REC[D1.SEQ].rPATIENT_LOCATION)
+	, MEDICAL_SERVICE = UAR_GET_CODE_DISPLAY(DATA->REC[D1.SEQ].rMEDICAL_SERVICE)
+	, DRG = DATA->REC[D1.SEQ].rDRG
+	, LENGTH_OF_STAY = DATA->REC[D1.SEQ].RLOS
+	, DISPOSITION_CODE = DATA->REC[D1.SEQ].rDISPOSITION_CODE
+	, DISPOSITION_DESCRIPTION = UAR_GET_CODE_DISPLAY(DATA->REC[D1.SEQ].rDISPOSITION_CODE)
+	, ADM_DIAG = DATA->REC[D1.SEQ].rDX_1  ;CHANGED FROM DX_1 TO ADM_DIAG
+	, PRIN_DX = DATA->REC[D1.SEQ].rDX_2      ;CHANGED FROM DX_2 TO PRIN_DX
+	, DX_3 = DATA->REC[D1.SEQ].rDX_3
+	, DX_4 = DATA->REC[D1.SEQ].rDX_4
+	, DX_5 = DATA->REC[D1.SEQ].rDX_5
+	, CPT_1 = DATA->REC[D1.SEQ].rCPT_1
+	, CPT_2 = DATA->REC[D1.SEQ].rCPT_2
+	, CPT_3 = DATA->REC[D1.SEQ].rCPT_3
+	, CPT_4 = DATA->REC[D1.SEQ].rCPT_4
+	, CPT_5 = DATA->REC[D1.SEQ].rCPT_5
+	, HCPC_1 = DATA->REC[D1.SEQ].rHCPC_1
+	, HCPC_2 = DATA->REC[D1.SEQ].rHCPC_2
+	, HCPC_3 = DATA->REC[D1.SEQ].rHCPC_3
+	, HCPC_4 = DATA->REC[D1.SEQ].rHCPC_4
+	, HCPC_5 = DATA->REC[D1.SEQ].rHCPC_5
+	, CLAIM_NUMBER_1 =	IF (DATA->REC[D1.SEQ]->CLM[1].rCLAIM_NUMBER != "")
+							DATA->REC[D1.SEQ]->CLM[1].rCLAIM_NUMBER
+						ELSE
+							""
+						ENDIF
+	, PAYMENT_PAYOR_1 =	IF (DATA->REC[D1.SEQ]->CLM[1].rPAYMENT_PAYOR != "")
+							DATA->REC[D1.SEQ]->CLM[1].rPAYMENT_PAYOR
+						ELSE
+							""
+						ENDIF
+	, CLAIM_NUMBER_2 =	IF (SIZE(DATA->REC[D1.SEQ].CLM, 5) > 1)
+							DATA->REC[D1.SEQ]->CLM[2].rCLAIM_NUMBER
+						ELSE
+							""
+						ENDIF
+	, PAYMENT_PAYOR_2 = IF (SIZE(DATA->REC[D1.SEQ].CLM, 5) > 1)
+							DATA->REC[D1.SEQ]->CLM[2].rPAYMENT_PAYOR
+						ELSE
+							""
+						ENDIF
+	, PAYMENT_PAYOR_3 =	IF (SIZE(DATA->REC[D1.SEQ].CLM, 5) > 2)
+							DATA->REC[D1.SEQ]->CLM[3].rPAYMENT_PAYOR
+						ELSE
+							""
+						ENDIF
+	, PAYMENT_PAYOR_4 =	IF (SIZE(DATA->REC[D1.SEQ].CLM, 5) > 3)
+							DATA->REC[D1.SEQ]->CLM[4].rPAYMENT_PAYOR
+						ELSE
+							""
+						ENDIF
+	, CODER 				= DATA->REC[D1.SEQ].rCODER
+	, ordering_provider 		= DATA->REC[D1.SEQ].rOrdProvider		;001
+	, ordering_provider_npi		= DATA->REC[D1.SEQ].rOrdProviderNpi		;001
+
+ 
+FROM
+	(DUMMYT D1 WITH SEQ = VALUE(DATA->CNT))
+	, (DUMMYT D2 WITH SEQ = 1)
+ 
+PLAN D1
+	WHERE MAXREC(D2, SIZE(DATA->REC[D1.SEQ].CLM, 5))
+ 
+JOIN D2
+ 
+WITH COUNTER, FORMAT, SEPARATOR = " ", TIME = 60
+
+
+
+
+;SELECT INTO $OUTDEV
+;	FIN = DATA->REC[D1.SEQ].rFIN
+;	, ACCT_NUMBER = DATA->REC[D1.SEQ].rACCT_NUMBER
+;	, MRN = DATA->REC[D1.SEQ].rMRN
+;;	, REGISTRATION_DATE_TIME = FORMAT(DATA->REC[D1.SEQ].rREGISTRATION_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+;;	, INPATIENT_ADMISSION_DATE_TIME = FORMAT(DATA->REC[D1.SEQ].rINPATIENT_ADMIT_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+;;	, CODER 				= DATA->REC[D1.SEQ].rCODER
+;	, ordering_provider 		= DATA->REC[D1.SEQ].rOrdProvider
+;	, ordering_provider_npi		= DATA->REC[D1.SEQ].rOrdProviderNpi
+;;	, ordering_provider 	= DATA->REC[D1.SEQ].rOrdProviderId
+;;	, performing_provider 		= DATA->REC[D1.SEQ].rPerfProviderId
+;	, verifying_provider 		= DATA->REC[D1.SEQ].rVerifyProvider
+;	, verifying_provider_npi 	= DATA->REC[D1.SEQ].rVerifyProviderNpi
+; 
+;FROM
+;	(DUMMYT D1 WITH SEQ = VALUE(DATA->CNT))
+;	,(DUMMYT D2 WITH SEQ = 1)
+;
+;PLAN D1
+;	WHERE MAXREC(D2, SIZE(DATA->REC[D1.SEQ].CLM, 5))
+;JOIN D2
+;
+;WITH COUNTER, FORMAT, SEPARATOR = " ", TIME = 60
+;
+;  
+ 
+#END_REPORT
+ 
+SET LAST_MOD = "000 - 15-Jan-2019 - Josh DeLeenheer"
+
+END
+GO
