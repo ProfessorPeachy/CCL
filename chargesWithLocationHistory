@@ -1,0 +1,298 @@
+
+
+ 
+;****** TO Test Midas in MOCK or Cert *********
+; 1. Test file need to be named test_hcpcs_(date).txt
+; 2. Comment out line 145 that block test patinets from pulling.
+; 3. Look at line 116 to see how long the report need to be run.
+ 
+ 
+drop program maur_tn_hops_extract_v2 go
+create program maur_tn_hops_extract_v2
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+ 
+with OUTDEV
+ 
+;set bdate = concat($begin_dt,' 00:00')
+;set edate = concat($end_dt,' 23:59')
+ 
+set midas_file = build("/cerner/d_p698/data/batch_files/ccl_extracts/midas/hcpcs_", format(curdate, "MMDDYYYY;;D"), ".txt")
+ 
+declare 319_fin_cd = f8
+set 319_fin_cd = uar_get_code_by("DISPLAY",319,"FIN NBR")
+declare 14002_cpt4_cd       = f8
+set 14002_cpt4_cd = uar_get_code_by("DISPLAYKEY",14002,"CPT")
+declare 14002_hcpcs_cd      = f8
+set 14002_hcpcs_cd = uar_get_code_by("DISPLAYKEY",14002,"HCPCS")
+declare 14002_med_hcpcs_cd  = f8
+set 14002_med_hcpcs_cd = uar_get_code_by("DISPLAYKEY",14002,"MEDICAREONLYHCPCS")
+declare 14002_g_hcpcs_cd    = f8
+set 14002_g_hcpcs_cd = uar_get_code_by("DISPLAYKEY",14002,"GCODE")
+declare 263_prsnl_alias_cd  = f8
+set 263_prsnl_alias_cd = uar_get_code_by("DISPLAYKEY",263,"PERSONNELPRIMARYIDENTIFIER")
+declare 13019_bill_cd       = f8
+set 13019_bill_cd = uar_get_code_by("DISPLAYKEY",13019,"BILLCODE")
+declare delimiter           = c1 with constant("|")
+declare outfilename         = vc with constant(build2("hcpcs_", format(curdate, "MMDDYYYY;;D"), ".txt"))
+declare tempdir             = vc with noconstant("")
+declare full_path_file      = vc with noconstant("")
+declare temp_str            = vc with noconstant("")
+declare e_idx               = i4 with noconstant(0)
+declare pos                 = i4 with noconstant(0)
+declare num                 = i4 with noconstant(0)
+declare record_cnt          = i4 with noconstant(0)
+declare facility_str        = vc with constant("MRMC")
+declare 71_phone_enc_cd     = f8
+set 71_phone_enc_cd = uar_get_code_by("DISPLAYKEY",71,"PHONEMESSAGE")
+declare 71_client_enc_cd    = f8
+set 	71_client_enc_cd = uar_get_code_by("DISPLAYKEY",71,"CLIENT")
+declare 71_nurs_hm_enc_cd   = f8
+set 	71_nurs_hm_enc_cd = uar_get_code_by("DISPLAYKEY",71,"NURSINGHOME")
+declare 71_hist_enc_cd		= f8
+set 	71_hist_enc_cd = uar_get_code_by("DISPLAYKEY",71,"HISTORY")
+declare 71_pre_client_enc_cd = f8
+set 	71_pre_client_enc_cd = uar_get_code_by("DISPLAYKEY",71,"PRECLIENT")
+declare 71_labcorp_enc_cd = f8
+set 	71_labcorp_enc_cd = uar_get_code_by("DISPLAYKEY",71,"LABCORPCTA")
+declare 71_results_only_enc_cd = f8
+set 	71_results_only_enc_cd = uar_get_code_by("DISPLAYKEY",71,"RESULTSONLY")
+ 
+;003 
+declare 71_client_enc_cd = f8
+set 	71_client_enc_cd = uar_get_code_by("DISPLAYKEY",71,"CLIENT") 
+
+
+ 
+record records (
+    1 record_cnt = i4
+    1 record_list[*]
+        2 output_flag = vc
+        2 pt_person_id   = f8
+        2 encntr_id = f8
+        2 charge_item_id = f8
+        2 order_provider_id = f8
+        2 rec_type = vc
+        2 facility = vc
+        2 fin = vc
+        2 proc_cd = vc
+       ; 2 proc_dt = vc
+        2 prod_cnt = i4
+        2 prod_qual[*]
+       		3 proc_cd_2 = vc
+        	3 proc_dt = vc
+        2 provider = vc
+        2 last_up_dt = vc
+        2 patient_name = vc
+ 
+)
+ 
+ 
+;pull all encounters with any charges updated in the timerange
+select into "nl:"
+from
+    charge c,
+    ;charge_mod cm,
+    encounter e,
+    encntr_loc_hist elh,
+    person p
+plan c
+   where c.last_utc_ts BETWEEN CNVTDATETIME(curdate-7,0000) AND CNVTDATETIME(curdate,2300)
+    and  c.active_ind = 1
+    ;and c.encntr_id =    99914493.00
+    and c.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+    and c.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+    and c.process_flg = 100 ;posted
+    and c.offset_charge_item_id = 0.00
+;join cm
+;    where cm.charge_item_id = c.charge_item_id
+;    and cm.active_ind = 1
+;    and cm.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+;    and cm.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+;    and cm.field1_id in(14002_cpt4_cd, 14002_hcpcs_cd, 14002_med_hcpcs_cd, 14002_g_hcpcs_cd)
+;    and cm.charge_mod_type_cd = 13019_bill_cd
+join e
+    where e.encntr_id = c.encntr_id
+    and e.loc_facility_cd in ( 21250403.00, 2552296953.00, 2553742717.00, 2554052883.00, 2554052901.00,  2554053355.00,
+    2554054331.00, 2559067637.00 , 2554053337.00,  2586624205.00
+    ,  4540971491.00);001 added  MRMG Collinwood PC ;003
+    
+        ;Maury,LHC,MRMC CANCER CTR,LEWISBURG FP,PEDS, PRIMECARE,PRIMARY CARE FQ,HOMESERVICES,PC BEHAV HEALTH,LEWISBURG BH
+    and e.encntr_type_cd not in(71_phone_enc_cd, 71_client_enc_cd,71_nurs_hm_enc_cd, 71_hist_enc_cd,
+		71_pre_client_enc_cd, 71_labcorp_enc_cd, 71_results_only_enc_cd
+		,71_client_enc_cd) ;EXCLUDE CLIENT ENCOUNTER CODE ;003
+    and e.active_ind = 1
+    and e.contributor_system_cd != 4122024691.00;chartspan;mod002
+ 
+join elh
+    where elh.encntr_id = outerjoin(c.encntr_id)
+    and elh.active_ind = outerjoin(1)
+    and elh.beg_effective_dt_tm <= outerjoin(c.service_dt_tm)
+    and elh.end_effective_dt_tm >= outerjoin(c.service_dt_tm)
+ 
+join p where p.person_id = e.person_id
+	and p.name_last_key Not in( "ZZ*","XXX*")
+ 
+order by e.encntr_id
+ 
+head report
+ 
+   record_cnt = 0
+   stat = alterlist(records->record_list,100)
+ 
+head c.encntr_id
+	record_cnt = record_cnt + 1
+ 
+    if(mod(record_cnt,100)=1 and record_cnt !=1)
+        stat = alterlist(records->record_list,record_cnt+99)
+    endif
+ 
+ 
+        records->record_list[record_cnt].pt_person_id      = c.person_id
+        records->record_list[record_cnt].encntr_id         = c.encntr_id
+        records->record_list[record_cnt].charge_item_id    = c.charge_item_id
+        records->record_list[record_cnt].order_provider_id = c.ord_phys_id
+        records->record_list[record_cnt].rec_type          = "CPT"
+       ; records->record_list[record_cnt].proc_cd           = trim(cm.field6, 3)
+      ; records->record_list[record_cnt].proc_dt           = trim(format(c.service_dt_tm, "MMDDYYYY;;d"), 3)
+       records->record_list[record_cnt].facility          = facility_str
+       records->record_list[record_cnt].patient_name	= p.name_full_formatted
+ 
+ 
+foot report
+ if(record_cnt>0)
+  stat = alterlist(records->record_list,  record_cnt)
+  records->record_cnt = record_cnt
+ endif
+with nocounter
+ 
+;get all code for fin
+select into "nl:"
+from
+    charge c,
+    charge_mod cm,
+    encounter e
+ 
+plan c
+ 
+    where expand(num,1,size(records->record_list,5),c.encntr_id,records->record_list[num].encntr_id)
+ 
+    and c.active_ind = 1
+    and c.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+    and c.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+    and c.process_flg = 100 ;posted
+    and c.offset_charge_item_id = 0.00
+join cm
+    where cm.charge_item_id = c.charge_item_id
+    and cm.active_ind = 1
+    and cm.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+    and cm.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+    and cm.field1_id in(14002_cpt4_cd, 14002_hcpcs_cd, 14002_med_hcpcs_cd, 14002_g_hcpcs_cd)
+    and cm.charge_mod_type_cd = 13019_bill_cd
+join e
+    where e.encntr_id = c.encntr_id
+    and e.encntr_type_cd not in(71_phone_enc_cd, 71_client_enc_cd,71_nurs_hm_enc_cd, 71_hist_enc_cd,
+		71_pre_client_enc_cd, 71_labcorp_enc_cd, 71_results_only_enc_cd)
+    and e.active_ind = 1
+ 
+ 
+order by c.encntr_id, cm.charge_item_id ;cm.nomen_id
+ 
+head c.encntr_id
+ prod_cnt = 0
+    pos=locateval(num,1,size(records->record_list,5),c.encntr_id,records->record_list[num].encntr_id)
+ 
+head cm.charge_item_id ;cm.nomen_id
+	prod_cnt = prod_cnt +1
+	stat = alterlist(records->record_list[pos].prod_qual,prod_cnt)
+ 
+  detail
+        records->record_list[pos].prod_qual[prod_cnt].proc_cd_2           = trim(cm.field6, 3)
+        records->record_list[pos].prod_qual[prod_cnt].proc_dt = trim(format(c.service_dt_tm, "MMDDYYYY;;d"), 3)
+        														;trim(format(c.last_utc_ts, "MMDDYYYY;;d"), 3)
+ 
+   foot report
+ if(prod_cnt>0)
+  stat = alterlist(records->record_list [pos].prod_qual,prod_cnt)
+    records->record_list[pos].prod_cnt = prod_cnt
+ endif
+with nocounter, time= 3600, expand = 1
+ 
+ 
+;begin - get FIN of encounter
+select into "nl:"
+from
+  encntr_alias ea
+plan ea
+ 
+  where expand(num, 1,size(records->record_list,5),ea.encntr_id, records->record_list[num].encntr_id)
+  and ea.encntr_alias_type_cd = 319_fin_cd
+  and ea.active_ind = 1
+  and ea.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+  and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+order by ea.encntr_id, ea.end_effective_dt_tm desc
+ 
+head ea.encntr_id
+ 
+  pos = locateval(num, 1,size(records->record_list,5),ea.encntr_id,records->record_list[num].encntr_id)
+ 
+ detail
+    records->record_list[pos].fin   = cnvtalias(ea.alias, ea.alias_pool_cd)
+ 
+ 
+with expand = 2, nocounter
+;end - get FIN of encounter
+ 
+;begin - get prsnl alias of ordering provider
+select into "nl:"
+from
+  prsnl_alias pa
+plan pa
+    where expand(num, 1,size(records->record_list,5),pa.person_id, records->record_list[num].order_provider_id)
+  and pa.alias_pool_cd = 263_prsnl_alias_cd
+  and pa.person_id > 0.00
+ 
+order by pa.person_id, pa.end_effective_dt_tm desc
+ 
+head pa.person_id
+ 
+  pos = locateval(num, 1,size(records->record_list,5),pa.person_id,records->record_list[num].order_provider_id)
+ 
+  detail
+    records->record_list[pos].provider   = pa.alias
+ 
+ 
+with expand = 2, nocounter
+call echorecord (records)
+;end - get prsnl alias of ordering provider
+ 
+; select into $outdev ;value(midas_file) ;$outdev
+select into value(midas_file) 
+		Rec_type = trim(substring(1,20,records->record_list[d1.seq].rec_type))
+		,Facility = trim(substring(1,20,records->record_list[d1.seq].facility))
+		,FIN = trim(substring(1,20,records->record_list[d1.seq].fin))
+		;,Code = trim(substring(1,20,records->record_list[d1.seq].proc_cd))
+		,Code2 = trim(substring(1,20,records->record_list[d1.seq].prod_qual[d2.seq].proc_cd_2))
+		,Code_dt = trim(substring(1,20,records->record_list[d1.seq].prod_qual[d2.seq].proc_dt))
+		,Provider = trim(substring(1,20,records->record_list[d1.seq].provider))
+		;,Pt_name = trim(substring(1,20,records->record_list[d1.seq].patient_name))
+ 
+from
+	(dummyt d1 with seq=value(size(records->record_list,5)))
+ 	,(dummyt d2 with seq=1)
+ 
+plan d1
+	where d1.seq>0
+	and maxrec(d2,size(records->record_list[d1.seq].prod_qual,5))
+;"	and records->record_list[d1.seq].provider > ""
+ join d2
+detail
+line1= build(Rec_type,"|",Facility,"|",FIN,"|",Code2,"|",Code_dt,"|",Provider,"|")
+col 0 line1
+row+1
+with format,maxcol=5000,maxrow=1,format=variable,formfeed=none,separator="|",time=3900
+
+ 
+end
+go
