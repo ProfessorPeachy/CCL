@@ -1,0 +1,34 @@
+drop program 1_amj_patient_by_zipcode go
+create program 1_amj_patient_by_zipcode
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select Discharge Start Date" = ""
+	, "Select Discharge End Date" = ""
+	, "" = 21250403.00 
+
+with OUTDEV, begin_dt, end_dt, FAC
+
+
+
+select  COUNT(*), COUNTY = UAR_GET_CODE_DISPLAY(A.county_cd)
+ from 
+encounter e
+,address a
+plan e
+	WHERE E.reg_dt_tm >=  cnvtlookbehind("3,Y");CNVTDATETIME(CURDATE-1,CURTIME3)
+	AND E.loc_facility_cd =  2554053715.00
+	
+join a
+	where a.parent_entity_id = e.person_id
+	and a.parent_entity_name = 'PERSON'
+	AND A.address_type_cd =         756.00	     ;   212	HOME	
+	and a.active_ind = 1
+GROUP BY A.county_cd
+with time = 60, maxrec= 10000
+
+
+*************************************************/
+
+end
+go
