@@ -1,0 +1,142 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ 
+
+**************************************************************************************************************************/
+ 
+
+
+drop program amj_tn_trauma_activations_rpt go
+create program amj_tn_trauma_activations_rpt
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+declare	trauma_activated_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'TRAUMATEAMACTIVATED'));21196971.00		
+declare	trauma_activated_time_cd	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'TRAUMATEAMACTIVATEDTIME'));21196978 
+declare	trauma_activated_level_cd	= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'TRAUMATEAMACTIVATIONLEVEL'));
+declare	lynx_mode_of_arrival_cd		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',72,'LYNXMODEOFARRIVAL'));;    3611582.00
+declare fin_cd						= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR"));1077.0
+
+free record encntr_rec
+record encntr_rec
+(
+	1 cnt						= i4
+	1 encntrs[*]
+		2 encntrid				= f8
+		2 personid				= f8		
+		2 fin					= vc
+		2 patient_name_first	= vc
+		2 patient_name_last		= vc		
+		2 team_activated_time 	= vc
+		2 team_activated_level	= vc
+		2 arrival_mode			= vc 
+		2 discharged_to			= vc
+		;2 team_activated		= vc	 		
+)
+
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+;did patient have a trauma team activation within the selected date range
+select into $outdev
+	patient_name		= p.name_full_formatted
+	,fin 				= ea.alias
+	,activation_level 	= if (ce.event_cd = trauma_activated_level_cd) ce.result_val endif
+	,activation_time	= cdr.result_dt_tm
+	,arrival_mode 		= ce2.result_val
+	,discharge_to 		= uar_get_code_display(e.disch_disposition_cd)
+	,event 				= uar_get_code_display(ce.event_cd)	
+from 
+	clinical_event ce
+	,encounter 		e
+	,person 		p
+	,encntr_alias 	ea
+	,dummyt 		d1		;outerjoin for cdr
+	,ce_date_result cdr	  	;trauma team activated time
+	,dummyt 		d2 	  	;outerjoin for ce2
+	,clinical_event ce2   	;lynx arrival mode	
+plan ce
+	where ce.updt_dt_tm between cnvtdatetime($start_date) and cnvtdatetime($end_date)
+	;where ce.updt_dt_tm between cnvtdatetime(curdate-120,curtime3) and cnvtdatetime(curdate,curtime3)
+	and ce.event_cd in (trauma_activated_time_cd, trauma_activated_level_cd)
+join e	
+	where e.encntr_id 			= ce.encntr_id
+join ea
+	where ea.encntr_id 			= e.encntr_id
+	and ea.encntr_alias_type_cd = fin_cd	
+join p
+	where p.person_id 			= e.person_id
+	and p.active_ind 			= 1
+join d1
+join cdr
+	where cdr.event_id 			= ce.event_id	
+join d2
+join ce2
+	where ce2.encntr_id 		= e.encntr_id
+	and ce2.event_cd 			= lynx_mode_of_arrival_cd	
+order by p.person_id, p.name_full_formatted, ce.encntr_id		
+head report
+	ecnt = 0            
+head e.encntr_id
+	ecnt+=1
+	stat = alterlist(encntr_rec->encntrs,ecnt)	
+	
+	encntr_rec->encntrs[ecnt].encntrid 					= e.encntr_id
+	encntr_rec->encntrs[ecnt].fin						= ea.alias
+	encntr_rec->encntrs[ecnt].patient_name_first		= p.name_first
+	encntr_rec->encntrs[ecnt].patient_name_last			= p.name_last
+	encntr_rec->encntrs[ecnt].personid					= p.person_id
+	encntr_rec->encntrs[ecnt].discharged_to				= uar_get_code_DISPLAY(e.disch_to_loctn_cd)
+detail
+
+	if (ce.event_cd = trauma_activated_level_cd) 
+		encntr_rec->encntrs[ecnt].team_activated_level	= ce.result_val
+	elseif (ce.event_cd = trauma_activated_time_cd)
+		encntr_rec->encntrs[ecnt].team_activated_time	= format(cdr.result_dt_tm,"@SHORTDATETIME")
+	endif
+	
+	encntr_rec->encntrs[ecnt].arrival_mode				= ce2.result_val	
+foot report
+		encntr_rec->cnt = ecnt	
+with nocounter, format, separator = " ", maxrec=5000, time = 30
+,outerjoin=d1, outerjoin=d2
+,dontcare=d1, dontcare=d2
+,dontcare=cdr, dontcare=ce2
+
+select into $outdev
+	last_name				= trim(substring(1,100,encntr_rec->encntrs[d1.seq].patient_name_last),3)
+	,first_name				= trim(substring(1,100,encntr_rec->encntrs[d1.seq].patient_name_first),3) 
+	,fin					= trim(substring(1,100,encntr_rec->encntrs[d1.seq].fin),3) 
+	,activated_level		= trim(substring(1,100,encntr_rec->encntrs[d1.seq].team_activated_level),3) 
+	,activated_time			= trim(substring(1,100,encntr_rec->encntrs[d1.seq].team_activated_time),3) 
+	,arrival_mode			= trim(substring(1,100,encntr_rec->encntrs[d1.seq].arrival_mode),3) 
+	,discharged_to_location = trim(substring(1,100,encntr_rec->encntrs[d1.seq].discharged_to),3) 
+from 
+	(dummyt d1 with seq=encntr_rec->cnt)
+with nocounter, format, separator = " "
+
+;;
+;
+;;call echojson(ENCNTR_REC,$outdev)
+;/**************************************************************
+;; DVDev DEFINED SUBROUTINES
+;**************************************************************/
+
+end
+go
