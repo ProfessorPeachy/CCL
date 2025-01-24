@@ -1,0 +1,291 @@
+drop program amj_tn_sentry_pharm_chg_ext:dba go
+create program amj_tn_sentry_pharm_chg_ext:dba
+ 
+ 
+
+ 
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare mf_cs18649_CHARGE_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!29774'))
+declare mf_cs319_FIN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2930'))
+declare mf_cs319_MRN_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!8021'))
+declare mf_cs71_INPATIENT_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!3958'))
+declare mf_cs106_PHARMACY_CD = f8 with protect, constant(uar_get_code_by_cki('CKI.CODEVALUE!2825'))
+declare ms_dt = vc with protect, constant(trim(format(cnvtdatetime(curdate,curtime3),'YYYYMMDD;;q'),3))
+declare ms_file_path = vc with protect, noconstant(cnvtlower(trim($1,3)))
+declare ml_idx1 = i4 with protect, noconstant(0)
+declare ml_idx2 = i4 with protect, noconstant(0)
+declare mf_billng_entity_id = f8 with protect, noconstant(0.0)
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+free record frec
+record frec(
+  1 file_desc = i4
+  1 file_offset = i4
+  1 file_dir = i4
+  1 file_name = vc
+  1 file_buf = vc) with protect
+ 
+ 
+free record m_rec
+record m_rec(
+  1 l_cnt = i4
+  1 qual[*]
+    2 f_person_id = f8
+    2 f_encntr_id = f8
+    2 f_pft_encntr_id = f8
+    2 s_mrn = vc
+    2 s_fin = vc
+    2 s_pat_fname = vc
+    2 s_pat_lname = vc
+    2 s_pat_mname = vc
+    2 s_pat_class = vc
+    2 l_ch_cnt = i4
+    2 chrg[*]
+      3 f_charge_item_id = f8
+      3 f_bill_item_id = f8
+      3 f_amount = f8
+      3 f_quanity = f8
+      3 s_service_dt = vc
+      3 s_service_tm = vc
+      3 s_post_dt = vc
+      3 s_cdm = vc
+      3 s_cdm_desc = vc
+      3 s_rev = vc
+      3 s_cpt4 = vc
+      3 s_hcpcs = vc
+      3 s_jcode = vc
+      3 l_pharm_ind = i4
+) with protect
+ 
+ 
+;get billing entity id
+select into 'nl:'
+  from billing_entity be
+ where be.active_ind = 1
+   and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+   and ((be.be_name_key = 'MAURYREGIONALMEDICALCENTER' and trim(cnvtupper($2),3) = 'MRMC')
+     or (be.be_name_key = 'MARSHALLMEDICALCENTER' and trim(cnvtupper($2),3) = 'MMC')
+     or (be.be_name_key = 'RHC' and trim(cnvtupper($2),3) = 'RHC')) ;002 AMJ
+detail
+  mf_billng_entity_id = be.billing_entity_id
+with nocounter
+ 
+ 
+select into 'nl:'
+  from charge c,
+       pft_charge pc,
+       pft_encntr pe,
+       pft_trans_reltn ptr,
+       encounter e,
+       person p,
+       ;billing_entity be,
+       encntr_alias ea,
+       encntr_alias ea2,
+       charge_mod cm,
+       code_value cv,
+       bill_item bi
+plan c
+  where c.posted_dt_tm between cnvtdatetime(curdate-1,0) and cnvtdatetime(curdate-1,235959)
+;   where c.posted_dt_tm between cnvtdatetime(cnvtdate(05052023),0) and cnvtdatetime(cnvtdate(05152023),235959)
+    and c.active_ind = 1
+    and c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join pc
+  where pc.charge_item_id = c.charge_item_id
+    and pc.active_ind = 1
+    and pc.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join pe
+  where pe.pft_encntr_id = pc.pft_encntr_id
+    and pe.billing_entity_id = mf_billng_entity_id
+join ptr
+  where ptr.parent_entity_id = pe.pft_encntr_id
+    and ptr.activity_id = pc.activity_id
+    and ptr.parent_entity_name = 'PFTENCNTR'
+    and ptr.trans_type_cd = mf_cs18649_CHARGE_CD
+join e
+  where e.encntr_id = pe.encntr_id
+join p
+  where p.person_id = e.person_id
+;join be
+;  where be.billing_entity_id = pe.billing_entity_id
+;    and be.active_ind = 1
+;    and be.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;    and be.be_name_key in ('MAURYREGIONALMEDICALCENTER','MARSHALLMEDICALCENTER')
+join ea
+  where ea.encntr_id = pe.encntr_id
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea.encntr_alias_type_cd = mf_cs319_FIN_CD
+join ea2
+  where ea2.encntr_id = pe.encntr_id
+    and ea2.active_ind = 1
+    and ea2.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+    and ea2.encntr_alias_type_cd = mf_cs319_MRN_CD
+join cm
+  where cm.charge_item_id = outerjoin(c.charge_item_id)
+    and cm.active_ind = outerjoin(1)
+    and cm.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+join cv
+  where cv.code_value = outerjoin(cm.field1_id)
+    and cv.code_set = outerjoin(14002)
+    and cv.active_ind = outerjoin(1)
+    and cv.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+join bi
+  where bi.bill_item_id = c.bill_item_id
+    and bi.ext_owner_cd = mf_cs106_PHARMACY_CD
+order by pe.pft_encntr_id, c.charge_item_id asc, cm.field1_id, cm.field2_id asc
+head report
+  m_rec->l_cnt = 0
+head pe.pft_encntr_id
+  m_rec->l_cnt = m_rec->l_cnt + 1
+  stat = alterlist(m_rec->qual,m_rec->l_cnt)
+  m_rec->qual[m_rec->l_cnt].f_encntr_id = pe.encntr_id
+  m_rec->qual[m_rec->l_cnt].f_pft_encntr_id = pe.pft_encntr_id
+  m_rec->qual[m_rec->l_cnt].f_person_id = p.person_id
+ 
+  if (pe.recur_ind = 1)
+    m_rec->qual[m_rec->l_cnt].s_fin = concat(trim(cnvtalias(ea.alias,ea.alias_pool_cd),3),'-',trim(cnvtstring(pe.recur_seq),3))
+  else
+    m_rec->qual[m_rec->l_cnt].s_fin = trim(cnvtalias(ea.alias,ea.alias_pool_cd),3)
+  endif
+ 
+  m_rec->qual[m_rec->l_cnt].s_mrn = trim(cnvtalias(ea2.alias,ea2.alias_pool_cd),3)
+  m_rec->qual[m_rec->l_cnt].s_pat_fname = trim(p.name_first_key,3)
+  m_rec->qual[m_rec->l_cnt].s_pat_lname = trim(p.name_last_key,3)
+  m_rec->qual[m_rec->l_cnt].s_pat_mname = trim(substring(1,1,trim(p.name_middle_key,3)),3)
+  if (e.encntr_type_cd = mf_cs71_INPATIENT_CD)
+    m_rec->qual[m_rec->l_cnt].s_pat_class = 'I'
+  else
+    m_rec->qual[m_rec->l_cnt].s_pat_class = 'O'
+  endif
+  m_rec->qual[m_rec->l_cnt].l_ch_cnt = 0
+head c.charge_item_id
+  m_rec->qual[m_rec->l_cnt].l_ch_cnt = m_rec->qual[m_rec->l_cnt].l_ch_cnt + 1
+  stat = alterlist(m_rec->qual[m_rec->l_cnt].chrg,m_rec->qual[m_rec->l_cnt].l_ch_cnt)
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].f_charge_item_id = c.charge_item_id
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].f_bill_item_id = c.bill_item_id
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].f_amount = evaluate(ptr.dr_cr_flag,2,-1*ptr.amount,ptr.amount)
+   /* begin  CHG# 1 */
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].f_quanity =
+                                                            evaluate(ptr.dr_cr_flag,2,-1.000*abs(cnvtreal(c.item_quantity)),abs(
+                                                            cnvtreal(c.item_quantity)))
+   /* end  CHG# 1 */
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_service_dt = trim(format(c.service_dt_tm,'MMDDYYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_service_tm = trim(format(c.service_dt_tm,'HH:mm:ss;;q'),3)
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_post_dt = trim(format(c.posted_dt_tm,'MMDDYYYY;;q'),3)
+  m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_cdm_desc = trim(c.charge_description,3)
+  if (bi.ext_owner_cd = mf_cs106_PHARMACY_CD)
+    m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].l_pharm_ind = 1
+  endif
+detail
+  if (cv.cdf_meaning = 'CPT4')
+    if (size(trim(m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_cpt4,3)) = 0)
+      m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_cpt4 = trim(cm.field6,3)
+    endif
+  endif
+  if (cv.cdf_meaning = 'REVENUE')
+    if (size(trim(m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_rev,3)) = 0)
+      m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_rev = trim(cm.field6,3)
+    endif
+  endif
+  if (cv.cdf_meaning = 'CDM_SCHED')
+    if (size(trim(m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_cdm,3)) = 0)
+      m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_cdm = trim(cm.field6,3)
+    endif
+  endif
+  if (cv.cdf_meaning = 'HCPCS')
+    if (cnvtupper(substring(1,1,trim(cm.field6,3))) = 'J')
+      if (size(trim(m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_jcode,3)) = 0)
+        m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_jcode = trim(cm.field6,3)
+      endif
+    else
+      if (size(trim(m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_hcpcs,3)) = 0)
+        m_rec->qual[m_rec->l_cnt].chrg[m_rec->qual[m_rec->l_cnt].l_ch_cnt].s_hcpcs = trim(cm.field6,3)
+      endif
+    endif
+  endif
+with nocounter
+ 
+;call echorecord(m_rec)
+ 
+;pharm only charges
+;set frec->file_name = concat(ms_file_path,"maur_tn_sentry_mrmc_20230505_pharmacy_charge")
+set frec->file_name = concat(ms_file_path,ms_dt,"_",trim(cnvtlower($2),3),"_pharmacy_charge")
+set frec->file_buf = "w"
+;open file
+set stat = cclio("OPEN",frec)
+ 
+;write header row
+ 
+set frec->file_buf = build('MRN|'
+                        ,'Account #|'
+                        ,'Last Name|'
+                        ,'First Name|'
+                        ,'Mid Init|'
+                        ,'Status|'
+                        ,'CDM Code|'
+                        ,'Description|'
+                        ,'Charge Amount|'
+                        ,'Rev Code|'
+                        ,'CPT Code|'
+                        ,'HCPCS Code|'
+                        ,'J Code|'
+                        ,'QTY|'
+                        ,'Service Date|'
+                        ,'Time|'
+                        ,'Post Date|'
+                        ,'Type Identifier'
+                        ,char(13),char(10))
+set stat = cclio("WRITE",frec)
+ 
+ 
+;write data
+for (ml_idx1 = 1 to m_rec->l_cnt)
+  for (ml_idx2 = 1 to m_rec->qual[ml_idx1].l_ch_cnt)
+    if (m_rec->qual[ml_idx1].chrg[ml_idx2].l_pharm_ind = 1)
+      set frec->file_buf = build(  m_rec->qual[ml_idx1].s_mrn
+                              ,'|',m_rec->qual[ml_idx1].s_fin
+                              ,'|',m_rec->qual[ml_idx1].s_pat_lname
+                              ,'|',m_rec->qual[ml_idx1].s_pat_fname
+                              ,'|',m_rec->qual[ml_idx1].s_pat_mname
+                              ,'|',m_rec->qual[ml_idx1].s_pat_class
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_cdm
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_cdm_desc
+                              ,'|',trim(cnvtstring(m_rec->qual[ml_idx1].chrg[ml_idx2].f_amount,20,2),3)
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_rev
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_cpt4
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_hcpcs
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_jcode
+                              /* begin  CHG# 1 */
+                           ;   ,'|',trim(cnvtstring(m_rec->qual[ml_idx1].chrg[ml_idx2].f_quanity),3)
+                              ,'|',trim(cnvtstring(m_rec->qual[ml_idx1].chrg[ml_idx2].f_quanity,8,3), 3)
+                         
+                              /* end  CHG# 1 */
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_service_dt
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_service_tm
+                              ,'|',m_rec->qual[ml_idx1].chrg[ml_idx2].s_post_dt
+                              ,'|',evaluate(m_rec->qual[ml_idx1].chrg[ml_idx2].l_pharm_ind,1,'PHA',trim(''))
+                              ,char(13),char(10))
+      set stat = cclio("WRITE",frec)
+    endif
+  endfor
+endfor
+ 
+;close file
+set stat = cclio("CLOSE",frec)
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+#EXIT_SCRIPT
+end
+go
+ 
