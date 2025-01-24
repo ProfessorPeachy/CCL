@@ -1,0 +1,90 @@
+drop program 1_amj_provider:dba go
+create program 1_amj_provider:dba
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+declare npi_cd			= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'NATIONALPROVIDERIDENTIFIER')); 4038127.00
+declare taxid_cd		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY', 320, 'TAXID')); 4203677.00
+
+declare line 			= vc with noconstant (" "), protect
+declare line1 			= vc with noconstant (" "), protect
+declare flename 		= vc with noconstant (" "), protect
+set 	rundate 		= format(curdate,'mmddyy;;Q')
+set 	filename 		= build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/experian/providers_",rundate),".txt");
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+select into value(filename) ;$OUTDEV
+	 physician_npi		= pa.alias
+	 ,physician_name 	= CNVTUPPER(trim(substring(1,100,pr.name_full_formatted),3))
+	;,physician_npi		= pa.alias
+	;,physician_taxid	= pa2.alias
+;	,uar_get_code_display(pa.prsnl_alias_type_cd)
+from 
+	 prsnl 					pr
+	,prsnl_alias 			pa	;NPI
+	;,prsnl_alias 			pa2	;tax id
+	,dummyt					d1	;join incase there is not an npi for the provider
+;	,dummyt					d2	;join incase there is not an tax id for the provider
+plan pr
+	;where pr.physician_ind = 1
+	where pr.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+	and pr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+	and pr.active_ind = 1
+	and pr.physician_ind = 1
+	;and pr.person_id =        13443403.00;13092881.00;
+join d1		
+join pa
+	where pa.person_id = pr.person_id
+	and pa.prsnl_alias_type_cd =  npi_cd  ;	
+	and pa.active_ind = 1
+;join d2	
+;join pa2
+;	where pa2.person_id = pr.person_id
+;	and pa2.prsnl_alias_type_cd =     4203677.00; taxid_cd  ;	    4203677.00	Tax Identifier	TAXID	
+;	and pa2.active_ind = 1	
+order by pr.name_full_formatted	
+	 
+	head report
+	    line = build("physician_name"
+	    		,"|","physician_npi"
+;	  			,"|","physician_taxid"
+				)
+								
+	 col 0 line
+	    row+1
+	 
+	detail
+	    line1 = build(physician_name
+	    		,"|",physician_npi
+;	  			,"|",physician_taxid
+				)
+				
+	    col 0 line1
+	    row+1
+with nocounter,maxcol=5000,format=variable,separator="|",formfeed=none,time=3900
+;with nocounter, format, separator = " "
+,outerjoin = d1, dontcare = d1
+;,outerjoin = d2, dontcare = d2
+
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
