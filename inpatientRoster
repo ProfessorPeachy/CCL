@@ -1,0 +1,581 @@
+;02/14/2023 mod001 modifying the DOB to account for the timezone
+
+drop program 1_amj_inpatient_roster go
+create program 1_amj_inpatient_roster
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Discharge Begin Date:" = "CURDATE"
+	, "Discharge End Date:" = "CURDATE"
+	, "Facility" = 0 
+
+with OUTDEV, START_DATE, END_DATE, FACILITY
+ 
+set outputfile = $outdev ;file name provided in 1_strata_driver_outbound
+
+
+set outputfile = 
+build("/cerner/d_p698/data/batch_files/ccl_extracts/strata/mrh_strata_encounter_",format(curdate,"mmddyyyy;;d"),".txt")
+
+SET beg_dt = format($START_DATE, "mmddyy")
+;set beg_dt = cnvtdatetime(curdate-10,0)
+SET end_dt = format($END_DATE, "mmddyy")
+
+CALL ECHO(BUILD2("BEG_DT",BEG_DT))
+CALL ECHO(BUILD2("END_DT",END_DT))
+ 
+
+;COUNTERS
+declare num 						= i4
+declare cnt 						= i4
+
+;CONSTANTS
+declare inpatient_cd				= f8 with constant(uar_get_code_by("DISPLAYKEY",71,"INPATIENT")),protect;309308.00
+declare mother_cd					= f8 with constant(uar_get_code_by("MEANING",40,"MOTHER")),protect;670847
+declare child_cd					= f8 with constant(uar_get_code_by("MEANING",40,"CHLD_RESP")),protect;156.00
+declare family_member_cd			= f8 with constant(uar_get_code_by("MEANING",351,"FAMILY")),protect;1153.00
+declare mrn_cd 						= f8 with public,constant(uar_get_code_by("MEANING",319,"MRN"))
+declare fin_cd 						= f8 with public,constant(uar_get_code_by("MEANING",319,"FIN NBR"))
+declare ssn_cd 						= f8 with public,constant(uar_get_code_by("MEANING",4,"SSN"))
+declare home_address_cd 			= f8 with protect,constant(uar_get_code_by("DISPLAYKEY", 212, "HOME"))
+declare guarantor_type_cd 			= f8 with constant(uar_get_code_by("DISPLAYKEY",351,"DEFAULTGUARANTOR"))
+declare guarantor_mrn_cd			= F8 WITH constant(uar_get_code_by("DISPLAYKEY",4,"MRN")),protect;2.0
+declare def_guar_var 				= f8 with constant(uar_get_code_by("MEANING",351,"DEFAULTGUARANTOR"))
+declare payment_cd					= f8 with constant(uar_get_code_by("MEANING",18649,"PAYMENT"))
+declare ar_cd						= f8 with constant(uar_get_code_by("MEANING",18736,"A/R"));810415.00
+declare patient_cd					= f8 with constant(uar_get_code_by("MEANING",20849,"PATIENT"));627549.00
+
+
+DECLARE MAURY_REGIONAL_MC 			= F8 WITH CONSTANT(1641838.0) ;Maury Regional Medical Center
+DECLARE WAYNE_MC 					= F8 WITH CONSTANT(1635796.0) ;Wayne Medical Center
+
+
+
+free record enc
+record enc
+(
+	1 cnt = i4
+	1 qual[*]	
+		2 eid 					= f8
+	 	2 pft_eid 				= f8
+	 	2 pid 					= f8 	
+
+	 	2 encntr_id 			= f8
+	 	2 entity_id 			= f8
+	 	2 entity_name 			= vc
+	 	2 fin 					= vc	;Account/Visit Number (unique to patient stay)
+	 	2 mrn 					= vc	;Medical Record Number (unique to patient but not to visit)	 	
+	 	2 patctrlnum 			= vc	;Medicaid Bill Pt. Ctrl. Number if different than Account Number	
+	 	2 lname 				= vc	;Last Name	 	
+	 	2 fname 				= vc	;first name
+	 	2 sex 					= vc	;Gender	 	
+	 	2 admit_dt 				= c10	;Inpatient (IP) Admit Date
+	 	2 admit_time			= vc	;Admit Time
+	 	2 admit_dttm			= dq8	;inpatient admit full date
+	 	2 disch_dt 				= c10	;Discharge Date
+	 	2 disch_time			= vc	;Discharge TIME
+	 	2 dob 					= vc	;Date of Birth	 	
+	 	2 ssn 					= vc	;Social Security Number
+	 	2 medicaid_rec_id		= vc	;Medicare Recipeient ID	 	
+	 	2 medicare_ben_id		= vc	;Medicare Beneficiary ID
+	 	2 hic_number			= vc	;hic number
+	 	2 prim_health_plan_id	= f8	;primary health plan id
+	 	2 prim_payer_plan_id 	= vc	;Primary Payer Plan ID
+	 	2 prim_payer_plan_desc	= vc	;Primary Payer Plan Description
+	 	2 prim_pay_subs_id		= vc	;Primary Payer Subscriber ID/ Policy No
+	 	2 sec_health_plan_id	= f8	;primary health plan id
+	 	2 sec_payer_plan_id 	= vc	;Secondary Payer Plan ID
+	 	2 sec_payer_plan_desc	= vc	;Secondary Payer Plan Description
+	 	2 sec_pay_subs_id		= vc	;Secondary Payer Subscriber ID/ Policy No	 	
+	 	2 tert_health_plan_id	= f8	;primary health plan id
+	 	2 tert_payer_plan_id 	= vc	;Tertiary Payer Plan ID
+	 	2 tert_payer_plan_desc	= vc	;Tertiary Payer Plan Description
+	 	2 tert_pay_subs_id		= vc	;Tertiary Payer Subscriber ID/ Policy No	 	
+	 	2 pat_addr1 			= vc	;Address Line 1
+	 	2 pat_addr2 			= vc	;Address Line 2		 	
+	 	2 pat_city 				= vc	;City
+	 	2 pat_county			= vc	;County
+	 	2 pat_st 				= vc	;State
+	 	2 pat_zip 				= vc	;Zip Code
+	 	2 treatment_loc			= vc	;Treatment Location
+	 	2 disch_nursing_stn		= vc	;Discharge Nursing Station
+	 	2 drg					= vc	;DRG 	
+	 	2 get_mothers_info_flag = i2	;if the dob is within 365 days of the discharge date, set this to get moms information
+	 	2 mothers_last_name		= vc	;Mother's Last Name (if DOB within 365 days of Discharge Date)
+	 	2 mothers_fin			= vc	;Mother's Account Number (if DOB within 365 days of Discharge Date)
+		2 guar_lname 			= vc    ;Guarantor Last Name
+		2 guar_fname 			= vc	;Guarantor First Name
+		2 guar_ssn				= vc	;Guarantor Social Security Number
+		2 guar_dob				= vc	;Guarantor Date of Birth
+		2 guar_relationship		= vc	;Guarantor Relationship
+		2 tot_charges			= vc   	;Total Charges
+		2 discharge_disp		= vc	;discharge disposition
+	 	2 discharge_disp_alias	= vc	;discharge disposition Alias
+	 	2 discharge_disp_cd		= f8	;discharge disposition code
+	 	2 discharge_location	= vc	;discharge location
+	 	2 pmt_amt_prim_payer_s	= vc	; Payment Amount by Primary Payer
+	 	2 pmt_amt_sec_payer_s 	= vc	;Payment Amount by Secondary Payer
+	 	2 pmt_amt_tert_payer_s	= vc	;Payment Amount by Tertiary Payer
+	 	2 pmt_amt_prim_payer_f	= f8	; Payment Amount by Primary Payer
+	 	2 pmt_amt_sec_payer_f	= f8	;Payment Amount by Secondary Payer
+	 	2 pmt_amt_tert_payer_f	= f8	;Payment Amount by Tertiary Payer
+)
+
+
+
+ 
+/******** Get Updated PFT Encounters ********/
+select into "NL:"
+	e.encntr_id
+from
+	encounter e
+;	,code_value_alias cva
+	,pft_encntr pe
+	,person p
+	,encntr_alias ea	;mrn
+	,encntr_alias ea2	;fin
+plan e
+	;where e.encntr_id =     108581817.00;110481660.00
+	where e.disch_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	and e.loc_facility_cd = $FACILITY ;in (21250403.00  , 21250831.00)
+    and e.encntr_type_cd 	= inpatient_cd ;309308.00
+;   and e.disch_disposition_cd =     4190893.00 ;skilled nursing facility
+join pe
+	where pe.encntr_id 				= e.encntr_id
+	AND PE.BILLING_ENTITY_ID IN (MAURY_REGIONAL_MC,WAYNE_MC)
+	and pe.encntr_id != 0
+join p
+	where p.person_id 				= e.person_id
+  	and p.active_ind 				= 1
+  	and p.name_last_key != "TEST"
+  	and p.name_last_key != "ZZ*"
+  	and p.name_last_key != "XXX*"
+join ea
+	where ea.encntr_id 				= pe.encntr_id
+	and ea.encntr_alias_type_cd		= mrn_cd
+join ea2
+	where ea2.encntr_id 			= pe.encntr_id
+	and ea2.encntr_alias_type_cd	= fin_cd  	
+;join cva
+;	where cva.code_value = e.disch_disposition_cd
+;	AND cva.primary_ind = 0	
+;	and cva.contributor_source_cd =   3310545.00 ;X12CLAIM
+;;  	and p.person_id = 14610480.00
+head report
+    cnt = 0
+    stat = alterlist(enc->qual,1000)
+HEAD e.encntr_id
+ 	cnt = cnt + 1
+ 
+    if(mod(cnt,1000)=1 and cnt !=1)
+        stat = alterlist(enc->qual,cnt+999)
+    endif	
+	
+	enc->qual[cnt].pid 					= p.person_id
+	enc->qual[cnt].eid 					= pe.encntr_id
+	enc->qual[cnt].pft_eid 				= pe.pft_encntr_id
+	enc->qual[cnt].mrn     				= ea.alias
+	enc->qual[cnt].fin 					= ea2.alias
+	enc->qual[cnt].lname 				= p.name_last_key
+	enc->qual[cnt].fname 				= p.name_first_key
+	enc->qual[cnt].sex 					= uar_get_code_display(p.sex_cd)
+	enc->qual[cnt].admit_dt 			= format(e.inpatient_admit_dt_tm, "mm/dd/yyyy")
+	enc->qual[cnt].admit_time 			= format(e.inpatient_admit_dt_tm, "HH:MM")
+	enc->qual[cnt].admit_dttm			= cnvtdatetime(e.inpatient_admit_dt_tm)
+	enc->qual[cnt].disch_dt 			= format(e.disch_dt_tm, "mm/dd/yyyy")
+	enc->qual[cnt].disch_time 			= format(e.disch_dt_tm, "HH:MM")
+	enc->qual[cnt].dob 					= format(P.birth_dt_tm, "mm/dd/yyyy")
+	enc->qual[cnt].discharge_disp		= uar_get_code_display(e.disch_disposition_cd)
+	enc->qual[cnt].discharge_disp_cd	= e.disch_disposition_cd
+	enc->qual[cnt].treatment_loc 		= "A"
+	enc->qual[cnt].disch_nursing_stn 	= uar_get_code_display(e.loc_nurse_unit_cd)
+	enc->qual[cnt].discharge_location	= uar_get_code_display(e.disch_to_loctn_cd)
+	
+	;if the date is less than 1 year, then get the mothers information in the later query
+	if (datetimediff(e.disch_dt_tm, p.birth_dt_tm, 1) <= 365)
+		enc->qual[cnt].get_mothers_info_flag = 1
+	endif
+
+
+   enc->qual[cnt].tot_charges = trim(cnvtstring(evaluate(pe.chrg_bal_dr_cr_flag,2,-1*pe.charge_balance,pe.charge_balance),20,2),3)
+;  m_rec->qual[m_rec->l_cnt].s_tot_balance =
+;                               trim(cnvtstring(evaluate(pe.dr_cr_flag,2,-1*pe.balance,pe.balance),20,2),3)
+foot report
+	if(cnt>0)
+		stat = alterlist(enc->qual,cnt)
+		enc->cnt = cnt
+	endif    	
+with nocounter,format, separator = " "
+
+;GET DISCHARGE DISPOSTIION IN ALIAS FORMAT
+select into "nl:" ; $OUTDEV
+from
+	 code_value_alias cva
+	,(dummyt d1 with seq=enc->cnt)
+plan d1
+	where d1.seq > 0
+join cva
+	where cva.code_value = enc->qual[d1.seq].discharge_disp_cd
+	AND cva.primary_ind = 0	
+	and cva.contributor_source_cd =   3310545.00 ;X12CLAIM
+detail
+	enc->qual[d1.seq].discharge_disp 		= trim(cva.alias)  ;this will overwrite the disp from 1st query if it exists
+	enc->qual[d1.seq].discharge_disp_alias 	= trim(cva.alias)
+with nocounter, format, separator = " ", time = 20
+;call echojson(enc,$outdev)
+
+;GET PATIENT SSN
+select into 'nl:' ;$OUTDEV
+	 pid = enc->qual[d1.seq].pid
+	,eid = enc->qual[d1.seq].eid
+	,ssn = pa.alias
+from
+	 person_alias pa
+	,(dummyt d1 with seq=enc->cnt)
+plan d1
+	where d1.seq > 0
+join pa
+	where pa.person_id 				=  enc->qual[d1.seq].pid
+	and pa.person_alias_type_cd 	= ssn_cd
+	and pa.active_ind 				= 1
+	and pa.beg_effective_dt_tm 		<= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm 		>= cnvtdatetime(curdate, curtime3)
+order pid, eid
+detail
+	enc->qual[d1.seq].ssn	= ssn
+with nocounter,format, separator = " "
+
+
+;GET INSURANCE INFORMATION
+select into $OUTDEV;"nl:"
+	 eid			= ENC->qual[d1.seq].eid
+	 ,insurance_id 	= epr.member_nbr
+	 ,hpa.alias
+	,hp.plan_desc
+	,plan_type = uar_get_code_display(hp.plan_type_cd)
+	
+	,alias_type = uar_get_code_display(hpa.plan_alias_type_cd)
+	,alias_pool = uar_get_code_display(hpa.alias_pool_cd )
+	,hpa.alias_pool_cd ;
+	,epr.member_person_code
+	,epr.alt_member_nbr, epr.card_issue_nbr
+	,epr.insured_card_name
+
+	,insured_person_id		= epr.person_id
+	,health_plan_id			= epr.health_plan_id
+	,insurance_priority		= epr.priority_seq
+from
+	encntr_plan_reltn epr
+	,health_plan 		hp
+	,health_plan_alias  hpa
+	,(dummyt   d1  with seq=value(size(enc->qual,5)))
+plan d1
+	where enc->qual[d1.seq].eid > 0
+join epr
+	where epr.encntr_id		= enc->qual[d1.seq].eid
+	and epr.active_ind 			= 1
+join hP
+	where hP.health_plan_id		= outerjoin(epr.health_plan_id)
+	and hP.active_ind 			= 1
+join hpa ; health plan alias
+	where hpa.health_plan_id 	= outerjoin(hp.health_plan_id);outerjoin(hp.health_plan_id)
+	and hpa.plan_alias_type_cd	= outerjoin(666881.00);  cs=27121	dk=HEALTHPLANALIAS
+	and hpa.alias_pool_cd =      outerjoin(683993.00)	;cs=263     dk=HEALTHPLAN      683993.00
+	and hpa.active_ind			= outerjoin(1)
+order by eid, EPR.priority_seq
+detail
+	if (epr.priority_seq = 1)
+		enc->qual[d1.seq].prim_payer_plan_id 			= hpa.alias
+		enc->qual[d1.seq].prim_payer_plan_desc 			= hp.plan_name
+		enc->qual[d1.seq].prim_pay_subs_id 				= epr.member_nbr	
+		enc->qual[d1.seq].prim_health_plan_id			= hp.health_plan_id
+	elseif (epr.priority_seq = 2)
+		enc->qual[d1.seq].sec_payer_plan_id 			= hpa.alias
+		enc->qual[d1.seq].sec_payer_plan_desc 			= hp.plan_name
+		enc->qual[d1.seq].sec_pay_subs_id 				= epr.member_nbr
+		enc->qual[d1.seq].sec_health_plan_id			= hp.health_plan_id
+	elseif (epr.priority_seq = 3)
+		enc->qual[d1.seq].tert_payer_plan_id 			= hpa.alias
+		enc->qual[d1.seq].tert_payer_plan_desc 			= hp.plan_name
+		enc->qual[d1.seq].tert_pay_subs_id 				= epr.member_nbr
+		enc->qual[d1.seq].tert_health_plan_id			= hp.health_plan_id
+	endif
+	
+	if (hp.plan_name = "Medicare*")
+		enc->qual[d1.seq].medicare_ben_id = epr.member_nbr
+	elseif (hp.plan_name = "Medicaid*")
+		enc->qual[d1.seq].medicaid_rec_id = epr.member_nbr
+	endif
+with time =300, format, separator = ' ', format(date,"@SHORTDATETIME") 
+
+
+;;GET HOME ADDRESS
+select into 'nl:'
+	pid =  enc->qual[d1.seq].pid
+	,eid =  enc->qual[d1.seq].eid
+	,a.city
+	,state = a.state
+	,a.zipcode
+	,a.street_addr
+	,a.street_addr2
+	,address_type = uar_get_code_display(a.address_type_cd)
+	,a.country
+from
+	address a
+	,(dummyt d1 with seq = enc->cnt)
+plan d1
+	where enc->qual[d1.seq].pid > 0
+join a
+	where a.parent_entity_id = enc->qual[d1.seq].pid
+	and a.parent_entity_name = 'PERSON'
+	and a.active_ind = 1
+	and a.address_type_cd = home_address_cd
+order by pid, eid, a.address_id
+head a.address_id
+	enc->qual[d1.seq].pat_addr1			= trim(a.street_addr,3)
+	enc->qual[d1.seq].pat_addr2 		= trim(a.street_addr2,3)
+	enc->qual[d1.seq].pat_city 			= a.city
+	enc->qual[d1.seq].pat_county		= a.county
+	enc->qual[d1.seq].pat_st 			= a.state
+	
+	enc->qual[d1.seq].pat_zip 			= trim(substring(1,5,a.zipcode))
+with nocounter, format, separator=' ',time = 600,check
+
+declare drg_var = f8
+
+
+;DRG
+select distinct
+	 dr.encntr_id
+	,n3.source_identifier
+	,n3.source_string
+ 
+from
+	drg		   		dr
+	,nomenclature   n3
+	,(dummyt d1 with seq = enc->cnt)
+plan d1
+	where enc->qual[d1.seq].eid > 0 
+join dr
+	where dr.encntr_id 			= enc->qual[d1.seq].eid
+	and dr.active_ind 			= 1
+	and dr.source_vocabulary_cd = drg_var;4326105.0
+join n3 
+	where n3.nomenclature_id 	= dr.nomenclature_id
+	and n3.active_ind 			= 1
+head dr.encntr_id
+	null
+detail
+ 	enc->qual[d1.seq].drg 			= n3.source_identifier
+ 	;enc->qual[d1.seq].severity_illness = uar_get_code_display(d3.severity_of_illness_cd)
+with nocounter
+
+
+; if PATIENT DOB within 365 days of Discharge Date then get the mother's information
+select into $OUTDEV
+	 pid					= enc->qual[d1.seq].pid
+	,eid 					= enc->qual[d1.seq].eid 
+	,peid					= enc->qual[d1.seq].pft_eid 
+	,fin					= enc->qual[d1.seq].fin 
+	,mrn 					= enc->qual[d1.seq].mrn 
+	,get_mothers_info		= enc->qual[d1.seq].get_mothers_info_flag
+	,em.reg_dt_tm
+	,em.person_id	
+	,mothers_fin			= mfin.alias
+	,mothers_lastname		= pm.name_last_key
+FROM 
+	(dummyt   d1  with seq=value(size(ENC->qual,5)))
+	,encntr_person_reltn epr
+	,encounter em
+   	,person pm
+   	,encntr_alias mfin	
+plan d1
+	where d1.seq > 0 
+	and enc->qual[d1.seq].get_mothers_info_flag = 1
+join epr
+where epr.encntr_id 				= enc->qual[d1.seq].eid
+  	and epr.person_reltn_cd 		= value(uar_get_code_by("MEANING",40,"MOTHER"))
+  	and epr.default_reltn_ind 		= 1		
+join em
+	where em.person_id 	= epr.related_person_id
+  	and em.reg_dt_tm 	<= cnvtdatetime(enc->qual[d1.seq].admit_dttm)
+  	and em.disch_dt_tm 	> cnvtdatetime(enc->qual[d1.seq].admit_dttm)
+join pm
+	where pm.person_id 				= em.person_id  
+join mfin
+	where mfin.encntr_id 			= outerjoin(em.encntr_id)
+  	and mfin.encntr_alias_type_cd 	= outerjoin(fin_cd)
+  	and mfin.active_ind 			= outerjoin(1)  
+  
+detail
+	enc->qual[d1.seq].mothers_fin		= mfin.alias
+	enc->qual[d1.seq].mothers_last_name	= pm.name_last_key
+	
+with nocounter, format, separator = " ", time=10
+
+
+
+;GUARANTOR INFO
+select into $OUTDEV; "nl:"
+	eid = ENC->qual[d1.seq].eid
+	,p1.name_full_formatted
+	,p1.birth_dt_tm
+;	,pa1.alias
+	,relation_disp = uar_get_code_display(epr.related_person_reltn_cd)
+	,epr.person_reltn_type_cd
+	,guar_relationship =uar_get_code_display(epr.person_reltn_type_cd)
+	,p1.person_id
+	,guar_ssn = pa.alias
+
+from
+ 	 encntr_person_reltn   epr
+	,person   p1
+	,person_alias pa
+;	,person_alias   pa1
+	,(dummyt   	d1  with seq=value(size(ENC->qual,5))) 
+	,dummyt 	d2		;outerjoin dummy table
+plan d1
+	where d1.seq > 0
+join epr
+	where epr.encntr_id = ENC->qual[d1.seq].eid
+	and epr.person_reltn_type_cd =              1150.00	;Default Guarantor ;def_guar_var
+join p1
+	where p1.person_id = epr.related_person_id
+	and p1.active_ind = 1
+	and p1.name_last_key != "ZZ*" and p1.name_last_key != "XXX*"
+join d2
+join pa
+	where pa.person_id 				= P1.person_id
+	and pa.person_alias_type_cd 	= ssn_cd
+	and pa.active_ind 				= 1
+	and pa.beg_effective_dt_tm 		<= cnvtdatetime(curdate, curtime3)
+	and pa.end_effective_dt_tm 		>= cnvtdatetime(curdate, curtime3)
+detail
+ 	enc->qual[d1.seq].guar_lname 		= p1.name_last_key
+ 	enc->qual[d1.seq].guar_fname 		= p1.name_first_key
+ 	enc->qual[d1.seq].guar_ssn 			= pa.alias
+ 	enc->qual[d1.seq].guar_dob 	 		= format(P1.birth_dt_tm, "mm/dd/yyyy")
+ 	enc->qual[d1.seq].guar_relationship	= uar_get_code_display(epr.related_person_reltn_cd)
+with nocounter, outerjoin= d2, dontcare = d2, dontcare = pa, FORMAT, SEPARATOR = " "
+
+
+
+
+SELECT DISTINCT INTO $outdev ;VALUE(OUTPUT_FILENAME);$OUTDEV
+	eid = enc->qual[d1.seq].eid
+    ,testing2 = evaluate(ptr.dr_cr_flag,2,-1*ptr.amount,ptr.amount)
+ 	,payer_pay_amt = round(evaluate(ptr.dr_cr_flag,2,-1*ptr.amount,ptr.amount),3)
+ 	,prim_health_plan_id = enc->qual[d1.seq].prim_health_plan_id
+ 	,sec_health_plan_id = enc->qual[d1.seq].sec_health_plan_id
+ 	,tert_health_plan_id = enc->qual[d1.seq].tert_health_plan_id
+ 	,bhr.health_plan_id
+ 	,a.*
+FROM 
+	pft_trans_reltn ptr1
+	,pft_trans_reltn ptr
+	,trans_log tl
+	,account a
+	,pft_trans_alias pta
+	,bo_hp_reltn bhr
+
+ ,(dummyt   	d1  with seq=value(size(ENC->qual,5))) 
+plan d1
+	where d1.seq > 0
+join ptr1
+	where ptr1.parent_entity_id =  enc->qual[d1.seq].pft_eid 
+	and ptr1.parent_entity_name = "PFTENCNTR"
+	and ptr1.active_ind = 1
+ 	and ptr1.end_effective_dt_tm > sysdate	
+join ptr
+	where ptr.activity_id = ptr1.activity_id 	
+	and ptr.parent_entity_name = "ACCOUNT"
+	and ptr.trans_type_cd = payment_cd
+;	AND PTR.BEG_EFFECTIVE_DT_TM BETWEEN CNVTDATETIME(START_DATE) AND CNVTDATETIME(END_DATE)
+ 	and ptr.active_ind = 1
+	and ptr.end_effective_dt_tm > sysdate
+join tl
+	where tl.activity_id = ptr.activity_id
+	and tl.active_ind = 1
+	and tl.trans_type_cd = payment_cd
+	;and tl.trans_sub_type_cd in (collectionagencypayment,patientpayment_cd,copay_cd)
+ 	and tl.end_effective_dt_tm > sysdate
+join a
+	where a.acct_id = ptr.parent_entity_id
+	and a.acct_type_cd = ar_cd
+	and a.acct_sub_type_cd = patient_cd
+JOIN PTA
+	WHERE PTA.PFT_TRANS_ALIAS_ID = OUTERJOIN(TL.TRANS_ALIAS_ID)
+join bhr
+	where bhr.bo_hp_reltn_id = ptr.benefit_order_id
+	and bhr.active_ind = 1
+	and bhr.end_effective_dt_tm > sysdate
+;	and (   bhr.health_plan_id = enc->qual[d1.seq].prim_health_plan_id
+; 			or bhr.health_plan_id = enc->qual[d1.seq].prim_health_plan_id
+; 			or bhr.health_plan_id = enc->qual[d1.seq].prim_health_plan_id
+; 		)
+head eid
+	null
+detail
+	if (bhr.health_plan_id = enc->qual[d1.seq].prim_health_plan_id)
+		enc->qual[d1.seq].pmt_amt_prim_payer_s = cnvtstring(payer_pay_amt)
+	elseif (bhr.health_plan_id = enc->qual[d1.seq].sec_health_plan_id)
+		enc->qual[d1.seq].pmt_amt_sec_payer_s = cnvtstring(payer_pay_amt)
+	elseif (bhr.health_plan_id = enc->qual[d1.seq].tert_health_plan_id)
+		enc->qual[d1.seq].pmt_amt_tert_payer_s = cnvtstring(payer_pay_amt)
+	endif
+with nocounter, format, separator = " "
+
+
+select into $OUTDEV 
+	fin					    = TRIM(SUBSTRING(1,100,enc->qual[d1.seq].fin ),3)
+	,mrn 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].mrn ),3)
+	,patctrlnum 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].patctrlnum ),3)
+	,lname 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].lname ),3)
+	,fname 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].fname ),3)
+	,gender 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].sex ),3)
+	,inpt_admit_dt 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].admit_dt),3) 
+	,admit_time 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].admit_time ),3)
+	,disch_dt 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].disch_dt ),3)
+	,disch_time 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].disch_time ),3)
+	,dob 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].dob ),3)
+	,ssn 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].ssn ),3)
+	,medicare_rec_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].medicaid_rec_id ),3)
+	,medicare_ben_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].medicare_ben_id ),3)
+	,hic_number 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].hic_number ),3)
+	,prim_payer_plan_id 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].prim_payer_plan_id ),3)
+	,prim_payer_plan_desc 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].prim_payer_plan_desc ),3)
+	,prim_pay_subs_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].prim_pay_subs_id ),3)
+	,sec_payer_plan_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].sec_payer_plan_id ),3)
+	,sec_payer_plan_desc 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].sec_payer_plan_desc ),3)
+	,sec_pay_subs_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].sec_pay_subs_id ),3)
+	,tert_payer_plan_id 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].tert_payer_plan_id ),3)
+	,tert_payer_plan_desc 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].tert_payer_plan_desc ),3)
+	,tert_pay_subs_id 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].tert_pay_subs_id ),3)
+	,pat_addr1 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_addr1 ),3)
+	,pat_addr2 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_addr2 ),3)
+	,pat_city 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_city ),3)
+	,pat_county 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_county ),3)
+	,pat_st 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_st ),3)
+	,pat_zip 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pat_zip ),3)
+	,treatment_loc 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].treatment_loc ),3)
+	,disch_nursing_stn 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].disch_nursing_stn ),3)
+	,drg 					= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].drg ),3)
+	,mothers_last_name 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].mothers_last_name ),3)
+	,mothers_fin 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].mothers_fin ),3)
+	,guar_lname 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].guar_lname ),3)
+	,guar_fname 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].guar_fname ),3)
+	,guar_ssn 				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].guar_ssn ),3)
+	,guar_dob				= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].guar_dob ),3)
+	,guar_relationship 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].guar_relationship ),3)
+	,tot_charges 			= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].tot_charges ),3)
+	,discharge_disp 		= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].discharge_disp ),3)
+	,discharge_location 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].discharge_location ),3)
+	,pmt_amt_prim_payer_s 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pmt_amt_prim_payer_s),3)
+	,pmt_amt_sec_payer_s 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pmt_amt_sec_payer_s ),3)
+	,pmt_amt_tert_payer_s 	= TRIM(SUBSTRING(1,100,enc->qual[d1.seq].pmt_amt_tert_payer_s),3)
+FROM 
+	(dummyt   d1  with seq=value(size(ENC->qual,5)))
+WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+
+end
+go
