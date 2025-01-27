@@ -1,0 +1,637 @@
+drop program 1_amj_work_item_assignments go
+create program 1_amj_work_item_assignments
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+
+;select * from PFT_WF_ISSUE
+;with maxrec = 1000
+;
+;
+;select * from PFT_WF_PROCESS_MODEL		with maxrec= 1000, time = 10					
+;select * from PFT_WF_ISSUE				with maxrec= 1000, time = 10						
+;select * from PFT_WF_STATE_ACTION_RELTN	with maxrec= 1000, time = 10
+;select * from WORK_ITEM_RELTN			with maxrec= 1000, time = 10		
+;select * from RC_ACTION_CODE_AUTH_RELTN	with maxrec= 1000, time = 10			
+;select * from ACTIVITY_LOG				with maxrec= 1000, time = 10	
+;select * from PFT_WF_NOTIFICATION				with maxrec= 1000, time = 10
+;;select * from ACTIVITY_LOG				with maxrec= 1000, time = 10
+;;select * from ACTIVITY_LOG				with maxrec= 1000, time = 10
+;
+;select 
+;uar_get_code_display(racar.action_cd), racar.parent_entity_id,pr.name_full_formatted
+;
+;from 
+;RC_ACTION_CODE_AUTH_RELTN	 racar
+;,prsnl pr
+;plan racar
+;where racar.active_ind = 1
+;join pr
+;where pr.person_id = racar.parent_entity_id
+;order by pr.name_full_formatted asc
+;with maxrec= 1000, time = 10	
+;
+;
+
+free record model_rec
+record model_rec
+(
+	1 cnt								= i4
+	1 models[*]
+		2 process_model_id				= f8
+		2 process_model_name			= vc
+		2 association					= vc
+		2 hold_cd						= f8
+		2 hold							= vc
+		2 entity_type_cd				= f8
+		2 entity						= vc
+		2 workitem_alias				= vc
+		2 workitem_name					= vc
+		2 assessor_type					= vc
+		2 assessor_type_cd				= f8
+		2 assessor_entity_id			= f8
+		2 assessor_entity_name			= vc
+		2 resolver_type					= vc
+		2 resolver_type_cd				= f8
+		2 resolver_entity_id			= f8
+		2 resolver_entity_name			= vc		
+		2 assessment_state_cd			= f8
+		2 assessor						= vc
+		2 assessment_workflow_status 	= vc
+		2 responsible_type				= vc	
+		2 responsible					= vc	
+		2 resolution_workflow_status	= vc	
+		2 reviewer_type					= vc
+		2 reviewer						= vc
+		2 reviewer_workflow_status		= vc
+		2 process_model_alias			= vc
+		2 pft_assignment_rule_id		= f8
+		2 approve						= vc
+		2 deny                          = vc
+		2 resolve                       = vc
+		2 action_code1					= vc
+		2 action_code2					= vc
+		2 action_code3					= vc
+		2 action_codes                  = vc
+		2 ACTION_CODES_LIST				= VC
+		2 complete                      = vc
+		2 incomplete                    = vc
+		2 assessment_discern            = vc
+		2 assessment_case_management    = vc
+		2 assessment_him                = vc
+		2 resolution_discern            = vc
+		2 resolution_case_management    = vc
+		2 resolution_casemanagment      = vc
+		2 resolve_action_cd				= f8
+		2 review_discern                = vc
+		2 review_case_managment         = vc
+		2 review_him                    = vc
+		2 variance_created              = vc
+		2 denial_posted                 = vc
+																
+		2 approve_action				= vc
+		2 complete_action				= vc
+		2 deny_action					= vc
+		2 incomplete_action				= vc
+		2 deny_action					= vc
+		2 resolver_entity_name 			= vc
+		2 resolver_entity_id			= f8
+		2 resolution_owner				= vc
+
+)
+
+
+declare cnt = i4 with noconstant(0),protect
+
+
+SELECT
+	ModelName = wfm.PROCESS_MODEL_NAME
+	,ALIAS = ETC.display
+;	,HOLD = bh.DISPLAY
+;	,WorkItem_Alias	= WFI.alias
+;	,WorkItem_Name	= WFI.display
+FROM
+	PFT_WF_PROCESS_MODEL 	wfm		;192 ROWS
+	,CODE_VALUE 			ETC		;entity 192 ROWS
+PLAN WFM
+	WHERE WFM.active_ind = 1
+JOIN ETC
+	WHERE etc.CODE_VALUE=wfm.ENTITY_TYPE_CD 	
+	AND etc.CODE_SET=29320
+;JOIN BH
+;	WHERE BH.code_value = WFM.billing_hold_cd
+;	AND BH.code_set = 24450
+	
+;join ltr
+;LEFT OUTER JOIN LONG_TEXT_REFERENCE ltr ON ltr.LONG_TEXT_ID=EVENT_DEFINITION_ID	
+;JOIN ASST
+;	WHERE asst.CODE_VALUE=wfm.ASSESSOR_TYPE_CD 
+;	AND asst.CODE_SET=4002623
+head report 
+ 	cnt = 0
+	stat = alterlist(model_rec->models,100)
+detail
+	 cnt = cnt +1
+ 
+ 	if(mod(cnt,100)=1 and cnt !=1)
+		stat = alterlist(model_rec->models,cnt+99)
+	endif
+	model_rec->models[cnt].process_model_id 		= WFM.pft_wf_process_model_id
+	model_rec->models[cnt].process_model_name 		= WFM.process_model_name
+	model_rec->models[cnt].entity_type_cd			= wfm.ENTITY_TYPE_CD
+	model_rec->models[cnt].entity					= uar_get_code_display(wfm.ENTITY_TYPE_CD)
+	
+	model_rec->models[cnt].hold_cd					= wfm.billing_hold_cd		
+	
+	model_rec->models[cnt].assessor_entity_name		= wfm.assessor_entity_name
+	model_rec->models[cnt].assessor_entity_id		= wfm.assessor_entity_id
+	model_rec->models[cnt].assessor_type_cd			= wfm.assessor_type_cd
+	
+	model_rec->models[cnt].resolver_entity_name		= wfm.resolver_entity_name
+	model_rec->models[cnt].resolver_entity_id		= wfm.resolver_entity_id
+	model_rec->models[cnt].resolver_type_cd			= wfm.resolver_type_cd	
+	model_rec->models[cnt].resolve_action_cd		= wfm.resolve_action_cd
+	
+	model_rec->models[cnt].association 				= etc.display		
+foot report
+	stat = alterlist(model_rec->models,cnt)	
+with maxrec= 1000, time = 10, nocounter, format, separator = " ";, outerjoin = d1, outerjoin = d1, dontcare =d1, dontcare = d2
+
+
+;billing hold
+SELECT into $outdev
+	 model_id 		= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 	= model_rec->models[D1.SEQ].process_model_name 		
+	,association 	= model_rec->models[D1.SEQ].association 							
+	,entity_type_cd	= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity			= model_rec->models[D1.SEQ].entity		
+	,hold_cd 		= model_rec->models[D1.SEQ].hold_cd					
+	,hold 			= bh.display
+FROM
+	CODE_VALUE 			BH		;billing hold
+	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+plan d1
+	where d1.seq > 0
+JOIN BH
+	WHERE BH.code_value = model_rec->models[D1.SEQ].hold_cd
+	AND BH.code_set = 24450
+detail
+	model_rec->models[D1.SEQ].hold = bh.display	
+with maxrec= 1000, time = 10, nocounter, format, separator = " ";, outerjoin = d1, outerjoin = d1, dontcare =d1, dontcare = d2
+
+
+;issues
+SELECT into $outdev
+	 model_id 		= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 	= model_rec->models[D1.SEQ].process_model_name 		
+	,association 	= model_rec->models[D1.SEQ].association 				
+	,workitem_alias = model_rec->models[D1.SEQ].workitem_alias			
+	,workitem_name 	= model_rec->models[D1.SEQ].workitem_name			
+	,entity_type_cd	= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity			= model_rec->models[D1.SEQ].entity		
+	,hold_cd 		= model_rec->models[D1.SEQ].hold_cd					
+	,hold 			= model_rec->models[D1.SEQ].hold
+FROM
+	PFT_WF_ISSUE 			wfi		;191 ROWS
+	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+plan d1
+	where d1.seq > 0
+join wfi
+	where wfi.PFT_WF_PROCESS_MODEL_ID = model_rec->models[D1.SEQ].process_model_id
+	AND wfi.ACTIVE_IND=1
+detail
+	model_rec->models[D1.SEQ].workitem_alias			= wfi.alias
+	model_rec->models[D1.SEQ].workitem_name			= wfi.display	
+with maxrec= 1000, time = 10, nocounter, format, separator = " ";, outerjoin = d1, outerjoin = d1, dontcare =d1, dontcare = d2
+
+
+;responsible personnel 
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,assessor_entity_name 	= model_rec->models[d1.seq].assessor_entity_name
+	,assessor_type_code 	= model_rec->models[d1.seq].assessor_type_cd	
+	,assessor_entity_id 	= model_rec->models[d1.seq].assessor_entity_id	
+	,RESPONSIBLE_TYPE		= REST.display
+	,RESPONSIBLE			= resp.name_full_formatted
+FROM
+	code_value		rest
+	,prsnl			resp
+	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+plan d1
+	where d1.seq > 0	
+	AND model_rec->models[d1.seq].resolver_entity_name = "PRSNL"
+join rest
+	where rest.code_value = model_rec->models[d1.seq].resolver_type_cd
+	and rest.code_set = 	4002623
+join resp
+	where resp.person_id	= model_rec->models[d1.seq].resolver_entity_id	
+detail
+	model_rec->models[d1.seq].responsible = resp.name_full_formatted
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+
+;responsible group
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,assessor_entity_name 	= model_rec->models[d1.seq].assessor_entity_name
+	,assessor_type_code 	= model_rec->models[d1.seq].assessor_type_cd	
+	,assessor_entity_id 	= model_rec->models[d1.seq].assessor_entity_id	
+	,RESPONSIBLE			= respg.prsnl_group_name
+FROM
+	 prsnl_group	respg
+	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+plan d1
+	where d1.seq > 0	
+	AND model_rec->models[d1.seq].resolver_entity_name = "PRSNL_GROUP"
+join respg
+	where respg.prsnl_group_id  = model_rec->models[d1.seq].resolver_entity_id	
+detail
+	model_rec->models[d1.seq].responsible = respg.prsnl_group_name	
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,assessor_entity_name 	= model_rec->models[d1.seq].assessor_entity_name
+	,assessor_type_code 	= model_rec->models[d1.seq].assessor_type_cd	
+	,assessor_entity_id 	= model_rec->models[d1.seq].assessor_entity_id	
+	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+FROM
+	PFT_ASSIGNMENT_RULE		resa
+	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+plan d1
+	where d1.seq > 0	
+	AND model_rec->models[d1.seq].resolver_entity_name = "PFT_ASSIGNMENT_RULE"
+join resa
+	where resa.pft_assignment_rule_id  = model_rec->models[d1.seq].resolver_entity_id	
+detail
+	model_rec->models[d1.seq].responsible = resa.assignment_rule_name
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+
+;action codes
+;,((CASE WHEN res.DISPLAY IS NULL THEN '' '' 
+;ELSE COALESCE(resac.FIELD_VALUE,'''') || ''-'' || res.DISPLAY END) || ''|'' || 
+;COALESCE(othres.Action,'' '')) 
+;ActionCodes
+;res	LEFT OUTER JOIN CODE_VALUE res ON res.CODE_VALUE=wfm.RESOLVE_ACTION_CD AND res.CODE_SET=30640
+;resac  LEFT OUTER JOIN CODE_VALUE_EXTENSION resac ON resac.CODE_VALUE=wfm.RESOLVE_ACTION_CD AND resac.CODE_SET=30640 AND resac.FIELD_NAME=''ACTION CODE''
+;otheres  ;next query
+
+;ACTION CODES 1
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+	,action_code			= res.DISPLAY
+FROM
+	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+	,CODE_VALUE res 
+plan d1
+	where d1.seq > 0	
+join res
+	where res.CODE_VALUE=model_rec->models[d1.seq].resolve_action_cd
+	AND res.CODE_SET=30640	
+DETAIL
+	model_rec->models[d1.seq].action_code1 = 	res.DISPLAY
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+
+;ACTION CODES 2
+; LEFT OUTER JOIN CODE_VALUE_EXTENSION resac ON resac.CODE_VALUE=wfm.RESOLVE_ACTION_CD 
+; AND resac.CODE_SET=30640 AND resac.FIELD_NAME=''ACTION CODE''
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+	,action_code1 			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].action_code1),3)
+	,action_code2			= RESAC.field_value
+FROM
+	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+	,CODE_VALUE_EXTENSION resac
+plan d1
+	where d1.seq > 0	
+join RESAC
+	WHERE resac.code_value= model_rec->models[d1.seq].resolve_action_cd
+ 	AND resac.CODE_SET=30640 
+ 	AND resac.FIELD_NAME="ACTION CODE"
+detail
+	model_rec->models[d1.seq].action_code2 = 	resac.field_value	
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+
+;action code list
+;LEFT OUTER JOIN
+;(
+;SELECT
+;PFT_WF_PROCESS_MODEL_ID
+;,COUNT(*) Others
+;,LISTAGG((CASE WHEN ac.DISPLAY IS NULL THEN '' '' ELSE COALESCE(ace.FIELD_VALUE,'''') || ''-'' || ac.DISPLAY END),''|'') WITHIN GROUP (ORDER BY ac.DISPLAY) Action
+;FROM
+;PFT_WF_STATE_ACTION_RELTN wfsar
+;LEFT OUTER JOIN CODE_VALUE ac ON ac.CODE_VALUE=wfsar.ACTION_CD
+;LEFT OUTER JOIN CODE_VALUE_EXTENSION ace ON ace.CODE_VALUE=wfsar.ACTION_CD AND ace.CODE_SET=30640 AND ace.FIELD_NAME=''ACTION CODE''
+;WHERE
+;wfsar.ACTIVE_IND=1
+;GROUP BY PFT_WF_PROCESS_MODEL_ID
+;) othres ON othres.PFT_WF_PROCESS_MODEL_ID= wfm.PFT_WF_PROCESS_MODEL_ID
+;
+SELECT into $outdev
+	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+	,action_code1 			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].action_code1),3)
+	,action_code2			= RESAC.field_value
+FROM
+	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+	,PFT_WF_STATE_ACTION_RELTN wfsar
+	,CODE_VALUE ac
+	,CODE_VALUE_EXTENSION ace
+plan d1
+	where d1.seq > 0	
+join wfsar
+	where wfsar.action_cd	
+;PFT_WF_STATE_ACTION_RELTN wfsar
+;LEFT OUTER JOIN CODE_VALUE ac ON ac.CODE_VALUE=wfsar.ACTION_CD
+;LEFT OUTER JOIN CODE_VALUE_EXTENSION ace ON ace.CODE_VALUE=wfsar.ACTION_CD AND ace.CODE_SET=30640 AND ace.FIELD_NAME=''ACTION CODE''
+;WHERE
+;wfsar.ACTIVE_IND=1
+with maxrec= 1000, time = 10, nocounter, format, separator = " "
+;
+;SELECT into $outdev
+;	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+;	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+;	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+;	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+;	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+;	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+;	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+;	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+;	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+;	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+;	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+;	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+;	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+;	,action_code			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].action_codes),3)
+;FROM
+;	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+;	,CODE_VALUE res 
+;plan d1
+;	where d1.seq > 0	
+;join res
+;	where res.CODE_VALUE=model_rec->models[d1.seq].resolve_action_cd
+;	AND res.CODE_SET=30640	
+;with maxrec= 1000, time = 10, nocounter, format, separator = " "
+;
+
+;LEFT OUTER JOIN
+;(
+;SELECT
+;PFT_WF_PROCESS_MODEL_ID
+;,COUNT(*) Others
+;,LISTAGG((CASE WHEN ac.DISPLAY IS NULL THEN '' '' ELSE COALESCE(ace.FIELD_VALUE,'''') || ''-'' || ac.DISPLAY END),''|'') WITHIN GROUP (ORDER BY ac.DISPLAY) Action
+;FROM
+;PFT_WF_STATE_ACTION_RELTN wfsar
+;LEFT OUTER JOIN CODE_VALUE ac ON ac.CODE_VALUE=wfsar.ACTION_CD
+;LEFT OUTER JOIN CODE_VALUE_EXTENSION ace ON ace.CODE_VALUE=wfsar.ACTION_CD AND ace.CODE_SET=30640 AND ace.FIELD_NAME=''ACTION CODE''
+;WHERE
+;wfsar.ACTIVE_IND=1
+;GROUP BY PFT_WF_PROCESS_MODEL_ID
+;) othres ON othres.PFT_WF_PROCESS_MODEL_ID= wfm.PFT_WF_PROCESS_MODEL_ID
+;
+;
+;SELECT into $outdev
+;	 model_id 				= model_rec->models[D1.SEQ].process_model_id 		
+;	,model_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].process_model_name),3) 		
+;	,association 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].association),3) 				
+;	,workitem_alias 		= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_alias),3)			
+;	,workitem_name 			= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].workitem_name),3)			
+;	,entity_type_cd			= model_rec->models[D1.SEQ].entity_type_cd	
+;	,entity					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].entity),3)		
+;	,hold_cd 				= model_rec->models[D1.SEQ].hold_cd					
+;	,hold 					= TRIM(SUBSTRING(1,100,model_rec->models[D1.SEQ].hold),3)
+;	,resolver_entity_name 	= model_rec->models[d1.seq].resolver_entity_name
+;	,resolver_type_code 	= model_rec->models[d1.seq].resolver_type_cd	
+;	,resolver_entity_id 	= model_rec->models[d1.seq].resolver_entity_id	
+;	,assessor_entity_name 	= model_rec->models[d1.seq].assessor_entity_name
+;	,assessor_type_code 	= model_rec->models[d1.seq].assessor_type_cd	
+;	,assessor_entity_id 	= model_rec->models[d1.seq].assessor_entity_id	
+;	,RESPONSIBLE			= TRIM(SUBSTRING(1,100,model_rec->models[d1.seq].responsible),3)
+;FROM
+;	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+;plan d1
+;	where d1.seq > 0	
+;with maxrec= 1000, time = 10, nocounter, format, separator = " "
+;
+;select into $outdev
+;	pwpr.process_model_name
+;	,pwi.alias
+;	,pwpr.resolver_entity_name
+;;	,RESOLUTION_OWNER = 	if (pwpr.resolver_entity_name = "PRSNL")	pr.name_full_formatted
+;;						elseif (pwpr.resolver_entity_name = "PFT_ASSIGNMENT_RULE") par.assignment_rule_name
+;;						endif
+;;	,par.assignment_rule_name
+;;	,PR.name_full_formatted
+;;	,par.assignment_rule_name_key
+;;	,entity_type = uar_get_code_display(par.entity_type_cd)
+;	,resolve_action = uar_get_code_display(pwpr.resolve_action_cd)
+;	,pwpr.resolver_entity_id
+;	
+;	,pwi.alias
+;	,pwi.alias_key
+;	,model=uar_get_code_display(pwi.model_cd)
+;	,issue=uar_get_code_display(pwi.issue_cd)
+;	;, pwpr.resolution_state_cd
+;	,approve_action = uar_get_code_display(pwpr.APPROVE_ACTION_CD)
+;	,complete_action = uar_get_code_display(pwpr.COMPLETE_ACTION_CD)
+;	,deny_action = uar_get_code_display(pwpr.DENY_ACTION_CD)
+;	,incomplete_action = uar_get_code_display(pwpr.INCOMPLETE_ACTION_CD)
+;	,resolve_action = uar_get_code_display(pwpr.RESOLVE_ACTION_CD)
+;from 
+;	PFT_WF_PROCESS_MODEL	pwpr
+;	,PFT_WF_ISSUE 			pwi		
+;;	,dummyt 				d1
+;;	,PFT_ASSIGNMENT_RULE	par
+;;	,dummyt 				d2
+;	;,prsnl pr
+;plan pwpr
+;	where pwpr.active_ind = 1
+;;	AND pwpr.process_model_name in ("2MN Work Queue","2nd Payment Review","3030 Global Billing"
+;;	,"647","72 hour Combine","72 HR-NMR-Move Charge"
+;;	,"Global Billing Workflows"
+;;	,"Medically Related- Combine Encounters"
+;;	,"Not Medically Related- Move Charges"
+;;)	
+;join pwi
+;	where pwi.PFT_WF_PROCESS_MODEL_ID = pwpr.PFT_WF_PROCESS_MODEL_ID
+;;	and pwi.alias_key = "*72*"
+;
+;
+;;join d1	
+;;join par
+;;	where par.pft_assignment_rule_id = pwpr.resolver_entity_id
+;;join d2	
+;;join pr
+;;	where pr.person_id = pwpr.resolver_entity_id
+;order by pwpr.process_model_name asc
+;head report 
+; 	cnt = 0
+;	stat = alterlist(model_rec->models,100)
+;detail
+;	 cnt = cnt +1
+; 
+; 	if(mod(cnt,100)=1 and cnt !=1)
+;		stat = alterlist(model_rec->models,cnt+99)
+;	endif
+;	model_rec->models[cnt].process_model_name 		= pwpr.process_model_name
+;	model_rec->models[cnt].process_model_alias 		= pwi.alias
+;;	model_rec->models[cnt].pft_assignment_rule_id 	= 
+;	model_rec->models[cnt].resolve_action 			= uar_get_code_display(pwpr.resolve_action_cd)
+;			
+;;	model_rec->models[cnt].action_code2 				
+;;	model_rec->models[cnt].action_code3 				
+;	model_rec->models[cnt].resolver_entity_name 	= PWPR.resolver_entity_name	
+;	model_rec->models[cnt].resolver_entity_id 		= PWPR.resolver_entity_id
+;;	model_rec->models[cnt].resolution_owner 			
+;	model_rec->models[cnt].resolve_action 			= uar_get_code_display(pwpr.resolve_action_cd)	
+;	;model_rec->models[cnt].issue_alias 					
+;foot report
+;	stat = alterlist(model_rec->models,cnt)	
+;	
+;with maxrec= 1000, time = 10, nocounter, format, separator = " ";, outerjoin = d1, outerjoin = d1, dontcare =d1, dontcare = d2
+;
+;
+;;call echojson(model_rec,$outdev)
+;SELECT INTO $OUTDEV
+;	 model_name 		= trim(substring(1,100,model_rec->models[D1.SEQ].process_model_name),3) 				
+;	,model_alias		= trim(substring(1,100,model_rec->models[D1.SEQ].process_model_alias),3)  			
+;	,rule_id			= model_rec->models[D1.SEQ].pft_assignment_rule_id 			
+;	,action_code1		= trim(substring(1,100,model_rec->models[D1.SEQ].action_code1),3)  				
+;	,ac2 = trim(substring(1,100,model_rec->models[D1.SEQ].action_code2),3)  			
+;	,ac3=trim(substring(1,100,model_rec->models[D1.SEQ].action_code3),3)  			
+;	,resolver			= trim(substring(1,100,model_rec->models[D1.SEQ].resolver_entity_name),3)  			
+;	,model_rec->models[D1.SEQ].resolver_entity_id 			
+;	,resolution_owner	= trim(substring(1,100,model_rec->models[D1.SEQ].resolution_owner),3)  			
+;	,resolve_action		= trim(substring(1,100,model_rec->models[D1.SEQ].resolve_action),3)  			
+;FROM 
+;	prsnl pr
+;	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+;plan d1
+;	where d1.seq > 0
+;	and model_rec->models[D1.SEQ].resolver_entity_name = "PRSNL"
+;join pr
+;	where pr.person_id = model_rec->models[D1.SEQ].resolver_entity_id 
+;detail
+;	model_rec->models[D1.SEQ].resolution_owner = pr.name_full_formatted
+;WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+;
+;;PFT_ASSIGNMENT_RULE
+;SELECT INTO $OUTDEV
+;	 model_name 		= trim(substring(1,100,model_rec->models[D1.SEQ].process_model_name),3) 				
+;	,model_alias		= trim(substring(1,100,model_rec->models[D1.SEQ].process_model_alias),3)  			
+;	,rule_id			= model_rec->models[D1.SEQ].pft_assignment_rule_id 			
+;	,action_code1		= trim(substring(1,100,model_rec->models[D1.SEQ].action_code1),3)  				
+;	,ac2 				= trim(substring(1,100,model_rec->models[D1.SEQ].action_code2),3)  			
+;	,ac3				= trim(substring(1,100,model_rec->models[D1.SEQ].action_code3),3)  			
+;	,resolver			= trim(substring(1,100,model_rec->models[D1.SEQ].resolver_entity_name),3)  			
+;	,model_rec->models[D1.SEQ].resolver_entity_id 			
+;	,resolution_owner	= trim(substring(1,100,model_rec->models[D1.SEQ].resolution_owner),3)  			
+;	,resolve_action		= trim(substring(1,100,model_rec->models[D1.SEQ].resolve_action),3)  			
+;FROM 
+;	PFT_ASSIGNMENT_RULE	par
+;	,(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+;plan d1
+;	where d1.seq > 0
+;	and model_rec->models[D1.SEQ].resolver_entity_name = "PFT_ASSIGNMENT_RULE"
+;join par
+;	where par.pft_assignment_rule_id = model_rec->models[D1.SEQ].resolver_entity_id 
+;detail
+;	model_rec->models[D1.SEQ].resolution_owner = par.assignment_rule_name
+;WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+;
+;
+;
+;SELECT INTO $OUTDEV
+;	 model_name 		= trim(substring(1,200,model_rec->models[D1.SEQ].process_model_name),3) 				
+;	,model_alias		= trim(substring(1,200,model_rec->models[D1.SEQ].process_model_alias),3)  			
+;	,rule_id			= model_rec->models[D1.SEQ].pft_assignment_rule_id 			
+;	,action_code1		= trim(substring(1,100,model_rec->models[D1.SEQ].action_code1),3)  				
+;	,action_code2		= trim(substring(1,100,model_rec->models[D1.SEQ].action_code2),3)  			
+;	,action_code3		= trim(substring(1,100,model_rec->models[D1.SEQ].action_code3),3)  			
+;	,resolution_owner	= trim(substring(1,100,model_rec->models[D1.SEQ].resolution_owner),3) 
+;	,resolver_entity			= trim(substring(1,100,model_rec->models[D1.SEQ].resolver_entity_name),3)  			
+;	,resolver_entity_id	= model_rec->models[D1.SEQ].resolver_entity_id 			
+;	,resolve_action		= trim(substring(1,100,model_rec->models[D1.SEQ].resolve_action),3)  			
+;FROM 
+;	(DUMMYT D1 WITH SEQ= VALUE(SIZE(MODEL_REC->models,5)))
+;WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+
+;	Parent Column in PFT_WF_PROCESS_MODEL (PK)	Child Table Name	Child Column Name
+;Children:	PFT_WF_PROCESS_MODEL_ID	PFT_WF_ISSUE	PFT_WF_PROCESS_MODEL_ID
+;PFT_WF_NOTIFICATION	PFT_WF_PROCESS_MODEL_ID
+;PFT_WF_STATE_ACTION_RELTN	PFT_WF_PROCESS_MODEL_ID	
+;
+
+
+end
+go
