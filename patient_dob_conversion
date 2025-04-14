@@ -1,0 +1,6 @@
+patient DOB
+Date Of Birth
+birthday
+birth date 
+
+pat_dob  = format(cnvtdatetimeutc(datetimezone(p.birth_dt_tm,p.birth_tz), 1),'mm/dd/yyyy;;Q')
