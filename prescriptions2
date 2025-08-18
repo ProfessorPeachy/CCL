@@ -1,0 +1,447 @@
+
+ 
+drop program 1_eprescription_rpt go
+create program 1_eprescription_rpt
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"      ;* Enter or select the printer or file name to send this report to.
+	, "Starting Prescription Date:" = ""
+	, "Ending Prescription Date:" = "CURDATE" 
+
+with OUTDEV, START_DATE, END_DATE
+
+;call echo(build2("DEBUG: OUTDEV = ", $OUTDEV))
+;call echo(build2("DEBUG: START_DATE = ", $START_DATE))
+;call echo(build2("DEBUG: END_DATE = ", $END_DATE))
+;call echo(build2("DEBUG: Type = ", $Type))
+ 
+ 
+
+/*******************************************************************************************
+        VARIABLES
+*******************************************************************************************/
+; declare working variables
+declare pos 			= i4 with protect, noconstant(0)
+declare num 			= i4 with protect, noconstant(0)
+declare date_range 		= i4
+declare thisndc 		= vc
+declare thisncpdp 		= vc
+declare ndc_start 		= i4
+declare ndc_value 		= vc
+declare ncpdp_start 	= i4
+declare ncpdp_value 	= vc
+declare thisorderid 	= f8
+declare ndcfound 		= i2
+declare ncpdpfound 		= i2 
+declare orderid_reflect = vc
+
+
+declare pharmacy_catalog_cd 		= f8 with constant(uar_get_code_by("MEANING",6000,"PHARMACY")),protect
+declare complete_order_status_cd 	= f8 with constant(uar_get_code_by("MEANING",6004,"COMPLETED")),protect
+declare canceled_order_status_cd 	= f8 with constant(uar_get_code_by("MEANING",6004,"CANCELED")),protect;mod 001
+declare pharmacy_activity_cd 		= f8 with constant(uar_get_code_by("MEANING",106,"PHARMACY")),protect
+declare delivered_status_cd 		= f8 with constant(uar_get_code_by("MEANING",3401,"DELIVERED")),protect
+declare inprogress_status_cd 		= f8 with constant(uar_get_code_by("MEANING",3401,"IN PROGRESS")),protect
+declare order_action_cd 			= f8 with constant(uar_get_code_by("MEANING",6003,"ORDER")),protect
+declare ins_default_guaranter 		= f8 with constant(uar_get_code_by("MEANING",351,"DEFGUAR")),protect
+ 
+declare mf_CS6000_PHARM_CD      	= f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3079")) 
+declare mf_CS6003_ORDER_CD      	= f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3094"))
+declare mf_CS6011_RX_MNEM_CD    	= f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!5384"))
+declare mf_CS11000_NDC_CD       	= f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!3295"))
+declare logcnt						= i4 with protect
+
+
+/*******************************************************************************************
+        RECORD STRUCTURE
+*******************************************************************************************/
+ 
+free record rec
+record rec(
+  1 cnt = i4
+  1 qual[*]
+  	2 order_id = f8
+  	2 order_id_str = vc  ;used to search the interface table for orderid
+	2 encntr_id = f8
+	2 reg_date = vc
+	2 person_id = f8
+	2 encntr_type	= vc
+	2 order_date	= vc
+	2 catalog_cd	= f8
+	2 med_prescription_date = vc
+	2 prescribe_location = vc
+	2 prescribe_location_id = vc
+	2 department_name	= vc
+	2 department_category = vc
+	2 generic_name = vc
+	2 days_supply = vc
+	2 fin_nbr = vc
+	2 primary_payer = vc
+	2 second_payer = vc
+	2 payor_grouping = vc
+	2 prescribe_personnel = vc
+    2 prescribe_physician = vc
+    2 prescriber_position = vc
+	2 pat_name = vc
+	2 pat_dob = vc
+	2 prescriber_npi = vc
+	2 strength = vc
+	2 strength_unit = vc
+	2 strength_and_unit = vc
+	2 quantity = vc
+	2 quantity_unit = vc
+	2 qty_and_unit = vc
+	2 volume_dose = vc
+	2 volume_dose_unit = vc
+	2 vol_and_unit = vc
+	2 free_text_dose = vc
+	2 free_text_dose_unit = vc
+	2 ft_dose_and_unit = vc
+	2 refills = vc
+	2 prn_instructions = vc
+	2 special_instructions = vc
+	2 pharmacy = vc
+	2 ncpdp = vc
+	2 pharmacy_id = vc
+	2 internal_pharmacy_flag = vc
+    2 s_med_qual            = vc  ;NDC - literally "NDC"	
+	2 ndc					= vc
+	2 ndc2					= vc
+	2 ndc_multim			= vc
+	2 ndc_formatted			= vc
+    2 s_med_code            = vc  ;NDC
+    2 s_med_qual            = vc  ;NDC - literally "NDC"	
+	2 log_msgid = C30
+	2 log_ndc = C11    
+	2 rx_identifier		= vc 
+	2 interfaceid		= c5
+	2 synonymid			= f8
+	2 CKI				= VC
+)
+ 
+ 
+RECORD oentxlog (
+				1 cnt = i4
+                1 qual[*]
+                                2 log_msgid = C30
+                                2 log_ndc = C11
+                                2 interfaceid = c5
+                                2 EVENTID	= C4
+                                2 rx_identifier = vc
+                                2 order_id	= f8
+                                2 ncpdp = vc
+) 
+
+record ndc (
+	1 cnt = i4
+	1 qual[*]
+		2 drug_synonym_id = f8
+		2 drug_cki	= vc
+		2 ndc = vc
+		2 ndc_formatted = vc
+		2 obsolete_date = dq8
+)
+
+
+
+;call echojson(ndc,$outdev)
+/*******************************************************************************************
+        ALL COMPLETED OR DISCONTINUED PHARMACY ORDERS
+*******************************************************************************************/
+
+
+select into "NL:"
+    o.order_id
+    ,o.ordered_as_mnemonic
+    ,o.encntr_id
+    ,o.person_id
+    ,o.orig_order_dt_tm
+    ,org.org_name
+    ,org.organization_id
+    ,o.orig_order_dt_tm
+from
+    orders o
+    ,order_detail od
+    ,messaging_audit ma
+    ,organization org
+plan o
+where o.orig_order_dt_tm between cnvtdatetime($START_DATE) and cnvtdatetime($END_DATE)
+	and o.order_status_cd != canceled_order_status_cd;mod 001 2542.0
+	and o.activity_type_cd = pharmacy_activity_cd;705.0;pharmacy
+  	and o.catalog_type_cd = pharmacy_catalog_cd;2516.0;pharmacy
+  	and o.order_status_cd != canceled_order_status_cd;mod 001 2542.0
+  	and o.orig_ord_as_flag = 1;prescription  
+join od
+    where od.order_id = o.order_id
+    and od.oe_field_meaning in ("STRENGTHDOSE","STRENGTHDOSEUNIT","FREETEXTDOSE","FREETEXTDOSEUNIT","VOLUMEDOSE"
+    	,"VOLUMEDOSEUNIT","DISPENSEQTY","DISPENSEQTYUNIT","NBRREFILLS","ROUTINGPHARMACYNAME","ROUTINGPHARMACYID"
+    	,"PRNINSTRUCTIONS","ERXPATIENTINSTRUCTIONS","DAYSSUPPLY")
+join ma
+    where ma.order_id = o.order_id
+      and ma.status_cd in (delivered_status_cd;4053728.0;delivered
+                           ,inprogress_status_cd;4053732.0
+                           )
+join org
+    where org.organization_id = ma.org_id
+      and org.active_ind = 1
+      and org.end_effective_dt_tm >= cnvtdate(12302100) 
+order by
+    o.orig_order_dt_tm, o.order_id
+;with nocounter, format, separator = " "
+ 
+head report
+    pcnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head o.order_id
+    pcnt = pcnt + 1
+    if(mod(pcnt,100)=1 and pcnt !=1)
+        stat = alterlist(rec->qual,pcnt+99)
+    endif
+
+	rec->qual[pcnt].encntr_id	= o.encntr_id
+	rec->qual[pcnt].person_id	= o.person_id
+	
+    rec->qual[pcnt].order_id = o.order_id
+    rec->qual[pcnt].catalog_cd = o.catalog_cd
+    rec->qual[pcnt].generic_name = o.ordered_as_mnemonic
+    rec->qual[pcnt].encntr_id = o.encntr_id
+    rec->qual[pcnt].person_id = o.person_id
+    rec->qual[pcnt].med_prescription_date = format(o.orig_order_dt_tm,"MM/dd/yyyy HH:mm;;d")
+    rec->qual[pcnt].prescribe_location = org.org_name
+    rec->qual[pcnt].prescribe_location_id = cnvtstring(org.organization_id)
+    rec->qual[pcnt].order_date = format(o.orig_order_dt_tm,"MM/dd/yyyy ;;d")
+	rec->qual[pcnt].rx_identifier = ma.rx_identifier  ;used to pull the ncpdp and ndc from the XML string
+	rec->qual[pcnt].order_id_str = cnvtstring(o.order_id)
+	rec->qual[pcnt].synonymid = o.synonym_id
+	rec->qual[pcnt].ndc = "NOTSET"
+detail
+
+    case (od.oe_field_meaning)
+        of "STRENGTHDOSE":
+            rec->qual[pcnt].strength = od.oe_field_display_value
+        of "STRENGTHDOSEUNIT":
+            rec->qual[pcnt].strength_unit = od.oe_field_display_value
+        of "FREETEXTDOSE":
+            rec->qual[pcnt].free_text_dose = TRIM(od.oe_field_display_value,3)
+        of "FREETEXTDOSEUNIT":
+            rec->qual[pcnt].free_text_dose_unit = TRIM(od.oe_field_display_value,3)
+        of "VOLUMEDOSE":
+            rec->qual[pcnt].volume_dose = TRIM(od.oe_field_display_value,3)
+        of "VOLUMEDOSEUNIT":
+            rec->qual[pcnt].volume_dose_unit = TRIM(od.oe_field_display_value,3)
+        of "DISPENSEQTY":
+            rec->qual[pcnt].quantity = od.oe_field_display_value
+        of "DISPENSEQTYUNIT":
+            rec->qual[pcnt].quantity_unit = od.oe_field_display_value
+        of "NBRREFILLS":
+            rec->qual[pcnt].refills = od.oe_field_display_value
+        of "ROUTINGPHARMACYNAME":
+            rec->qual[pcnt].pharmacy = od.oe_field_display_value
+        of "ROUTINGPHARMACYID":
+            rec->qual[pcnt].pharmacy_id = od.oe_field_display_value     
+        of "PRNINSTRUCTIONS":
+            rec->qual[pcnt].prn_instructions = od.oe_field_display_value
+        of "ERXPATIENTINSTRUCTIONS":
+            rec->qual[pcnt].special_instructions = od.oe_field_display_value  
+        of "DAYSSUPPLY":
+            rec->qual[pcnt].days_supply = od.oe_field_display_value                                                   
+    endcase
+ 	
+foot o.order_id
+    rec->qual[pcnt].strength_and_unit = build2(trim(rec->qual[pcnt].strength,3)," ",trim(rec->qual[pcnt].strength_unit,3))
+    rec->qual[pcnt].ft_dose_and_unit =
+        build2(trim(rec->qual[pcnt].free_text_dose,3)," ",trim(rec->qual[pcnt].free_text_dose_unit,3))
+    rec->qual[pcnt].vol_and_unit = build2(trim(rec->qual[pcnt].volume_dose,3)," ",trim(rec->qual[pcnt].volume_dose_unit,3))
+    rec->qual[pcnt].qty_and_unit = build2(trim(rec->qual[pcnt].quantity,3)," ",trim(rec->qual[pcnt].quantity_unit,3))
+ 
+ 	if (rec->qual[pcnt].pharmacy = "Maury Regional Medical Center")
+ 		rec->qual[pcnt].internal_pharmacy_flag = "Y"
+ 	else
+ 		rec->qual[pcnt].internal_pharmacy_flag = "N"
+ 	endif
+ 	
+ 	if (rec->qual[pcnt].free_text_dose > "" AND rec->qual[pcnt].volume_dose = "")
+ 		rec->qual[pcnt].volume_dose = rec->qual[pcnt].free_text_dose
+ 	endif 	
+ 	
+ 	 if (rec->qual[pcnt].free_text_dose_unit > "" AND rec->qual[pcnt].volume_dose_unit = "")
+ 		rec->qual[pcnt].volume_dose_unit = rec->qual[pcnt].free_text_dose_unit
+ 	endif 	
+foot report
+    if(pcnt>0)
+        stat = alterlist(rec->qual,pcnt)
+        rec->cnt = pcnt
+    endif    
+with nocounter;,time=3900
+
+call echo(build2("original query record count-->", rec->cnt))
+
+
+
+;ENCOUNTER AND PERSON INFORMATION
+select into "NL:"
+	e.encntr_type_cd
+	,e.loc_nurse_unit_cd
+	,ea.alias    
+from
+	encounter e
+    ,encntr_alias ea
+    ,person p
+    ,(dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join e
+	where e.encntr_id = rec->qual[d1.seq].encntr_id	
+	and e.end_effective_dt_tm >= cnvtdate(12302100)
+	and e.active_ind = 1	
+join ea
+	where ea.encntr_id = e.encntr_id
+	and ea.encntr_alias_type_cd = 1077 ;fin
+	and ea.end_effective_dt_tm >= cnvtdate(12302100)
+	and ea.active_ind = 1
+join p
+	where p.person_id = e.person_id
+	and p.end_effective_dt_tm >= cnvtdate(12302100)
+	and p.active_ind = 1
+detail
+	rec->qual[d1.seq].encntr_type = uar_get_code_display(e.encntr_type_cd)
+	rec->qual[d1.seq].department_name = UAR_GET_CODE_DISPLAY(E.loc_nurse_unit_cd)
+	rec->qual[d1.seq].fin_nbr = ea.alias
+	rec->qual[d1.seq].reg_date = format(e.reg_dt_tm,"MM/dd/yyyy ;;d")
+with nocounter;time=3900
+
+
+;HEALTH PLAN INFORMATION
+select into "NL:"
+	hp.plan_name
+	,hp.financial_class_cd
+	,uar_get_code_display(hp.financial_class_cd)
+from
+    encntr_plan_reltn epr
+    ,encntr_person_reltn ep
+    ,health_plan hp
+    ,(dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+join epr
+    where epr.encntr_id =rec->qual[d1.seq].encntr_id	
+    and epr.priority_seq = 1
+    and epr.active_ind = 1
+    and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+    and epr.end_effective_dt_tm >= cnvtdate(12302100)
+join ep
+    where ep.encntr_id = epr.encntr_id
+    and ep.related_person_id = epr.person_id
+    and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+    and hp.active_ind = 1
+    and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)	
+detail
+	if(epr.priority_seq = 1)
+		rec->qual[d1.seq].primary_payer = hp.plan_name
+		rec->qual[d1.seq].payor_grouping = uar_get_code_display(hp.financial_class_cd)
+	endif
+with nocounter;,time=3900;, format, separator = " "
+
+
+;*******************************************************************************************
+;        ORDERING PERSONNEL AND PRESCRIBING PHYSICIAN
+;*******************************************************************************************
+
+;GET PROVIDER INFORMATION
+select into $outdev; "NL:"
+     ordering_provider = pr.name_full_formatted
+    ,order_placer = pr2.name_full_formatted
+    ,pa.alias
+    ,pr.position_cd
+    ,oa.order_id
+from
+    order_action oa,
+    prsnl pr,		;ordering provider
+    prsnl pr2, 	    ;order placer
+    prsnl_alias pa,
+    (dummyt d1 with seq = value(size(rec->qual, 5)))
+plan d1
+join oa
+    where oa.order_id = rec->qual[d1.seq].order_id
+    and oa.action_sequence > 0
+    and oa.action_type_cd = order_action_cd
+join pr
+    where pr.person_id = oa.order_provider_id
+      and pr.active_ind = 1
+      and pr.end_effective_dt_tm >= cnvtdate(12302100)
+join pr2
+    where pr2.person_id = oa.action_personnel_id
+      and pr2.active_ind = 1
+      and pr2.end_effective_dt_tm >= cnvtdate(12302100)
+join pa
+    where pa.person_id = pr.person_id
+      and pa.alias_pool_cd = 26026547.00
+order by
+    oa.order_id
+
+detail
+    rec->qual[d1.seq].prescribe_physician 	= pr.name_full_formatted
+    rec->qual[d1.seq].prescriber_npi 		= pa.alias
+    rec->qual[d1.seq].prescriber_position 	= uar_get_code_display(pr.position_cd)
+    rec->qual[d1.seq].prescribe_personnel	= pr2.name_full_formatted
+with nocounter
+
+;call echorecord(rec)
+;*******************************************************************************************
+;       OUTPUT SECTION
+;*******************************************************************************************
+
+select into $outdev
+    prescription_order_date = trim(substring(1,20,rec->qual[d1.seq].med_prescription_date))
+    ,order_id = trim(substring(1,20,cnvtstring(rec->qual[d1.seq].order_id)))
+;     ,ndc = trim(substring(1,20,rec->qual[d1.seq].ndc),3)
+    ,patient_id = trim(substring(1,40,rec->qual[d1.seq].fin_nbr))
+    ,registration_date = trim(substring(1,12,rec->qual[d1.seq].reg_date),3)
+;    ,mrn = trim(substring(1,40,rec->qual[d1.seq].medrecnbr))
+    ,encounter_type = trim(substring(1,40,rec->qual[d1.seq].encntr_type),3)
+    ,prescription_id = trim(substring(1,20,cnvtstring(rec->qual[d1.seq].order_id)))
+    ,prescriber_id = trim(substring(1,20,rec->qual[d1.seq].prescriber_npi))
+    ,prescriber_name = trim(substring(1,100,rec->qual[d1.seq].prescribe_physiciaN))
+    ,prescriber_type = trim(substring(1,50,rec->qual[d1.seq].prescriber_position))
+    ,ordering_personnel = trim(substring(1,100,rec->qual[d1.seq].prescribe_personnel))
+;    ,service_location_id = trim(substring(1,50,cnvtstring(rec->qual[d1.seq].prescribe_location_id)))
+    ,service_location_name = trim(substring(1,50,rec->qual[d1.seq].prescribe_location))
+    ,department_name = trim(substring(1,20,rec->qual[d1.seq].department_name))
+    ,department_category = trim(substring(1,20,rec->qual[d1.seq].department_category))
+ ;   ,ncpdp = trim(substring(1,100,rec->qual[d1.seq].ncpdp))
+;    ,pharmacy_id = trim(substring(1,100,rec->qual[d1.seq].pharmacy_id))
+    ,pharmacy_name = trim(substring(1,100,rec->qual[d1.seq].pharmacy))
+    ,internal_pharmacy_flag = trim(substring(1,1,rec->qual[d1.seq].internal_pharmacy_flag))
+    ,payor_grouping = trim(substring(1,20,rec->qual[d1.seq].payor_grouping))
+    ,refills = trim(substring(1,20,rec->qual[d1.seq].refills))
+    ,quantity = trim(substring(1,20,rec->qual[d1.seq].qty_and_unit))
+    ,primary_payor = trim(substring(1,100,rec->qual[d1.seq].primary_payer))
+    ,drug_name = trim(substring(1,200,rec->qual[d1.seq].generic_name))
+    ,drug_strength = trim(substring(1,20,rec->qual[d1.seq].strength))
+    ,dosage = trim(substring(1,10,rec->qual[d1.seq].volume_dose))
+    ,dosage_form = trim(substring(1,20,rec->qual[d1.seq].volume_dose_unit))
+    ,rx_sig = trim(substring(1,200,rec->qual[d1.seq].prn_instructions))
+    ,rx_comments = trim(substring(1,300,rec->qual[d1.seq].special_instructions))
+    ,days_supply = trim(substring(1,20,rec->qual[d1.seq].days_supply),3)
+;    ,ndc = trim(substring(1,20,rec->qual[d1.seq].ndc),3)
+;	,reccnt = rec->cnt
+;	,oencnt = oentxlog->cnt    
+
+ 
+from
+    (dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1
+	where d1.seq > 0
+;AND rec->qual[d1.seq].days_supply > ""
+;with nocounter, pcformat ("", '|', 1, 1), format = stream, format, skipreport = 1,APPEND;,time=3900
+with nocounter,separator=" ",format,time=3900
+;endif
+
+;call echojson(rec,$OUTDEV)
+
+#EXIT_SCRIPT
+end go
+ 
