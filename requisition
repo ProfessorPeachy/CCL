@@ -1,0 +1,1285 @@
+
+DROP PROGRAM amj1_wchn_ct_bbt_ormreq02 :dba GO
+CREATE PROGRAM amj1_wchn_ct_bbt_ormreq02 :dba
+ 
+prompt
+"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+ 
+with OUTDEV
+ 
+/***************
+Created: 10/5/16
+Author:  Chris Bolger
+Landesk #: 1232766
+*****************************************************************************************
+Change # Changes made By Date
+000     Initial Release
+001         FIN Barcode does not scan
+Stop duplicate printing of requirsitions when they are cancelled or completed
+Transfusion Date
+Plasma phresis volume also needs to print on the requisision original script: IHCORMREQ03.prg
+*********************/
+ 
+ 
+ declare finNbr = vc
+ 
+ RECORD request (
+   1 person_id = f8
+   1 print_prsnl_id = f8
+   1 order_qual [* ]
+     2 order_id = f8
+     2 encntr_id = f8
+     2 conversation_id = f8
+   1 printer_name = c50
+ ) with protect
+ 
+ FREE SET orders
+ FREE SET allergy
+ FREE SET diagnosis
+ FREE SET pt
+ 
+ 
+ set stat = alterlist(request->order_qual,1)
+ 
+set time =  cnvtstring(curtime3)
+call echo(time)
+;
+;set stat = alterlist(REQUEST->order_qual,1)
+set filename = build2("amj",trim(time,3),".dat")
+set printer_name = build2("/cerner/d_P572/ccluserdir/amj_dat",trim(time,3),".dat") ;print to dynamic file
+set printer_name = "dh_re02dc_p04559" ;print to test printer
+call echo(filename)
+ 
+;set REQUEST->person_id = 14189499.00
+;set REQUEST->print_prsnl_id = 15502382.00
+;set REQUEST->printer_name = printer_name
+; 
+;set REQUEST->order_qual[1].order_id = 7543360854.00
+;set REQUEST->order_qual[1].encntr_id = 52555961.00
+;set REQUEST->order_qual[1].conversation_id = 7543379740.00
+ 
+;;has phresis volume 
+set request->person_id = 15048932.00 
+set request->print_prsnl_id = 15502382.00 
+set request->printer_name = printer_name 
+ 
+set request->order_qual[1].order_id = 7509402496.00 
+set request->order_qual[1].encntr_id = 51661169.00 
+set request->order_qual[1].conversation_id = 7509403363.00  
+ 
+call echorecord(request)
+
+ RECORD orders (
+   1 name = vc
+   1 first_name = vc
+   1 last_name = vc
+   1 pat_type = vc
+   1 age = vc
+   1 dob = vc
+   1 mrn = vc
+   1 cmrn = vc
+   1 location = vc
+   1 facility = vc
+   1 nurse_unit = vc
+   1 room = vc
+   1 bed = vc
+   1 sex = vc
+   1 fnbr = vc
+   1 med_service = vc
+   1 admit_diagnosis = vc
+   1 height = vc
+   1 height_dt_tm = vc
+   1 weight = vc
+   1 weight_dt_tm = vc
+   1 admit_dt = vc
+   1 los = i4
+   1 attending_cnt = i2
+   1 attending [* ]
+     2 attending_phy = vc
+   1 admitting = vc
+   1 order_location = vc
+   1 spoolout_ind = i2
+   1 cnt = i2
+   1 qual [* ]
+     2 order_id = f8
+     2 display_ind = i2
+     2 template_order_flag = i2
+     2 cs_flag = i2
+     2 iv_ind = i2
+     2 mnemonic = vc
+     2 mnem_ln_cnt = i2
+     2 mnem_ln_qual [* ]
+       3 mnem_line = vc
+     2 display_line = vc
+     2 disp_ln_cnt = i2
+     2 disp_ln_qual [* ]
+       3 disp_line = vc
+     2 order_dt = vc
+     2 signed_dt = vc
+     2 status = vc
+     2 accession = vc
+     2 catalog = vc
+     2 catalog_type_cd = f8
+     2 activity = vc
+     2 activity_type_cd = f8
+     2 last_action_seq = i4
+     2 enter_by = vc
+     2 order_dr = vc
+     2 enter_for = vc
+     2 type = vc
+     2 action = vc
+     2 action_type_cd = f8
+     2 comment_ind = i2
+     2 comment = vc
+     2 com_ln_cnt = i2
+     2 com_ln_qual [* ]
+       3 com_line = vc
+     2 oe_format_id = f8
+     2 clin_line_ind = i2
+     2 stat_ind = i2
+     2 d_cnt = i2
+     2 d_qual [* ]
+       3 field_description = vc
+       3 label_text = vc
+       3 value = vc
+       3 field_value = f8
+       3 oe_field_meaning_id = f8
+       3 group_seq = i4
+       3 print_ind = i2
+       3 clin_line_ind = i2
+       3 label = vc
+       3 suffix = i2
+       3 special_ind = i2
+       3 priority_ind = i2
+     2 priority = vc
+     2 req_st_dt = vc
+     2 frequency = vc
+     2 rate = vc
+     2 duration = vc
+     2 duration_unit = vc
+     2 nurse_collect = vc
+     2 fmt_action_cd = f8
+     2 communication_type = vc
+     2 sch_transfusion_dt_tm = vc
+     2 number_of_units = vc
+     2 transfuse_reason = vc
+     2 plasma_phresis_vol = vc
+ 
+ )
+ 
+ RECORD allergy (
+   1 cnt = i2
+   1 qual [* ]
+     2 list = vc
+   1 line = vc
+   1 line_cnt = i2
+   1 line_qual [* ]
+     2 line = vc
+ )
+ 
+ RECORD diagnosis (
+   1 cnt = i2
+   1 qual [* ]
+     2 diag = vc
+   1 dline = vc
+   1 dline_cnt = i2
+   1 dline_qual [* ]
+     2 dline = vc
+ )
+ 
+ RECORD pt (
+   1 line_cnt = i2
+   1 lns [* ]
+     2 line = vc
+ )
+ 
+
+  
+ declare transfused_cd = f8 with constant(uar_get_code_by("DISPLAYKEY",1610,"TRANSFUSED"))
+ DECLARE order_cnt = i4 WITH protect ,noconstant (size (request->order_qual ,5 ) )
+ call echo(build2("order_cnt --->",order_cnt))
+ DECLARE ord_cnt = i4 WITH protect ,noconstant (size (request->order_qual ,5 ) )
+ DECLARE vv = i4 WITH protect ,noconstant(0)
+ 
+ SET stat = alterlist (orders->qual ,order_cnt )
+ 
+ DECLARE person_id = f8 WITH protect ,noconstant (0.0 )
+ DECLARE encntr_id = f8 WITH protect ,noconstant (0.0 )
+ DECLARE trans_reason = vc WITH constant ("Transfuse Reason" ) ,protect
+ DECLARE special_req = vc WITH constant ("Special Requirements" ) ,protect
+ DECLARE num_of_units = vc WITH constant ("Number of Units:" ) ,protect
+ DECLARE trans_dt_tm = vc WITH constant ("Date of Transfusion" ) ,protect
+ DECLARE plasma_pheresis_vol = vc WITH constant ("Plasma Pheresis (mLs)" ) ,protect
+ 
+ SET orders->spoolout_ind = 0
+ SET pharm_flag = 0
+ SET vv = 0
+ 
+ DECLARE comment_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",14,"ORD COMMENT"))
+ DECLARE mrn_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",319,"MRN"))
+ DECLARE cmrn_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",4,"CMRN"))
+ DECLARE fnbr_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",319,"FIN NBR"))
+ DECLARE admit_doc_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",333,"ADMITDOC"))
+ DECLARE attend_doc_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",333,"ATTENDDOC"))
+ DECLARE canceled_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",12025,"CANCELED"))
+ DECLARE inerror_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",8,"INERROR"))
+ DECLARE pharmacy_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6000,"PHARMACY"))
+ DECLARE iv_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",16389,"IVSOLUTIONS"))
+ DECLARE complete_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"COMPLETE"))
+ DECLARE modify_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"MODIFY"))
+ DECLARE order_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"ORDER"))
+ DECLARE cancel_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"CANCEL"))
+ DECLARE discont_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"DISCONTINUE"))
+ DECLARE transfer_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"TRANSFER/CAN" ))
+ DECLARE reorder_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"CANCEL REORD" ))
+ DECLARE studactivate_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"STUDACTIVATE"))
+ DECLARE activate_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"ACTIVATE"))
+ DECLARE void_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"VOID"))
+ DECLARE suspend_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"SUSPEND"))
+ DECLARE resume_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",6003,"RESUME"))
+ DECLARE intermittent_cd = f8 WITH protect,constant(uar_get_code_by("MEANING",18309, "INTERMITTENT"))
+ DECLARE last_mod = c3 WITH private,noconstant (fillstring (3,"000"))
+ DECLARE offset = i2 WITH protect,noconstant(0)
+ DECLARE daylight = i2 WITH protect,noconstant(0)
+ DECLARE mnemonic_size = i4 WITH protect,noconstant(0)
+ DECLARE mnem_length = i4 WITH protect,noconstant(0)
+ DECLARE num = i4 WITH noconstant(0)
+ 
+ 
+ declare barcode_value = vc with protect, noconstant(fillstring(100, " "))
+declare barcode_disp = vc with protect, noconstant(fillstring(100, " "))
+declare barcode = vc with protect, noconstant(fillstring(2000, " "))
+declare printer = vc with protect, noconstant(fillstring(100, " "))
+
+;declare barcode_value = vc
+;declare barcode_disp = vc
+;declare printer = vc
+ 
+ SELECT INTO "nl:"
+  FROM (person p ),
+   (encounter e ),
+   (person_alias pa ),
+   (encntr_alias ea ),
+   (encntr_prsnl_reltn epr ),
+   (prsnl pl ),
+   (dummyt d1 WITH seq = 1 ),
+   (encntr_loc_hist elh ),
+   (time_zone_r t )
+ 
+  PLAN (p
+   WHERE (p.person_id = request->person_id ) )
+   JOIN (e
+   WHERE (e.encntr_id = request->order_qual[1 ].encntr_id ) )
+   JOIN (elh
+   WHERE (elh.encntr_id = e.encntr_id ) )
+   JOIN (t
+   WHERE (t.parent_entity_id = outerjoin (elh.loc_facility_cd ) )
+   AND (t.parent_entity_name = outerjoin ("LOCATION" ) ) )
+   JOIN (pa
+   WHERE (pa.person_id = outerjoin (p.person_id ) )
+   AND (pa.active_ind = 1 )
+   AND (pa.beg_effective_dt_tm < cnvtdatetime (curdate ,curtime3 ) )
+   AND (pa.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+   JOIN (ea
+   WHERE (ea.encntr_id = outerjoin (e.encntr_id ) )
+   AND (((ea.encntr_alias_type_cd = mrn_cd ) )
+   OR ((ea.encntr_alias_type_cd = fnbr_cd ) ))
+   AND (ea.active_ind = 1 ) )
+   JOIN (d1 )
+   JOIN (epr
+   WHERE (epr.encntr_id = e.encntr_id )
+   AND (((epr.encntr_prsnl_r_cd = admit_doc_cd ) )
+   OR ((epr.encntr_prsnl_r_cd = attend_doc_cd ) ))
+   AND (epr.active_ind = 1 ) )
+   JOIN (pl
+   WHERE (pl.person_id = epr.prsnl_person_id ) )
+ 
+ ;with nocounter, format, separator=" "
+  HEAD REPORT
+   person_id = p.person_id ,
+   encntr_id = e.encntr_id ,
+   orders->name = p.name_full_formatted ,
+   orders->first_name = p.name_first ,
+   orders->last_name = p.name_last ,
+   orders->pat_type = trim(uar_get_code_display (e.encntr_type_cd ) ) ,
+   orders->sex = uar_get_code_display (p.sex_cd ) ,
+   orders->age = cnvtage (p.birth_dt_tm ) ,
+   orders->admit_dt = format (e.reg_dt_tm ,"@SHORTDATETIME" ) ,
+   orders->dob = format (cnvtdatetimeutc (datetimezone (p.birth_dt_tm ,p.birth_tz ) ,1 ) ,"@SHORTDATE" ) ,
+   orders->facility = uar_get_code_description (e.loc_facility_cd ) ,
+   orders->nurse_unit = uar_get_code_display (e.loc_nurse_unit_cd ) ,
+   orders->room = uar_get_code_display (e.loc_room_cd ) ,
+   orders->bed = uar_get_code_display (e.loc_bed_cd ) ,
+   orders->location = concat (trim(orders->room ) ," " ,trim(orders->bed ) ) ,
+   orders->admit_diagnosis = trim(e.reason_for_visit ,3 ) ,
+   orders->med_service = uar_get_code_display (e.med_service_cd ) ,
+ 
+   IF ((((e.disch_dt_tm = null ) ) OR ((e.disch_dt_tm = 0 ) )) )
+    orders->los = (datetimecmp (cnvtdatetime (curdate ,curtime3 ) ,e.reg_dt_tm ) + 1 )
+   ELSE
+    orders->los = (datetimecmp (e.disch_dt_tm ,e.reg_dt_tm ) + 1 )
+   ENDIF
+ 
+  HEAD epr.encntr_prsnl_r_cd
+   IF ((epr.encntr_prsnl_r_cd = admit_doc_cd ) )
+    orders->admitting = pl.name_full_formatted
+   ENDIF
+ 
+  DETAIL
+   IF ((ea.encntr_alias_type_cd = mrn_cd ) )
+    IF ((ea.alias_pool_cd > 0 ) )
+     orders->mrn = cnvtalias (ea.alias ,ea.alias_pool_cd )
+    ELSE
+     orders->mrn = ea.alias
+    ENDIF
+   ENDIF
+ 
+   IF ((pa.person_alias_type_cd = cmrn_cd ) )
+    IF ((pa.alias_pool_cd > 0 ) )
+     orders->cmrn = cnvtalias (pa.alias ,pa.alias_pool_cd )
+    ELSE
+     orders->cmrn = pa.alias
+    ENDIF
+   ENDIF
+ 
+   IF ((ea.encntr_alias_type_cd = fnbr_cd ) )
+    IF ((ea.alias_pool_cd > 0 ) )
+     orders->fnbr = cnvtalias (ea.alias ,ea.alias_pool_cd )
+    ELSE
+     orders->fnbr = ea.alias
+    ENDIF
+   ENDIF
+ 
+  WITH nocounter ,outerjoin = d1 ,dontcare = epr
+ ;end select
+ 
+ SELECT INTO "nl:"
+  FROM (encntr_prsnl_reltn epr ),
+   (prsnl pl )
+ 
+  PLAN (epr
+   WHERE (epr.encntr_prsnl_r_cd = attend_doc_cd )
+   AND (epr.encntr_id = request->order_qual[1 ].encntr_id )
+   AND ((epr.expiration_ind + 0 ) = 0 ) )
+  JOIN (pl
+   WHERE (pl.person_id = epr.prsnl_person_id ) )
+  ORDER BY epr.active_status_dt_tm DESC
+ 
+  HEAD REPORT
+   orders->attending_cnt = 0 ,
+   stat = alterlist (orders->attending ,1 )
+ 
+  DETAIL
+   orders->attending_cnt = (orders->attending_cnt + 1 ) ,
+ 
+   IF ((orders->attending_cnt = 1 ) )
+    orders->attending[1 ].attending_phy = pl.name_full_formatted
+   ENDIF
+ 
+  FOOT REPORT
+   row + 0
+ 
+  WITH nocounter
+ ;end select
+ 
+ SET height_cd = uar_get_code_by("DISPLAYKEY" ,72 ,"CLINICALHEIGHT" )
+ SET weight_cd = uar_get_code_by("DISPLAYKEY" ,72 ,"CLINICALWEIGHT" )
+ 
+ SELECT INTO "nl:"
+  FROM (clinical_event c )
+ 
+  PLAN (c
+   WHERE (c.person_id = person_id )
+   AND (c.event_cd IN (height_cd , weight_cd ) )
+   AND (c.view_level = 1 )
+   AND (c.publish_flag = 1 )
+   AND (c.valid_until_dt_tm = cnvtdatetime ("31-DEC-2100,00:00:00" ) )
+   AND (c.result_status_cd != inerror_cd ) )
+ 
+  ORDER BY c.event_end_dt_tm
+ 
+  DETAIL
+   IF ((c.event_cd = height_cd ) )
+    orders->height = concat (trim(c.event_tag ) ," " ,trim(
+      uar_get_code_display (c.result_units_cd ) ) ) ,
+    orders->height_dt_tm = datetimezoneformat (c
+     .performed_dt_tm ,c.performed_tz ,"@SHORTDATETIMENOSEC" )
+   ELSEIF ((c.event_cd = weight_cd ) )
+    orders->weight = concat (trim(c.event_tag ) ," " ,trim(
+      uar_get_code_display (c.result_units_cd ) ) ) ,
+    orders->weight_dt_tm = datetimezoneformat (c.performed_dt_tm ,c.performed_tz ,"@SHORTDATETIMENOSEC" )
+   ENDIF
+ 
+  WITH nocounter
+ ;end select
+ 
+ SELECT INTO "nl:"
+  FROM (allergy a ),
+   (nomenclature n )
+ 
+  PLAN (a
+   WHERE (a.person_id = request->person_id )
+   AND (a.active_ind = 1 )
+   AND (a.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3 ) )
+   AND (((a.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3 ) ) )
+   OR ((a.end_effective_dt_tm = null ) ))
+   AND (a.reaction_status_cd != canceled_cd ) )
+   JOIN (n
+   WHERE (n.nomenclature_id = outerjoin (a.substance_nom_id ) ) )
+ 
+  ORDER BY cnvtdatetime (a.onset_dt_tm )
+ 
+  HEAD REPORT
+   allergy->cnt = 0
+ 
+  DETAIL
+   allergy->cnt = (allergy->cnt + 1 ) ,
+   stat = alterlist (allergy->qual ,allergy->cnt ) ,
+ 
+   IF ((n.nomenclature_id < 1 ) )
+    allergy->qual[allergy->cnt ].list = trim(a.substance_ftdesc ,3 )
+   ELSE
+    allergy->qual[allergy->cnt ].list = trim(n.source_string ,3 )
+   ENDIF
+ 
+  WITH nocounter
+ ;end select
+ 
+ SET allergy->line_cnt = 0
+ SET stat = alterlist (allergy->line_qual ,5 )
+ 
+ FOR (x = 1 TO allergy->cnt )
+  IF ((((x = 1 ) ) OR ((allergy->line = " " ) )) )
+   SET allergy->line = allergy->qual[x ].list
+  ELSE
+   SET allergy->line = concat (trim(allergy->line ) ,", " ,trim(allergy->qual[x ].list ) )
+  ENDIF
+ 
+  IF ((size (allergy->line ) > 60 ) )
+   SET allergy->line_cnt = (allergy->line_cnt + 1 )
+   SET stat = alterlist (allergy->line_qual ,allergy->line_cnt )
+   SET allergy->line_qual[allergy->line_cnt ].line = allergy->line
+   SET allergy->line = " "
+  ENDIF
+ ENDFOR
+ 
+ IF ((size (allergy->line ) > 1 ) )
+  SET allergy->line_cnt = (allergy->line_cnt + 1 )
+  SET stat = alterlist (allergy->line_qual ,allergy->line_cnt )
+  SET allergy->line_qual[allergy->line_cnt ].line = allergy->line
+ ENDIF
+ 
+ SET mnem_disp_level = "1"
+ SET iv_disp_level = "0"
+ 
+ IF ((pharm_flag = 1 ) )
+  SELECT INTO "nl:"
+   FROM (name_value_prefs n ),
+    (app_prefs a )
+ 
+   PLAN (n
+    WHERE (n.pvc_name IN ("MNEM_DISP_LEVEL" , "IV_DISP_LEVEL" ) ) )
+   JOIN (a
+    WHERE (a.app_prefs_id = n.parent_entity_id )
+    AND (a.prsnl_id = 0 )
+    AND (a.position_cd = 0 ) )
+ 
+   DETAIL
+    IF ((n.pvc_name = "MNEM_DISP_LEVEL" ) AND (n.pvc_value IN ("0" ,"1" ,"2" ) ) )
+     mnem_disp_level = n.pvc_value
+    ELSEIF ((n.pvc_name = "IV_DISP_LEVEL" ) AND (n.pvc_value IN ("0" ,"1" ) ) )
+     iv_disp_level = n.pvc_value
+    ENDIF
+ 
+   WITH nocounter
+  ;end select
+ ENDIF
+ 
+ ;call echorecord(orders)
+ 
+ DECLARE oicnt = i4 WITH protect ,noconstant (0 )
+ SET ord_cnt = 0
+ SET oicnt = 0
+ SET max_length = 70
+ 
+ 
+ 
+ 
+ SELECT INTO "nl:"
+  FROM (orders o ),
+   (order_action oa ),
+   (prsnl pl ),
+   (prsnl pl2 ),
+   (dummyt d1 WITH seq = value (order_cnt ) ),
+   (dummyt d2 WITH seq = value (order_cnt ) ),
+   (order_ingredient oi )
+ 
+  PLAN (d1 )
+  JOIN (o
+   WHERE (o.order_id = request->order_qual[d1.seq ].order_id ) )
+  JOIN (oa
+   WHERE (oa.order_id = o.order_id )
+   AND (((request->order_qual[d1.seq ].conversation_id > 0 )
+   AND (oa.order_conversation_id = request->order_qual[d1.seq ].conversation_id ) )
+   OR ((request->order_qual[d1.seq ].conversation_id <= 0 )
+   AND (oa.action_sequence = o.last_action_sequence ) )) )
+  JOIN (pl
+   WHERE (pl.person_id = oa.action_personnel_id ) )
+  JOIN (pl2
+   WHERE (pl2.person_id = oa.order_provider_id ) )
+  JOIN (d2 )
+  JOIN (oi
+   WHERE (o.order_id = oi.order_id )
+   AND (o.last_ingred_action_sequence = oi.action_sequence ) )
+ 
+  ORDER BY o.oe_format_id ,o.activity_type_cd ,o.current_start_dt_tm
+ 
+  HEAD REPORT
+   orders->order_location = trim(uar_get_code_display (oa.order_locn_cd ) ) ,
+   mnemonic_size = (size (o.hna_order_mnemonic ,3 ) - 1 )
+ 
+  HEAD o.order_id
+   ord_cnt = (ord_cnt + 1 ) ,
+   orders->qual[ord_cnt ].status = uar_get_code_display (o.order_status_cd) ,
+   orders->qual[ord_cnt ].catalog = uar_get_code_display (o.catalog_type_cd ) ,
+   orders->qual[ord_cnt ].catalog_type_cd = o.catalog_type_cd ,
+   orders->qual[ord_cnt ].activity = uar_get_code_display (o.activity_type_cd ) ,
+   orders->qual[ord_cnt ].activity_type_cd = o.activity_type_cd ,
+   orders->qual[ord_cnt ].display_line = o.clinical_display_line ,
+   orders->qual[ord_cnt ].order_id = o.order_id ,
+   orders->qual[ord_cnt ].display_ind = 1 ,
+   orders->qual[ord_cnt ].template_order_flag = o.template_order_flag ,
+   orders->qual[ord_cnt ].cs_flag = o.cs_flag ,
+   orders->qual[ord_cnt ].oe_format_id = o.oe_format_id ,
+   orders->qual[ord_cnt ].communication_type = uar_get_code_display (oa.communication_type_cd ) ,
+ 
+   IF ((size (substring (245 ,10 ,o.clinical_display_line ) ,1 ) > 0 ) )
+    orders->qual[ord_cnt ].clin_line_ind = 1
+   ELSE
+    orders->qual[ord_cnt ].clin_line_ind = 0
+   ENDIF
+ 
+   mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+ 
+   IF ((mnem_length >= mnemonic_size )
+    AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+    orders->qual[ord_cnt ].mnemonic = concat (cnvtupper (trim(o.hna_order_mnemonic ) ) ,"..." )
+   ELSE
+    orders->qual[ord_cnt ].mnemonic = cnvtupper (trim(o.hna_order_mnemonic ) )
+   ENDIF
+ 
+   orders->qual[ord_cnt ].signed_dt = format (o.orig_order_dt_tm ,"@SHORTDATETIME;;Q" ) ,
+ 
+   IF ((curutc > 0 ) )
+    orders->qual[ord_cnt ].order_dt = concat (format (datetimezone (oa.order_dt_tm ,oa.order_tz ) ,"@SHORTDATETIMENOSEC" ) ," " ,
+    datetimezonebyindex (oa.order_tz ,offset ,daylight ,7 ,oa.order_dt_tm ) )
+   ELSE
+    orders->qual[ord_cnt ].order_dt = format (oa.order_dt_tm ,"@SHORTDATETIMENOSEC" )
+   ENDIF
+ 
+   orders->qual[ord_cnt ].comment_ind = o.order_comment_ind ,
+   orders->qual[ord_cnt ].last_action_seq = o.last_action_sequence ,
+   orders->qual[ord_cnt ].enter_by = pl.name_full_formatted ,
+   orders->qual[ord_cnt ].order_dr = pl2.name_full_formatted ,
+   orders->qual[ord_cnt ].type = uar_get_code_display (oa.communication_type_cd ) ,
+   orders->qual[ord_cnt ].action_type_cd = oa.action_type_cd ,
+   orders->qual[ord_cnt ].action = uar_get_code_display (oa.action_type_cd ) ,
+   orders->qual[ord_cnt ].iv_ind = o.iv_ind ,
+ 
+   IF ((o.dcp_clin_cat_cd = iv_cd ) )
+    orders->qual[ord_cnt ].iv_ind = 1
+   ENDIF
+ 
+  HEAD oi.comp_sequence
+   IF ((oi.comp_sequence > 0 )
+   AND (o.med_order_type_cd = intermittent_cd ) )
+    IF ((oi.ingredient_type_flag = 2 )
+    AND (oi.clinically_significant_flag = 2 ) )
+     oicnt = (oicnt + 1 )
+    ELSE
+     IF ((oi.ingredient_type_flag = 3 ) )
+      oicnt = (oicnt + 1 )
+     ENDIF
+    ENDIF
+   ENDIF
+ 
+  FOOT  o.order_id
+   IF ((o.catalog_type_cd = pharmacy_cd ) )
+    IF ((((o.iv_ind = 1 ) ) OR ((o.med_order_type_cd = intermittent_cd )
+    AND (oicnt > 1 ) )) )
+     IF ((iv_disp_level = "1" ) )
+      mnem_length = size (trim(o.ordered_as_mnemonic ) ,1 ) ,
+      IF ((mnem_length > max_length ) )
+       orders->qual[ord_cnt ].mnemonic = trim(concat (substring (1,(max_length - 3 ) ,
+       o.ordered_as_mnemonic ) ,"..." ) )
+      ELSE
+       orders->qual[ord_cnt ].mnemonic = o.ordered_as_mnemonic
+      ENDIF
+     ELSE
+      mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+      IF ((mnem_length > max_length ) )
+       orders->qual[ord_cnt ].mnemonic = trim(concat (substring (1,(max_length - 3 ) ,
+       o.hna_order_mnemonic ) ,"..." ) )
+      ELSE
+       orders->qual[ord_cnt ].mnemonic = o.hna_order_mnemonic
+      ENDIF
+     ENDIF
+    ELSE
+     IF ((mnem_disp_level = "0" ) )
+      mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+      IF ((mnem_length >= mnemonic_size )
+       AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+       orders->qual[ord_cnt ].mnemonic = concat (trim(o.hna_order_mnemonic ) ,"..." )
+      ELSE
+       orders->qual[ord_cnt ].mnemonic = trim(o.hna_order_mnemonic )
+      ENDIF
+     ENDIF
+ 
+     IF ((mnem_disp_level = "1" ) )
+      IF ((((o.hna_order_mnemonic = o.ordered_as_mnemonic ) ) OR ((o.ordered_as_mnemonic = " " ) )))
+       mnem_length = size (trim(o.hna_order_mnemonic ) ,1 )
+       IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (trim(o.hna_order_mnemonic ) ,"..." )
+       ELSE
+        orders->qual[ord_cnt ].mnemonic = trim(o.hna_order_mnemonic )
+       ENDIF
+      ELSE
+       mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+       IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (trim(o.hna_order_mnemonic ) ,"..." )
+       ELSE
+        orders->qual[ord_cnt ].mnemonic = trim(o.hna_order_mnemonic )
+       ENDIF
+ 
+       mnem_length = size (trim(o.ordered_as_mnemonic ) ,1 ) ,
+ 
+       IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.ordered_as_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (orders->qual[ord_cnt ].mnemonic ,"(" ,
+        trim(o.ordered_as_mnemonic ) ,"...)" )
+       ELSE
+        orders->qual[ord_cnt ].mnemonic = concat (orders->qual[ord_cnt ].mnemonic ,"(" ,
+        trim(o.ordered_as_mnemonic ) ,")" )
+       ENDIF
+      ENDIF
+     ENDIF
+ 
+     IF ((mnem_disp_level = "2" ) AND (o.iv_ind != 1 ) )
+      IF ((((o.hna_order_mnemonic = o.ordered_as_mnemonic ) )
+       OR ((o.ordered_as_mnemonic = " " ) )))
+       mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+       IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (trim(o.hna_order_mnemonic ) ,"..." )
+       ELSE
+        orders->qual[ord_cnt ].mnemonic = trim(o.hna_order_mnemonic )
+       ENDIF
+      ELSE
+       mnem_length = size (trim(o.hna_order_mnemonic ) ,1 ) ,
+ 
+        IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.hna_order_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (trim(o.hna_order_mnemonic ) ,"..." )
+        ELSE
+        orders->qual[ord_cnt ].mnemonic = trim(o.hna_order_mnemonic )
+        ENDIF
+ 
+        mnem_length = size (trim(o.ordered_as_mnemonic ) ,1 ) ,
+ 
+        IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.ordered_as_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (orders->qual[ord_cnt ].mnemonic ,"(" ,
+        trim(o.ordered_as_mnemonic ) ,"...)" )
+        ELSE
+        orders->qual[ord_cnt ].mnemonic = concat (orders->qual[ord_cnt ].mnemonic ,"(" ,
+        trim(o.ordered_as_mnemonic ) ,")" )
+       ENDIF
+      ENDIF
+ 
+      IF ((o.order_mnemonic != o.ordered_as_mnemonic )
+       AND (size (o.order_mnemonic ,1 ) > 0 ) )
+       mnem_length = size (trim(o.order_mnemonic ) ,1 ) ,
+ 
+        IF ((mnem_length >= mnemonic_size )
+        AND (substring ((mnem_length - 3 ) ,mnem_length ,o.order_mnemonic ) != "..." ) )
+        orders->qual[ord_cnt ].mnemonic = concat (trim(orders->qual[ord_cnt ].mnemonic ) ,"(" ,
+        trim(o.order_mnemonic ) ,"...)" )
+        ELSE
+        orders->qual[ord_cnt ].mnemonic = concat (trim(orders->qual[ord_cnt ].mnemonic ) ,"(" ,
+          trim(o.order_mnemonic ) ,")" )
+        ENDIF
+      ENDIF
+     ENDIF
+    ENDIF
+   ENDIF
+ 
+   IF ((oa.action_type_cd IN (order_cd ,suspend_cd ,resume_cd ,
+    cancel_cd ,discont_cd ,void_cd ) ) )
+    orders->qual[ord_cnt ].fmt_action_cd = oa.action_type_cd
+   ELSE
+    orders->qual[ord_cnt ].fmt_action_cd = order_cd
+   ENDIF
+ 
+   IF ((oa.action_type_cd IN (order_cd ,modify_cd ,cancel_cd ,discont_cd ,complete_cd ,
+    transfer_cd ,reorder_cd ,activate_cd ,studactivate_cd ) )
+    AND (o.encntr_id > 0 )
+    AND (o.template_order_flag != 7 ) )
+    orders->spoolout_ind = 1 ,orders->qual[ord_cnt ].display_ind = 1
+   ELSE
+    orders->qual[ord_cnt ].display_ind = 0
+   ENDIF
+  CALL ECHO("END QUERY1")
+  WITH outerjoin = d2 ,nocounter
+ ;end select
+ 
+ call echo("FIRST")
+ call echorecord(orders)
+ 
+ 
+SELECT INTO "nl:"
+  oef.*,of1.*, od.*
+FROM 
+   (order_detail od )
+    ,(oe_format_fields oef )
+    ,(order_entry_fields of1 )
+    ,(nomenclature n )
+   ,(dummyt d1 WITH seq = value (order_cnt ) )
+PLAN (d1 )
+JOIN (od
+WHERE (orders->qual[d1.seq ].order_id = od.order_id ) )
+JOIN (oef
+   WHERE (oef.oe_format_id = orders->qual[d1.seq ].oe_format_id )
+   AND (oef.action_type_cd = orders->qual[d1.seq ].fmt_action_cd )
+   AND (oef.oe_field_id = od.oe_field_id )
+   AND (((oef.accept_flag != 2 ) )
+   OR ((od.oe_field_meaning_id = 3575.00 ) )) 
+   )
+JOIN (of1
+   WHERE (of1.oe_field_id = oef.oe_field_id ) )
+JOIN (n
+   WHERE (n.nomenclature_id = outerjoin (od.oe_field_value ) ) )
+ 
+ORDER BY od.order_id ,   od.oe_field_id ,   od.action_sequence DESC
+ 
+  HEAD REPORT
+   orders->qual[d1.seq ].d_cnt = 0
+ 
+  HEAD od.order_id
+   stat = alterlist (orders->qual[d1.seq ].d_qual ,5 ) ,
+   orders->qual[d1.seq ].stat_ind = 0
+ 
+  HEAD od.oe_field_id
+   act_seq = od.action_sequence ,
+   odflag = 1 ,
+ 
+   CASE (od.oe_field_meaning )
+    OF "COLLPRI" :
+     orders->qual[d1.seq ].priority = od.oe_field_display_value
+    OF "PRIORITY" :
+     orders->qual[d1.seq ].priority = od.oe_field_display_value
+    OF "REQSTARTDTTM" :
+     orders->qual[d1.seq ].req_st_dt = od.oe_field_display_value
+    OF "FREQ" :
+     orders->qual[d1.seq ].frequency = od.oe_field_display_value
+    OF "RATE" :
+     orders->qual[d1.seq ].rate = od.oe_field_display_value
+    OF "DURATION" :
+     orders->qual[d1.seq ].duration = od.oe_field_display_value
+    OF "DURATIONUNIT" :
+     orders->qual[d1.seq ].duration_unit = od.oe_field_display_value
+    OF "NURSECOLLECT" :
+     orders->qual[d1.seq ].nurse_collect = od.oe_field_display_value
+   ENDCASE
+ 
+  HEAD od.action_sequence
+   IF ((act_seq != od.action_sequence ) )
+    odflag = 0
+   ENDIF
+ 
+  DETAIL
+   IF ((odflag = 1 ) )
+    orders->qual[d1.seq ].d_cnt = (orders->qual[d1.seq ].d_cnt + 1 ) ,
+    dc = orders->qual[d1.seq ].d_cnt ,
+ 
+    IF ((dc > size (orders->qual[d1.seq ].d_qual ,5 ) ) )
+     stat = alterlist (orders->qual[d1.seq ].d_qual ,(dc + 5 ) )
+    ENDIF
+ 
+    call echo(build2("label_text: ",oef.label_text))
+    call echo(build2("od.oe_field_meaning_id: ",od.oe_field_meaning_id))
+    call echo(build2("oef.group_seq: ",oef.group_seq))
+    call echo(build2(" od.oe_field_meaning_id: ", od.oe_field_meaning_id))
+ 
+    orders->qual[d1.seq ].d_qual[dc ].label_text = trim(oef.label_text ) ,
+    orders->qual[d1.seq ].d_qual[dc ].field_value = od.oe_field_value ,
+    orders->qual[d1.seq ].d_qual[dc ].group_seq = oef.group_seq ,
+    orders->qual[d1.seq ].d_qual[dc ].oe_field_meaning_id = od.oe_field_meaning_id ,
+ 
+    IF ((orders->qual[d1.seq ].d_qual[dc ].oe_field_meaning_id = 20 ) )
+     orders->qual[d1.seq ].d_qual[dc ].value = concat (trim(n.source_identifier ) ," : " ,
+     trim(od.oe_field_display_value ,3 ) )
+    ELSE
+     orders->qual[d1.seq ].d_qual[dc ].value = trim(od.oe_field_display_value ,3 )
+    ENDIF
+ 
+    orders->qual[d1.seq ].d_qual[dc ].clin_line_ind = oef.clin_line_ind ,
+    orders->qual[d1.seq ].d_qual[dc ].label = trim(oef.clin_line_label ) ,
+    orders->qual[d1.seq ].d_qual[dc ].suffix = oef.clin_suffix_ind ,
+    ind_flag = cnvtupper (trim(orders->qual[d1.seq ].d_qual[dc ].label_text ) ) ,
+ 
+    IF ((ind_flag = "SPECIAL INSTRUCTIONS" ) )
+     orders->qual[d1.seq ].d_qual[dc ].special_ind = 1
+    ELSE
+     orders->qual[d1.seq ].d_qual[dc ].special_ind = 0
+    ENDIF
+ 
+    IF ((((ind_flag = "PRIORITY" ) )
+     OR ((((ind_flag = "COLLECTION PRIORITY" ) )
+     OR ((((ind_flag = "REPORTING PRIORITY" ) )
+     OR ((((ind_flag = "PHARMACY PRIORITY" ) )
+     OR ((ind_flag = "PHARMACY ORDER PRIORITY" ) )) )) )) )) )
+     orders->qual[d1.seq ].d_qual[dc ].priority_ind = 1
+    ELSE
+     orders->qual[d1.seq ].d_qual[dc ].priority_ind = 0
+    ENDIF
+    ,
+    IF ((size (od.oe_field_display_value ,1 ) > 0 ) )
+     orders->qual[d1.seq ].d_qual[dc ].print_ind = 0
+    ELSE
+     orders->qual[d1.seq ].d_qual[dc ].print_ind = 1
+    ENDIF
+    ,
+    IF ((((od.oe_field_meaning_id = 1100 ) )
+     OR ((((od.oe_field_meaning_id = 8 ) )
+     OR ((((od.oe_field_meaning_id = 127 ) )
+     OR ((od.oe_field_meaning_id = 43 ) )) )) ))
+     AND (trim(cnvtupper (od.oe_field_display_value ) ,3 ) = "STAT" ) )
+     orders->qual[d1.seq ].stat_ind = 1
+    ENDIF
+    ,
+    IF ((of1.field_type_flag = 7 ) )
+     IF ((od.oe_field_value = 1 ) )
+      IF ((oef.disp_yes_no_flag = 2 ) )
+       orders->qual[d1.seq ].d_qual[dc ].clin_line_ind = 0
+      ENDIF
+     ELSE
+      IF ((oef.disp_yes_no_flag = 1 ) )
+       orders->qual[d1.seq ].d_qual[dc ].clin_line_ind = 0
+      ENDIF
+     ENDIF
+    ENDIF
+   ENDIF
+ 
+  FOOT  od.order_id
+   stat = alterlist (orders->qual[d1.seq ].d_qual ,dc )
+  WITH nocounter, format, separator = " "
+ 
+ CALL ECHORECORD(ORDERS)
+ 
+;call ECHOJSON(orders,$OUTDEV)
+
+
+
+ FOR (x = 1 TO order_cnt )
+ ;call echo(build2("zzzzzzzzzzzzzzzzzzz x at the beginning: ", x, "order_cnt: ", order_cnt))
+  IF ((orders->qual[x ].clin_line_ind = 1 ) )
+   SET started_build_ind = 0
+   FOR (fsub = 1 TO 71 )
+    FOR (xx = 1 TO orders->qual[x ].d_cnt )
+     IF ((((orders->qual[x ].d_qual[xx ].group_seq = fsub ) )
+     OR ((fsub = 71 ) ))
+     AND (orders->qual[x ].d_qual[xx ].print_ind = 0 ) )
+      IF ((orders->qual[x ].d_qual[xx ].clin_line_ind = 1 ) )
+       IF ((started_build_ind = 0 ) )
+        SET started_build_ind = 1
+ 
+        IF ((orders->qual[x ].d_qual[xx ].suffix = 0 )
+        AND (size (orders->qual[x ].d_qual[xx ].label ,1 ) > 0 ) )
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].d_qual[xx ].label ) ," "
+          ,trim(orders->qual[x ].d_qual[xx ].value ) )
+        ELSEIF ((orders->qual[x ].d_qual[xx ].suffix = 1 )
+        AND (size (orders->qual[x ].d_qual[xx ].label ,1 ) > 0 ) )
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].d_qual[xx ].value ) ," "
+          ,trim(orders->qual[x ].d_qual[xx ].label ) )
+        ELSE
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].d_qual[xx ].value ) ," ")
+        ENDIF
+       ELSE
+        IF ((orders->qual[x ].d_qual[xx ].suffix = 0 )
+        AND (size (orders->qual[x ].d_qual[xx ].label ,1 ) > 0 ) )
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].display_line ) ,"," ,
+          trim(orders->qual[x ].d_qual[xx ].label ) ," " ,
+          trim(orders->qual[x ].d_qual[xx ].value ) )
+        ELSEIF ((orders->qual[x ].d_qual[xx ].suffix = 1 )
+        AND (size (orders->qual[x ].d_qual[xx ].label ,1 ) > 0 ) )
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].display_line ) ,"," ,
+          trim(orders->qual[x ].d_qual[xx ].value ) ," " ,
+          trim(orders->qual[x ].d_qual[xx ].label ) )
+        ELSE
+         SET orders->qual[x ].display_line = concat (trim(orders->qual[x ].display_line ) ,"," ,
+          trim(orders->qual[x ].d_qual[xx ].value ) ," " )
+        ENDIF
+       ENDIF
+      ENDIF
+     ENDIF
+    ENDFOR
+   ENDFOR
+  ENDIF
+  ;call echo(build2("   x at the endfor: ", x, " order_cnt: ", order_cnt))
+ ENDFOR ;x = 1 TO order_cnt
+ 
+ 
+ FOR (x = 1 TO order_cnt )
+  FOR (y = 1 TO orders->qual[x ].d_cnt )
+   IF ((orders->qual[x ].d_qual[y ].special_ind = 1 ) )
+    SET pt->line_cnt = 0
+    SET max_length = 65
+    EXECUTE dcp_parse_text value (orders->qual[x ].d_qual[y ].value ) ,
+    value (max_length )
+    SET stat = alterlist (orders->qual[x ].disp_ln_qual ,pt->line_cnt )
+    SET orders->qual[x ].disp_ln_cnt = pt->line_cnt
+    FOR (z = 1 TO pt->line_cnt )
+     SET orders->qual[x ].disp_ln_qual[z ].disp_line = pt->lns[z ].line
+    ENDFOR
+   ENDIF
+  ENDFOR
+ ENDFOR
+ 
+ 
+ 
+ ;call echo(build2("x: accession: ",x))
+ 
+ 
+ 
+SELECT INTO "nl:"
+FROM (accession_order_r aor )
+PLAN (aor
+WHERE expand (num ,1 ,order_cnt ,aor.order_id ,orders->qual[num ].order_id ) )
+head report
+x = 0
+DETAIL
+x = x + 1
+orders->qual[x].accession = aor.accession
+;call echo(build2("in detail x: accession: ",x))
+WITH nocounter
+ 
+ ;end select
+ 
+ 
+ 
+ FOR (x = 1 TO order_cnt )
+  IF ((size (orders->qual[x ].mnemonic ,1 ) > 0 ) )
+   SET pt->line_cnt = 0
+   SET max_length = 90
+ 
+   EXECUTE dcp_parse_text value (orders->qual[x ].mnemonic ) , value (max_length )
+ 
+   SET stat = alterlist (orders->qual[x ].mnem_ln_qual ,pt->line_cnt )
+   SET orders->qual[x ].mnem_ln_cnt = pt->line_cnt
+ 
+   FOR (y = 1 TO pt->line_cnt )
+    SET orders->qual[x ].mnem_ln_qual[y ].mnem_line = pt->lns[y ].line
+   ENDFOR
+  ENDIF
+ ENDFOR
+ 
+ 
+ 
+ FOR (x = 1 TO order_cnt )
+  IF ((orders->qual[x ].comment_ind = 1 ) )
+   SELECT INTO "nl:"
+    FROM (order_comment oc ),
+     (long_text lt )
+    PLAN (oc
+     WHERE (oc.order_id = orders->qual[x ].order_id )
+     AND (oc.comment_type_cd = comment_cd ) )
+    JOIN (lt
+     WHERE (lt.long_text_id = oc.long_text_id ) )
+    ORDER BY oc.action_sequence DESC
+ 
+    HEAD REPORT
+     orders->qual[x ].comment = lt.long_text
+    WITH nocounter
+   ;end select
+ 
+   SET pt->line_cnt = 0
+   SET max_length = 90
+ 
+   EXECUTE dcp_parse_text value (orders->qual[x ].comment ) , value (max_length )
+ 
+   SET stat = alterlist (orders->qual[x ].com_ln_qual ,pt->line_cnt )
+   SET orders->qual[x ].com_ln_cnt = pt->line_cnt
+ 
+   FOR (y = 1 TO pt->line_cnt )
+    SET orders->qual[x ].com_ln_qual[y ].com_line = pt->lns[y ].line
+   ENDFOR
+  ENDIF
+ ENDFOR
+
+
+ 
+
+call echo(filename)
+ 
+
+ 
+ 
+if (printer = "")
+set printer = printer_name
+endif
+ 
+call echo(build2("printer_name: ",printer_name))
+ IF ((orders->spoolout_ind = 1 ) )
+  EXECUTE cpm_create_file_name "wchn_ct_bbt_ormreq02" ,"dat"
+  set filepath = "/cerner/d_P572/ccluserdir/"
+
+  select into $outdev ; THIS LINE FOR TESTING FROM DVD 
+  ;select into "ccluserdir:wchn_ct_bbt_ormreq02.dat" ;THIS LINE FOR TESTING FROM THE BACKEND with a static file name
+  ;select into value(printer_name) ;test from bacvkend with dynamic file name
+  ;select into cpm_cfn_info->file_name_path ;THIS LINE GOES IN PROD
+    d1.seq
+   from (dummyt d1 with seq = 1 )
+   plan (d1 ) 
+   head report
+    reg_dio = "{LPI/8}{CPI/12}{FONT/8}"
+   head page
+; detail
+   reg_dio ,
+    row + 1 ,
+    "{CPI/9}{POS/0/35}{B}{CENTER/Western Connecticut Health Network/15/9}" ,
+    row + 1 ,
+    "{CPI/9}{POS/0/55}{B}{CENTER/Transfusion Service/17/7}" ,
+    row + 1 ,
+    "{CPI/12}{POS/120/75}" ,
+    "Danbury Hospital" ,
+    "{CPI/12}{POS/260/75}" ,
+    "New Milford Hospital" ,
+    "{CPI/12}{POS/415/75}" ,
+    "Norwalk Hospital" ,
+    row + 1 ,
+    "{LINE}" ,
+    "{POS/93/95}{BOX/68/18}" ,
+    "{CPI/15}{POS/100/120}{FONT/4}" ,    "Last Name: " ,
+    "{CPI/15}{POS/140/120}" ,
+    CALL print (trim (orders->last_name ,3)) ,
+ 
+    "{CPI/15}{POS/380/120}" ,
+    "MRN: " ,
+    "{CPI/16}{POS/405/120}" ,
+ 
+    CALL print (trim (orders->mrn ,3)) ,
+ 
+    row + 1 ,
+    "{CPI/15}{POS/100/135}" ,
+    "First Name: " ,
+    "{CPI/15}{POS/140/135}" ,
+ 
+    CALL print (trim (orders->first_name ,3)) ,
+   barcode = trim (build ("*" ,cnvtalphanum (trim (orders->fnbr ) ) ,"*" ) ) ;checksum values for barcode
+   barcode_disp = "FIN: "
+   barcode_value = trim(orders->fnbr,3)
+ 
+  "{CPI/20}{LPI/8}{F/8}" , row + 1 , row + 1 ,
+    "{POS/410/145}" , barcode_disp, " ", barcode_value ,  row + 1
+    "{POS/380/128}" ,  "{BCR/100}{FR/0}{CPI/8}{F/28/2}" , barcode, row+1
+    "{CPI/20}{LPI/8}{F/8}" , row + 1 , row + 1
+ 
+    "{CPI/15}{POS/100/153}{FONT/4}" , "DOB: ",    "{CPI/15}{POS/125/153}"
+    call print(trim(orders->dob ,3))
+ 
+    "{CPI/15}{POS/380/153}",    "Age: ",    "{CPI/15}{POS/405/153}"
+    call print(trim(orders->age ,3))
+ 
+    row+1
+ 
+    "{CPI/15}{POS/100/165}",    "Admit Date and Time: ",    "{CPI/15}{POS/175/165}"
+    call print(trim(orders->admit_dt ,3))
+ 
+    "{CPI/15}{POS/380/165}",    "Sex: ",    "{CPI/15}{POS/405/165}"
+    call print(trim(orders->sex ,3))
+ 
+    row+1
+ 
+    "{CPI/15}{POS/100/180}",    "CMRN: ",    "{CPI/15}{POS/128/180}"
+    call print(trim(orders->cmrn ,3))
+ 
+    "{CPI/15}{POS/380/180}",    "Attending Dr: ", "{CPI/15}{POS/428/180}"
+if ((orders->attending_cnt >= 1 ) )
+call print(trim(orders->attending.attending_phy[1] ,3))
+else
+"---"
+endif
+row+1
+ 
+    if ((orders->attending_cnt > 1 ) )
+      row+1
+      "{CPI/20}{POS/440/188}"
+      "More doctors exist..."
+    endif
+ 
+    "{CPI/15}{POS/100/195}" , "Nurse Station: " , "{CPI/15}{POS/150/195}"
+    call print(trim(orders->nurse_unit ,3))
+ 
+    "{CPI/15}{POS/380/195}" , "Room/Bed: " , "{CPI/15}{POS/422/195}"
+    call print(trim(orders->location ,3))
+ 
+    row+1
+    
+    
+"{CPI/15}{POS/100/210}", "Allergies: "
+row+1
+ycol = 210
+for (zz = 1 to allergy->line_cnt) 
+"{CPI/15}" ,
+call print(calcpos (140 ,ycol ) )
+"If this patient had allergies, this would be comment line number"
+call print(zz)
+row+1
+ycol = (ycol + 10 )
+if ((zz = 3) )
+ycol = (ycol - 2 )
+"{CPI/20}"
+call print(calcpos (140 ,ycol ) )
+"(see patient chart for more information)"
+row+1
+zz = allergy->line_cnt
+endif
+row+1 
+endfor
+ 
+    "{CPI/15}{POS/100/248}",    "Order Entered by: ",    "{CPI/15}{POS/170/248}"
+    call print(trim(orders->qual[1 ].enter_by ,3))
+ 
+    row+1
+ 
+    "{CPI/15}{POS/100/260}",    "Unit Requested by: ",    "{CPI/15}{POS/170/260}"
+    call print(trim(orders->qual[1 ].order_dr ,3))
+ 
+detail
+for (cnt = 1 TO value (ord_cnt ) )
+"{POS/93/280}{BOX/85/18}" ,"{CPI/15}{POS/100/300}" ,"Order: "
+; "{POS/93/280}{BOX/85/17}" ,"{CPI/15}{POS/100/300}" ,"Order: "
+ 
+if ((size (orders->qual[cnt].mnemonic ) > 55 ) )
+"{CPI/15}{POS/125/300}"
+call print(concat (substring (1 ,55 ,trim(orders->qual[cnt].mnemonic,3) ) ,"..." ) )
+row+1
+ 
+else
+; "{CPI/15}{POS/145/300}" ,trim(orders->qual[cnt].mnemonic,3) ;001 original
+"{CPI/15}{POS/125/300}"     ;001 new added the call function so it could print
+call print(trim(orders->qual[cnt].mnemonic,3))
+row+1
+endif
+ 
+"{CPI/15}{POS/400/300}" , "Order ID: ", "{CPI/15}{POS/435/300}"
+call print(trim(cnvtstring(orders->qual[cnt].order_id),3))
+ 
+row+1
+ 
+"{CPI/15}{POS/100/315}", "Priority: ", "{CPI/15}{POS/130/315}"
+call print(trim(orders->qual[cnt].priority,3) )
+ 
+row+1
+ 
+"{CPI/15}{POS/100/330}", "Requested Date and Time: " , "{CPI/15}{POS/190/330}"
+call print(trim(orders->qual[cnt].order_dt,3))
+ 
+row+1
+"{CPI/15}{POS/100/345}" , "Number of Units: "
+pos = locateval(num,1,orders->qual[cnt].d_cnt,num_of_units,orders->qual[cnt].d_qual[num].label_text)
+if (pos>0)
+"{CPI/15}{POS/160/345}"
+call print(orders->qual[cnt].d_qual[num].value)
+endif
+row+1
+  
+"{CPI/15}{POS/380/345}" , "Plasma Pheresis (mLs): "
+pos = locateval(num,1,orders->qual[cnt].d_cnt,plasma_pheresis_vol,orders->qual[cnt].d_qual[num].label_text)
+if (pos>0)
+"{CPI/15}{POS/460/345}"
+call print(orders->qual[cnt].d_qual[num].value)
+endif
+row+1
+ 
+   
+"{CPI/15}{POS/100/355}" , "Transfuse Reason:" 
+pos = locateval(num,1,orders->qual[cnt].d_cnt,trans_reason,orders->qual[cnt].d_qual[num].label_text)
+if (pos>0)
+"{CPI/15}{POS/165/355}"
+call print(orders->qual[cnt].d_qual[num].value)
+endif
+row+1
+  
+  
+"{CPI/15}{POS/380/355}" , "Date of Transfusion: "
+pos = locateval(num,1,orders->qual[cnt].d_cnt,trans_dt_tm,orders->qual[cnt].d_qual[num].label_text)
+if (pos>0)
+"{CPI/15}{POS/450/355}"
+call print(orders->qual[cnt].d_qual[num].value) 
+endif
+row+1
+    
+  "{CPI/15}{POS/100/365}" , "Special Requirements: "
+pos = locateval(num,1,orders->qual[cnt].d_cnt,special_req,orders->qual[cnt].d_qual[num].label_text)
+if (pos>0) 
+if (textlen(orders->qual[cnt].d_qual[num].value)>75)  ;trim the special requirements, if needed
+orders->qual[cnt].d_qual[num].value = substring(1,75,orders->qual[cnt].d_qual[num].value)
+"{CPI/20}{POS/410/365}", "(see patient chart for more information)" 
+endif 
+"{CPI/15}{POS/175/365}" 
+call print(orders->qual[cnt].d_qual[num].value) ;print special requirements 
+endif
+row+1
+ 
+"{CPI/15}{POS/100/375}" , "Comments: "
+row+1
+ycol = 375 
+for (zz = 1 to orders->qual[cnt].com_ln_cnt )
+"{CPI/15}" ,
+call print(calcpos (140 ,ycol ) )
+;call print(orders->qual[cnt].com_ln_qual[zz].com_line )
+;"If this patient had comments, this would be comment line number"
+;call print(zz)
+row+1
+ycol = (ycol + 10 )
+if ((zz = 6 ) )
+ycol = (ycol - 4 )
+"{CPI/20}"
+call print(calcpos (140 ,ycol ) )
+"(see patient chart for more information)"
+row+1
+zz = orders->qual[cnt].com_ln_cnt
+endif
+row+1 
+endfor
+"{CPI/15}{POS/100/445}"
+"This uncrossmatched blood will be used as an urgent and essential part of the emergency care for this patient."
+ROW+1
+ 
+if ((cnt < value (ord_cnt ) ) )
+break
+endif
+endfor
+ 
+   with nocounter ,maxrow = 800 ,maxcol = 750 ,dio = postscript
+   ;with nocounter ,noformfeed ,dio = postscript ,maxcol = 300
+  ;end select
+ 
+ 
+ endif
+ 
+#exit_script
+ SET last_mod = "CCPS-9695 AR051237"
+ 
+/**/
+ 
+END GO
+
+Amelia Jamison
+
+
+"I like computer programming because it's like Legos for the mind. "
+
