@@ -1,0 +1,466 @@
+/******************************************** PROGRAM HEADER ***********************************************************
+ pharmacy extract
+*/
+drop program 1_craneware_pharm go
+create program 1_craneware_pharm
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Dispense Start Date:" = ""
+	, "Dispense End Date:" = ""
+	, "Output To:" = "S" 
+
+with OUTDEV, START_DATE, END_DATE, OUTPUT
+ 
+ 
+/***********************************************************************************************************************
+*                                        VARIABLE DECLARES
+***********************************************************************************************************************/
+declare num = i4
+ 
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+
+set rundate = format(curdate,'yyyymm;;d')
+;set craneware_outfile = build(concat("/cerner/d_P698/data/batch_files/ccl_extracts/craneware/maury-",rundate),".txt") 
+set craneware_outfile = build(concat("/cerner/d_p698/data/batch_files/ccl_extracts/craneware/MAURY-202307-REBATES"),".txt")
+/***********************************************************************************************************************
+*                                        RECORD STRUCTURE
+***********************************************************************************************************************/
+free record rec
+record rec
+(1 cnt                              = i4
+ 1 qual[*]
+    2 facility                      = vc
+    2 facilityNPI                   = vc
+    2 eid                           = f8
+    2 pid                           = f8
+    2 DateOfService                 = vc
+    2 PatientName                   = vc
+    2 PatientAdmitDate              = vc
+    2 PatientDispenseDate           = vc
+    2 MedRecNbr                     = vc
+    2 FinNbr                        = vc
+    2 PatientGender                 = vc
+    2 PatientStreetAddr1            = vc
+    2 PatientStreetAddr2            = vc
+    2 PatientCity                   = vc
+    2 PatientState                  = vc
+    2 PatientZipCode                = vc
+    2 PatientRelationship           = vc
+    2 ocnt                          = i4
+    2 oqual[*]
+        3 OrderID                   = f8
+        3 testfield                 = vc
+        3 testfieldcode             = f8
+        3 DispensedDate             = vc
+        3 PrescribingPhysician      = vc
+        3 PrescribingPhysicianNPI   = vc
+        3 OrderNDC                  = vc
+        3 ProductName               = vc
+        3 ProductStrength           = vc
+        3 ProductStrengthUnit       = vc
+        3 ProductPriceSchedule      = vc  
+        3 ProductNameCombined       = vc            
+        3 DispensedQty              = vc
+        3 DispensedQtyRaw           = f8
+        3 DispensedQtyUOM           = vc
+        3 CostRawValue              = f8
+        3 Cost                      = vc
+        3 totalcostfield            = f8
+        3 totalcostfieldformatted   = vc        
+        
+ 
+)
+ 
+/***********************************************************************************************************************
+*                                        PATIENT POPULATION
+***********************************************************************************************************************/
+select into "NL:"
+    dh.dispense_prsnl_id
+    ,dh.dispense_hx_id
+    ,e.encntr_id
+    ,e.person_id
+    
+from
+    dispense_hx     dh
+    ,prod_dispense_hx   ph
+    ,med_identifier     mi
+    ,orders         o
+;    ,order_detail       od
+    ,order_action   oa
+    ,order_ingredient   oi
+    ,order_catalog_item_r   ocir
+    ,med_def_flex       mdf
+    ,med_flex_object_idx mfoi
+    ,prsnl              pr
+    ,prsnl_alias        pa
+    ,encounter          e
+    ,encntr_alias       ea
+    ,person             p
+    ,organization       org
+    ,organization_alias orga
+plan dh
+;    where dh.dispense_dt_tm between cnvtdatetime(cnvtdate(12152022),0) and cnvtdatetime(cnvtdate(12182022),235959)
+    where dh.dispense_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+      and dh.charge_ind = 1
+;     and dh.disp_event_type_cd in (643458.0;charge on administration
+                                   ;,638938.00;device dispense
+;                                   )
+;      and dh.order_id = 1249847935.0
+join ph
+    where ph.dispense_hx_id = dh.dispense_hx_id
+      and (ph.charge_qty >0
+;      or ph.credit_qty >0
+          )
+;      and ph.cost > 0
+join o
+    where o.order_id = dh.order_id
+      and o.catalog_type_cd = 2516.00;pharmacy
+      and o.order_status_cd in (2543.00
+                                ,2545.00
+                                ,2550.00
+                                )
+;      and o.person_id = 14956974.00     
+;      and o.encntr_id = 106956586.00
+;      and o.order_id = 1270972463.00
+;join od
+;    where od.order_id = o.order_id
+;      and od.oe_field_meaning in ("STRENGTHDOSE"
+;                                 ,"STRENGTHDOSEUNIT"
+;                                 ,"PRICESCHEDULE"
+;                                 )      
+join oa
+    where oa.order_id = o.order_id
+      and oa.action_type_cd = 2534.00
+      and oa.action_sequence = 1
+join oi
+    where oi.order_id = o.order_id
+join ocir
+    where ocir.catalog_cd = oi.catalog_cd
+      and ocir.synonym_id = oi.synonym_id
+join mdf
+    where mdf.item_id = ocir.item_id
+      and mdf.active_ind = 1
+;      and mdf.flex_type_cd = 665857.00;system
+join mfoi
+    where mfoi.med_def_flex_id = mdf.med_def_flex_id
+      and mfoi.active_ind = 1
+      and mfoi.parent_entity_id = ph.med_product_id
+      and mfoi.flex_object_type_cd = 665860.00;med product
+join mi
+    where mi.item_id = mdf.item_id
+      and mi.med_def_flex_id = mfoi.med_def_flex_id
+      and mi.med_product_id = mfoi.parent_entity_id
+      and mi.med_identifier_type_cd = 3104.0;ndc
+      and mi.active_ind = 1
+      and mi.med_type_flag = 0;medication items only
+      and mi.med_product_id > 0
+      and mi.pharmacy_type_cd = 638952.00;inpatients
+join pr
+    where pr.person_id = oa.order_provider_id
+      and pr.active_ind = 1
+join pa
+    where pa.person_id = pr.person_id
+      and pa.alias_pool_cd = 26026547.00;NPI
+join e
+    where e.encntr_id = o.encntr_id
+      and e.encntr_type_cd = 309308.00;inpatient
+      and e.active_ind = 1
+      and e.end_effective_dt_tm >= cnvtdate(12302100)
+      and e.loc_facility_cd in (21250403.00)      
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.encntr_alias_type_cd in (1077.00
+                                      ,1079.00
+                                      )
+;      and ea.alias = "203148258"
+join p
+    where p.person_id = e.person_id
+      and p.active_ind = 1
+join org
+    where org.organization_id = e.organization_id
+      and org.active_ind = 1
+join orga
+    where org.organization_id = orga.organization_id  
+      and orga.org_alias_type_cd = 4045119.00;NPI
+      and orga.active_ind = 1   
+
+order by
+;    DH.dispense_dt_tm
+    e.encntr_id
+    ,o.order_id
+    ,dh.dispense_dt_tm
+    
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+    ocnt = 0
+    cnt = cnt + 1
+     if(mod(cnt,100)=1)
+        stat = alterlist(rec->qual,cnt+99)
+     endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = p.person_id
+    rec->qual[cnt].PatientName = p.name_full_formatted
+    rec->qual[cnt].PatientGender = substring(1,1,uar_get_code_display(p.sex_cd))
+    rec->qual[cnt].facility = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].facilityNPI = orga.alias
+    rec->qual[cnt].DateOfService = format(e.reg_dt_tm,"MM/dd/yyyy;;d")
+   
+;    rec->qual[cnt].PatientDispenseDate = format(dh.dispense_dt_tm,"MM/dd/yyyy HH:mm;;d")
+
+
+head dh.dispense_dt_tm;o.order_id
+;head o.order_id
+    ocnt = ocnt + 1
+    rec->qual[cnt].ocnt = ocnt 
+    
+    stat = alterlist(rec->qual[cnt].oqual,ocnt)
+
+    rec->qual[cnt].oqual[ocnt].DispensedQtyUOM = "EA" 
+    rec->qual[cnt].oqual[ocnt].testfield = uar_get_code_display(dh.disp_event_type_cd)    
+    rec->qual[cnt].oqual[ocnt].testfieldcode = dh.disp_event_type_cd
+    rec->qual[cnt].oqual[ocnt].PrescribingPhysician = pr.name_full_formatted
+    rec->qual[cnt].oqual[ocnt].DispensedDate = format(dh.dispense_dt_tm,"MM/dd/yyyy")
+    rec->qual[cnt].oqual[ocnt].PrescribingPhysicianNPI = pa.alias
+    rec->qual[cnt].oqual[ocnt].OrderID = o.order_id
+    rec->qual[cnt].oqual[ocnt].OrderNDC = mi.value;substring(1,20,mi.value)
+;    rec->qual[cnt].oqual[ocnt].CostRawValue = ph.cost 
+;    rec->qual[cnt].oqual[ocnt].Cost = format(ph.cost,"#####.##")
+    rec->qual[cnt].oqual[ocnt].DispensedQty = cnvtstring(ph.charge_qty)
+    rec->qual[cnt].oqual[ocnt].DispensedQtyRaw = ph.charge_qty
+    if(oi.dose_quantity_unit > 0)
+    rec->qual[cnt].oqual[ocnt].DispensedQtyUOM = uar_get_code_display(oi.dose_quantity_unit)
+    endif
+    rec->qual[cnt].oqual[ocnt].ProductName = build2(trim(oi.order_mnemonic)," "
+                                                 )
+
+   
+detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        rec->qual[cnt].FinNbr = ea.alias
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        rec->qual[cnt].MedRecNbr= ea.alias
+    endif
+
+    if(dh.disp_event_type_cd = 638938.00);device dispense
+        rec->qual[cnt].oqual[ocnt].Cost = format(dh.event_total_price,"####.##")
+        rec->qual[cnt].oqual[ocnt].CostRawValue = dh.event_total_price
+    elseif(dh.disp_event_type_cd = 643458.00);charge on admin
+        rec->qual[cnt].oqual[ocnt].Cost = format(ph.price,"####.##")
+        rec->qual[cnt].oqual[ocnt].CostRawValue = ph.price
+    endif
+
+foot dh.dispense_dt_tm
+    if(rec->qual[cnt].oqual[ocnt].DispensedQtyUOM = "" and rec->qual[cnt].oqual[ocnt].DispensedQty != "0")
+        rec->qual[cnt].oqual[ocnt].DispensedQtyUOM = "EA"
+    endif
+;foot o.order_id
+;    rec->qual[cnt].oqual[ocnt].ProductNameCombined =
+;        build2(trim(rec->qual[cnt].oqual[ocnt].ProductName)," ",trim(rec->qual[cnt].oqual[ocnt].ProductStrength)
+;        ," ",trim(rec->qual[cnt].oqual[ocnt].ProductStrengthUnit)," ",trim(rec->qual[cnt].oqual[ocnt].ProductPriceSchedule))
+;foot o.order_id
+;    rec->qual[cnt].oqual[ocnt].totalcostfield =
+;        rec->qual[cnt].oqual[ocnt].DispensedQtyRaw * rec->qual[cnt].oqual[ocnt].CostRawValue
+;        
+;    rec->qual[cnt].oqual[ocnt].totalcostfieldformatted =
+;      format(cnvtreal(rec->qual[cnt].oqual[ocnt].DispensedQtyRaw * rec->qual[cnt].oqual[ocnt].CostRawValue),
+;      "####.##")          
+foot report
+    if(cnt > 0)
+        stat = alterlist(rec->qual,cnt)
+        rec->cnt = cnt
+    endif
+ 
+with nocounter,time=10590
+/***********************************************************************************************************************
+*                                        PATIENT ADDRESS
+***********************************************************************************************************************/
+select into "NL:"
+    a.parent_entity_id
+from
+    address     a
+plan a
+    where expand(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+      and a.parent_entity_name = "PERSON"
+      and a.active_ind = 1
+      and a.address_type_cd = 756.00;home
+order by
+    a.parent_entity_id
+
+
+head a.parent_entity_id
+    pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+detail    
+    rec->qual[pos].PatientStreetAddr1 = a.street_addr
+    rec->qual[pos].PatientStreetAddr2 = a.street_addr2
+    rec->qual[pos].PatientCity = a.city
+    rec->qual[pos].PatientState = uar_get_code_display(a.state_cd)
+    
+    if(size(trim(a.zipcode),1)  = 9)
+        rec->qual[pos].PatientZipCode = format(a.zipcode,"#####-####")
+    else
+        rec->qual[pos].PatientZipCode = a.zipcode
+    endif
+    
+with nocounter,expand=1,time=10590
+/***********************************************************************************************************************
+*                                       INSURANCE INFORMATION
+***********************************************************************************************************************/
+select into "NL:"
+    uar_get_code_display(ep.related_person_reltn_cd)
+from
+    encntr_plan_reltn       epr
+    ,encntr_person_reltn    ep
+    ,health_plan            hp
+plan epr
+    where expand(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.priority_seq =1
+join ep
+    where ep.encntr_id = epr.encntr_id
+      and ep.related_person_id = epr.person_id
+      and ep.person_reltn_type_cd in (1150.0;default guarantor
+                                      ,1158.0;insured
+                                      )
+      and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+      and hp.active_ind = 1
+      and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+order by
+    epr.encntr_id
+;    ,epr.priority_seq
+
+head epr.encntr_id
+    pos = locateval(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+
+
+    if(ep.related_person_reltn_cd =  158.00  );self 
+        rec->qual[pos].PatientRelationship = "01"
+    elseif(ep.related_person_reltn_cd = 634771.00);spouse
+        rec->qual[pos].PatientRelationship = "02"
+    else
+        rec->qual[pos].PatientRelationship = "03"
+    endif
+
+with nocounter,expand=1,time=10590
+/***********************************************************************************************************************
+*                                        SERVICE DATE
+***********************************************************************************************************************/
+select into "NL:"
+    c.end_effective_dt_tm
+from
+    charge      c
+plan c
+    where expand(num,1,size(rec->qual,5),c.encntr_id,rec->qual[num].eid)
+      and c.process_flg = 100;posted
+      and c.active_ind = 1
+order by
+    c.encntr_id
+
+head c.encntr_id
+    pos = locateval(num,1,size(rec->qual,5),c.encntr_id,rec->qual[num].eid)
+    
+    
+    rec->qual[pos].DateOfService = format(c.posted_dt_tm,"MM/dd/yyyy;;d")
+    
+    
+with nocounter,expand=1,time=10590
+call echorecord(rec)
+/***********************************************************************************************************************
+*                                        OUTPUT
+***********************************************************************************************************************/
+if($OUTPUT = "S")
+select into $outdev
+    HospitalNPI = trim(substring(1,80,rec->qual[d1.seq].facilityNPI))
+    ,DateOfService = trim(substring(1,60,rec->qual[d1.seq].DateOfService))
+    ,FIN = trim(substring(1,80,rec->qual[d1.seq].FinNbr))
+    ,NAME  = trim(substring(1,120,rec->qual[d1.seq].PatientName))
+    ,DispenseDate = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].DispensedDate))
+;    ,AdmitDate = trim(substring(1,20,rec->qual[d1.seq].PatientAdmitDate))
+    ,PrescriberID = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].PrescribingPhysicianNPI))
+    ,NDCNumber = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].OrderNDC))
+    ,ProductName = trim(substring(1,120,rec->qual[d1.seq].oqual[d2.seq].ProductName))
+    ,QtyDispensed = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].DispensedQty))
+    ,UnitOfMeasure = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].DispensedQtyUOM))
+;    ,IngredientCost = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].Cost))
+    ,IngredientCost = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].totalcostfieldformatted))
+    ,OrderNumber = trim(substring(1,60,cnvtstring(rec->qual[d1.seq].oqual[d2.seq].OrderID)))
+    ,PatientGender = trim(substring(1,20,rec->qual[d1.seq].PatientGender))
+    ,PatientState = trim(substring(1,20,rec->qual[d1.seq].PatientState))
+    ,RelationshipCode = trim(substring(1,30,rec->qual[d1.seq].PatientRelationship))
+from
+    (dummyt d1 with seq = value(size(rec->qual,5)))
+    ,(dummyt d2 with seq=1)
+plan d1
+    where d1.seq > 0
+      and maxrec(d2,size(rec->qual[d1.seq].oqual,5))
+join d2 
+order by
+    FIN
+    ,DispenseDate
+with time=10590,format,separator="",nocounter
+elseif($OUTPUT = "F")
+;select into $outdev
+select into value(craneware_outfile)
+    HospitalNPI = trim(substring(1,80,rec->qual[d1.seq].facilityNPI))
+    ,FIN = trim(substring(1,60,rec->qual[d1.seq].FinNbr))
+;    ,DateOfService = trim(substring(1,60,rec->qual[d1.seq].DateOfService))
+    ,DateOfService = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].DispensedDate))
+    ,PrescriberID = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].PrescribingPhysicianNPI))
+    ,NDCNumber = trim(substring(1,60,rec->qual[d1.seq].oqual[d2.seq].OrderNDC))
+    ,ProductName = trim(substring(1,120,rec->qual[d1.seq].oqual[d2.seq].ProductName))
+    ,QtyDispensed = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].DispensedQty))
+    ,UnitOfMeasure = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].DispensedQtyUOM))
+;    ,IngredientCost = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].Cost))
+    ,IngredientCost = trim(substring(1,20,rec->qual[d1.seq].oqual[d2.seq].totalcostfieldformatted))
+    ,OrderNumber = trim(substring(1,60,cnvtstring(rec->qual[d1.seq].oqual[d2.seq].OrderID)))
+    ,PatientGender = trim(substring(1,20,rec->qual[d1.seq].PatientGender))
+    ,PatientState = trim(substring(1,20,rec->qual[d1.seq].PatientState))
+    ,RelationshipCode = trim(substring(1,30,rec->qual[d1.seq].PatientRelationship))
+from
+    (dummyt d1 with seq = value(size(rec->qual,5)))
+    ,(dummyt d2 with seq=1)
+plan d1
+    where d1.seq > 0
+      and maxrec(d2,size(rec->qual[d1.seq].oqual,5))
+join d2 
+
+head report
+    line0 = build("Pharmacy ID","|","Date Of Service","|","Prescriber ID Number","|","NDC Number"
+                  ,"|","Quantity Dispensed","|","Unit of Measure","|","Ingredient Cost"
+                  ,"|","Encounter ID","|","Patient Gender Code","|","Patient State","|","Relationship Code"
+                  )
+    col 0 line0
+    row+1
+    
+detail
+    line1 = build(HospitalNPI,"|",DateOfService,"|",PrescriberID,"|",NDCNumber
+                  ,"|",QtyDispensed,"|",UnitOfMeasure,"|",IngredientCost
+                  ,"|",FIN,"|",PatientGender,"|",PatientState,"|",RelationshipCode
+                  )
+    line1 = check(trim(line1,3),char(32),char(126))
+    col 0 line1
+    row+1
+    
+with nocounter
+;,nullreport;display a message in foot if there arent any messages
+,maxcol=5000
+;,format=variable
+;,separator="|"
+,time=10590
+,maxrow=0
+;,formfeed=none
+,check
+,format=undefined
+,noformfeed
+endif
+end
+go
