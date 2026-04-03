@@ -1,0 +1,131 @@
+drop program 1_amj_debug_pft_encnr go
+create program 1_amj_debug_pft_encnr
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+;declare dbg_fin       = vc with constant("203401419") ;update date 02/23/2026 which was 
+declare dbg_fin       = vc with constant("202920503")
+declare dbg_recur_seq = i4 with constant(34)
+declare dbg_encntr_id = f8 with noconstant(0.0)
+
+declare dbg_beg = dq8
+declare dbg_end = dq8
+declare dbg_has_coding = i2 with noconstant(0)
+
+
+;Step 1: Add a small debug “lookup” block to convert FIN-SEQ ? encntr_id
+select into $OUTDEV; "nl:"
+  dbg_encntr_id = ea.encntr_id
+,dbg_beg       = pe.beg_effective_dt_tm
+,dbg_end       = pe.end_effective_dt_tm
+,pe.recur_seq
+,ea.encntr_id
+,pe.encntr_id
+,e.reg_dt_tm
+,e.arrive_dt_tm
+,e.beg_effective_dt_tm
+,e.end_effective_dt_tm
+,e.disch_dt_tm
+,pft_fields = "-->"
+,pe.beg_effective_dt_tm
+,pe.end_effective_dt_tm
+,pe.updt_dt_tm
+,ea.alias
+,pe.recur_seq
+,pe.pft_encntr_alias
+,pe.pft_encntr_id
+,pe.encntr_id
+from
+  encntr_alias ea
+,pft_encntr   pe
+,encounter e
+plan ea
+  where ea.encntr_alias_type_cd = 1077;finnbr_var
+    and ea.active_ind = 1
+    and ea.alias = "205449794"
+  ;  and ea.alias = dbg_fin
+join pe
+  where pe.encntr_id = ea.encntr_id
+    and pe.recur_ind = 1
+;    and pe.recur_seq = dbg_recur_seq
+    and pe.billing_entity_id = 1641838.00
+    and pe.active_ind = 1
+join e
+where e.encntr_id = pe.encntr_id    
+order by pe.beg_effective_dt_tm,pe.end_effective_dt_tm,pe.updt_dt_tm,pe.recur_seq    
+with nocounter,format,separator = " ",format(date,"@SHORTDATETIME")
+/*
+select 
+pe.recur_seq
+,e.encntr_id
+,e.beg_effective_dt_tm
+,e.end_effective_dt_tm
+,e.arrive_dt_tm
+,e.disch_dt_tm
+,pe.beg_effective_dt_tm
+,pe.end_effective_dt_tm
+,pe.updt_dt_tm
+,pe.recur_seq
+,pe.pft_encntr_alias
+,pe.pft_encntr_id
+,pe.encntr_id
+from 
+	encounter e
+	,pft_encntr pe
+	,encntr_alias ea
+plan ea
+where 	
+plan e
+	where e.encntr_id in (  
+	 101639903.00,103183536.00)
+join pe
+	where pe.encntr_id = e.encntr_id
+	and pe.active_ind = 1
+join ea
+where ea.alias = "205330884"
+and ea.active_ind = 1
+and ea.encntr_alias_type_cd = 1077
+order by pe.beg_effective_dt_tm,pe.end_effective_dt_tm,pe.updt_dt_tm,pe.recur_seq    
+
+;call echo(build("DBG FIN=",dbg_fin,
+;                " SEQ=",cnvtstring(dbg_recur_seq),
+;                " ENCNTR_ID=",cnvtstring(dbg_encntr_id),
+;                " BEG=",format(cnvtdatetime(dbg_beg),"YYYY-MM-DD HH:MM:SS;D"),
+;                " END=",format(cnvtdatetime(dbg_end),"YYYY-MM-DD HH:MM:SS;D")))
+select 
+  ea.encntr_id
+,ea.alias
+,ea.encntr_alias_type_cd
+,ea.active_ind
+,ea.updt_dt_tm
+from encntr_alias ea
+plan ea
+  where ea.encntr_alias_type_cd = 1077
+    and ea.active_ind = 1
+    and ea.alias in
+    (
+        )
+with nocounter,format
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
