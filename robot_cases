@@ -1,0 +1,136 @@
+drop program amj_ajrr_robot_test go
+create program amj_ajrr_robot_test
+
+prompt
+    "Output to File/Printer/MINE" = "MINE"
+  , "Encounter ID" = 0
+with OUTDEV, ENCNTR_ID
+
+
+;select uar_get_code_display(ea.encntr_alias_type_cd), * from encntr_alias ea
+;plan ea
+;where ea.alias in (
+;"202285936"
+;,"205604983"
+;)
+
+declare p_encntr_id = f8 with constant(cnvtreal($ENCNTR_ID))
+
+
+
+select into $outdev
+    encntr_id         = sc.encntr_id
+  , surg_case_id      = sc.surg_case_id
+  , surg_start_dt_tm  = format(sc.surg_start_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+  , surg_stop_dt_tm   = format(sc.surg_stop_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+  , case_number       = sc.surg_case_nbr_formatted
+  , surgeon_id        = sc.surgeon_prsnl_id
+  
+  , proc_seq          = scp.sched_seq_num
+  , proc_start_dt_tm  = format(scp.proc_start_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+  , proc_stop_dt_tm   = format(scp.proc_end_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+  , proc_desc         = substring(1,250,scp.proc_text)
+  , proc_laterality   = scp.modifier
+  ,scp.*
+from
+    surgical_case sc
+  , surg_case_procedure scp
+
+plan sc
+   ; where sc.encntr_id = p_encntr_id
+   where sc.surg_start_dt_tm >= cnvtdatetime(curdate-60,curtime3)
+   and sc.surg_case_nbr_formatted in (
+   "MRMOR-2026-721","MRMOR-2026-287","MRMOR-2026-464","MRMOR-2026-548","MRMOR-2026-449"
+,"MRMOR-2026-285","MRMOR-2026-351","MRMOR-2026-730","MRMOR-2026-311","MRMOR-2026-380"
+,"MRMOR-2026-475","MRMOR-2026-448","MRMOR-2026-780")
+ ;   where sc.encntr_id  in (105549768.00,  113698056.00)
+    and sc.active_ind = 1
+
+join scp
+    where scp.surg_case_id = sc.surg_case_id
+    and scp.active_ind = 1
+;    and scp.active_ind = 1
+    and (
+           operator(cnvtupper(trim(scp.proc_text,3)), "REGEXPLIKE", "ROBOT[ ]*ASSIST")
+        or operator(cnvtupper(trim(scp.proc_text,3)), "REGEXPLIKE", "MAKO")
+        or 1 = 1
+    )
+
+order by
+    sc.surg_case_id
+;  , scp.sched_seq_num
+
+with nocounter, format, separator = " "
+
+;select into $outdev
+;    encntr_id             = pr.encntr_id
+;  , procedure_id          = pr.procedure_id
+;  , proc_dt_tm            = format(pr.proc_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+;  , proc_start_dt_tm      = format(pr.proc_start_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+;  , nomenclature_id       = pr.nomenclature_id
+;;  , source_vocab          = uar_get_code_display(n.source_vocabulary_cd)
+;;  , source_identifier     = n.source_identifier
+;;  , source_identifier_key = n.source_identifier_keycap
+;;  , proc_name             = substring(1,200,n.source_string)
+;;  , proc_name_key         = substring(1,200,n.source_string_keycap)
+;from
+;    procedure pr
+;;  , nomenclature n
+;plan pr
+;   ; where pr.encntr_id = p_encntr_id
+;    where pr.encntr_id in (
+;      105549768.00
+;,  113698056.00
+;
+;    )
+;    and pr.active_ind = 1
+;    and pr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+;;join n
+;;    where n.nomenclature_id = pr.nomenclature_id
+;;    and n.active_ind = 1
+;;    and n.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+;;;    and (
+;;;           operator(cnvtupper(trim(n.source_string_keycap,3)), "REGEXPLIKE", "ROBOT[ ]*ASSIST")
+;;;        or operator(cnvtupper(trim(n.source_string_keycap,3)), "REGEXPLIKE", "MAKO")
+;;;    )
+;order by
+;    pr.proc_dt_tm
+;  , pr.procedure_id
+;with nocounter, format, separator = " "
+
+;select into $outdev
+;    encntr_id            = o.encntr_id
+;  , order_id             = o.order_id
+;  , catalog_cd           = o.catalog_cd
+;  , catalog_disp         = uar_get_code_display(o.catalog_cd)
+;  , order_mnemonic       = substring(1,200,o.order_mnemonic)
+;  , activity_type        = uar_get_code_display(o.activity_type_cd)
+;  , current_start_dt_tm  = format(o.current_start_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+;  , detail_meaning       = od.oe_field_meaning
+;  , detail_display_value = substring(1,250,od.oe_field_display_value)
+;from
+;    orders o
+;  , order_detail od
+;plan o
+;    where o.encntr_id = p_encntr_id
+;    and o.active_ind = 1
+;join od
+;    where od.order_id = o.order_id
+;    and od.action_sequence = (
+;        select max(action_sequence)
+;        from order_detail
+;        where order_id = od.order_id
+;        and oe_field_meaning_id = od.oe_field_meaning_id
+;    )
+;    and (
+;           operator(cnvtupper(trim(od.oe_field_display_value,3)), "REGEXPLIKE", "MAKO")
+;        or operator(cnvtupper(trim(od.oe_field_display_value,3)), "REGEXPLIKE", "ROBOT[ ]*ASSIST")
+;        or operator(cnvtupper(trim(od.oe_field_meaning,3)), "REGEXPLIKE", "FREE|TEXT|PROC")
+;    )
+;order by
+;    o.order_id
+;  , od.oe_field_meaning
+;with nocounter, format, separator = " "
+
+end
+go
