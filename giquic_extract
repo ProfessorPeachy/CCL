@@ -1,0 +1,1402 @@
+drop program 1_giquic_extract go
+create program 1_giquic_extract
+
+ prompt 
+	"Output to File/Printer/MINE" = "MINE"                               ;* Enter or select the printer or file name to send this 
+	, "Begin Date:" = "SYSDATE"
+	, "Ending Date:" = "SYSDATE"
+	, "Provider ID (NPI):" = "1992707772"
+	, "GIQuIC Site ID:" = "1061"
+	, "EP CKI Identifier - Procedure Note" = "EPR PROC GI COLONOSCOPY"
+	, "DEBUG (0/1)" = 1 
+
+with OUTDEV, SDT, EDT, NPI, FAC_ID, EP_CKI_IDENTIFIER, DEBUG
+ 
+ 
+;        "Output to File/Printer/MINE" = "MINE"
+;        , "Begin Date:" = CURDATE
+;        , "Ending Date" = CURDATE
+;        , "Provider ID (NPI):" = "1992707772"
+;        , "GIQuIC Site ID:" = "1061"
+;        , "EP CKI Identifier - Procedure Note" = "EPR PROC GI COLONOSCOPY"
+;        , "DEBUG (0/1)" = 1
+; 
+;with OUTDEV, SDT, EDT, NPI, FAC_ID, EP_CKI_IDENTIFIER, DEBUG 
+ 
+;***************************************************************
+; Copy this section for each Code Value / CKI pair to be updated
+;update into code_value
+;set cki = "CKI.EC!16260"
+;where code_value = 1335961935
+;*************************************************************** 
+ 
+ /*** DECLARATIONS ***/
+ ;main extract file
+ DECLARE file_name = vc WITH protect ,constant (trim (cnvtlower (build2 ("giquic_" ,trim (format (
+       cnvtdatetime ( $SDT ) ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_to_" ,trim (format (cnvtdatetime ( $EDT )
+       ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_" ,trim ( $FAC_ID ,3 ) ,"_" ,trim ( $NPI ,3 ) ,"_extract.txt" )
+        ) ,3 ) )
+        
+ call echo(file_name)
+call echo("test")
+ 
+ DECLARE npi_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!2160654021" ) )
+ DECLARE temp_string = vc WITH protect ,noconstant (" " )
+ DECLARE progress_note_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPALYKEY" ,72 ,"PHYSICIANPROGRESSNOTES" ) )
+ DECLARE auth_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!2628" ) )
+ DECLARE err_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!7982" ) )
+ DECLARE mod_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!2636" ) )
+ DECLARE alter_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!16901" ) )
+ DECLARE male_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!2773" ) )
+ DECLARE female_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!2774" ) )
+ DECLARE story_signed_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!13768" ))
+ DECLARE doc_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!13763" ) )
+ DECLARE enctr_pathway_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!11707" ))
+DECLARE sdt = dq8 WITH protect ,noconstant (cnvtdatetime ( $SDT ) )
+ DECLARE edt = dq8 WITH protect ,noconstant (cnvtdatetime ( $EDT ) )
+ DECLARE debug = i4 WITH protect, noconstant ($DEBUG)
+ DECLARE num = i4 WITH protect ,noconstant (0 )
+ DECLARE idx = i4 WITH protect ,noconstant (0 )
+ DECLARE eol = vc WITH protect ,constant (build2 ("||" ,char (13 ) ) )
+ DECLARE home_address_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!4018" ) )
+ DECLARE mrn_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!8021" ) )
+ DECLARE pt_type_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!3958" ) )
+ DECLARE pt_race1_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!3947" ) )
+ DECLARE gi_lab_type_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16260" ) )
+ DECLARE gi_lab_type_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16261" ) )
+ DECLARE gi_lab_type_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16262" ) )
+ DECLARE proc_date_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16263" ) )
+ DECLARE endo_proc_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16264" ) )
+ DECLARE hist_phys_document_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16265" ) )
+ DECLARE consent_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16266" ) )
+ DECLARE asa_cat_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15044" ) )
+ DECLARE asa_cat_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15045" ) )
+ DECLARE asa_cat_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15046" ) )
+ DECLARE asa_cat_cd4 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15047" ) )
+ DECLARE asa_cat_cd5 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15048" ) )
+ DECLARE asa_cat_cd6 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!15050" ) )
+ DECLARE disch_instr_written_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16267" ) )
+ DECLARE disch_inst_diet_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16268" ) )
+ DECLARE disch_inst_meds_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16269" ) )
+ DECLARE disch_inst_meds_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16270" ) )
+ DECLARE disch_inst_activity_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16271" ) )
+ DECLARE disch_inst_complic_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16272" ) )
+ DECLARE disch_inst_contact_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16273" ) )
+ DECLARE anticoag_tx_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16274" ) )
+ DECLARE anticoag_tx_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16275" ) )
+ DECLARE colon_type_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16276" ) )
+ DECLARE colon_type_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16277" ) )
+ DECLARE colon_type_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16278" ) )
+ DECLARE yr_prev_colon_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16279" ) )
+ DECLARE gi_prep_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16280" ) )
+ DECLARE gi_prep_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16281" ) )
+ DECLARE colon_ind1_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16282" ) )
+ DECLARE colon_ind2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16283" ) )
+ DECLARE colon_ind3_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16284" ) )
+ DECLARE colon_ind16_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16285" ) )
+ DECLARE colon_ind5_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16286" ) )
+ DECLARE colon_ind6_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16287" ) )
+ DECLARE colon_ind7_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16288" ) )
+ DECLARE colon_ind8_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16289" ) )
+ DECLARE colon_ind9_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16290" ) )
+ DECLARE colon_ind10_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16291" ) )
+ DECLARE colon_ind11_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16292" ) )
+ DECLARE colon_ind12_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16293" ) )
+ DECLARE colon_ind13_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16294" ) )
+ DECLARE colon_ind14_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16295" ) )
+ DECLARE colon_ind15_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16296" ) )
+ DECLARE cecal_landmark_2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16297" ) )
+ DECLARE cecal_landmark_4_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16298" ) )
+ DECLARE cecal_landmark_6_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16299" ) )
+ DECLARE risk_assess_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16300" ) )
+ DECLARE risk_assess_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16301" ) )
+ DECLARE risk_assess_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16302" ) )
+ DECLARE cchrisk1_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16327" ) )
+ DECLARE cchrisk1_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16328" ) )
+ DECLARE cchrisk2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16329" ) )
+ DECLARE cchrisk3_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16330" ) )
+ DECLARE cchrisk4_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16331" ) )
+ DECLARE cchrisk7_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16332" ) )
+ DECLARE cchrisk7_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16333" ) )
+ DECLARE cchrisk8_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16334" ) )
+ DECLARE cchrisk8_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16335" ) )
+ DECLARE cchrisk9_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16336" ) )
+ DECLARE cchrisk10_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16337" ) )
+ DECLARE duration_tocecum_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16303" ) )
+ DECLARE duration_withdrawal_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16304" ) )
+ DECLARE pathology_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16305" ) )
+ DECLARE fu_interval_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16306" ) )
+ DECLARE fu_interval_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16307" ) )
+ DECLARE fu_interval_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16308" ) )
+ DECLARE fu_interval_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16309" ) )
+ DECLARE fu_interval_cd4 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16310" ) )
+ DECLARE fu_interval_cd5 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16311" ) )
+ DECLARE fu_interval_cd6 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16312" ) )
+ DECLARE fu_interval_cd7 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16313" ) )
+ DECLARE fu_interval_cd8 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16314" ) )
+ DECLARE fu_interval_cd9 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16315" ) )
+ DECLARE fu_interval_cd10 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16316" ) )
+ DECLARE compl0_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16317" ) )
+ DECLARE compl1_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16318" ) )
+ DECLARE compl2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16319" ) )
+ DECLARE compl3_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16320" ) )
+ DECLARE compl4_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16321" ) )
+ DECLARE compl5_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16322" ) )
+ DECLARE compl6_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16323" ) )
+ DECLARE compl7_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16324" ) )
+ DECLARE fellow_perform_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16325" ) )
+ DECLARE colon_ind17_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16326" ) )
+ DECLARE cchrisk11_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16338" ) )
+ DECLARE cchrisk11_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16339" ) )
+ DECLARE cchrisk12_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16340" ) )
+ DECLARE cchrisk12_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16341" ) )
+ DECLARE cchrisk13_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16342" ) )
+ DECLARE cchrisk13_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.EC!16343" ) )
+ DECLARE pt_race4_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!3951" ) )
+ DECLARE pt_race5_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"ASIAN" ) )
+ DECLARE pt_race6_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!3948" ) )
+ DECLARE pt_race7_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"OTHER" ) )
+ DECLARE pt_race2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!3949" ) )
+ DECLARE pt_race8_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"DECLINED" ) )
+ DECLARE pt_race9_cd = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"UNKNOWN" ) )
+ DECLARE pt_raceei = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"EASTERNINDIAN") )
+ DECLARE pt_raceh = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"HISPANIC" ) )
+ DECLARE pt_raceme = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"MIDDLEEAST" ) )
+ DECLARE pt_racemr = f8 WITH protect ,constant (uar_get_code_by ("DISPLAYKEY" ,282 ,"MULTIRACIAL" ))
+ DECLARE dcp_gen_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!1302386" ) )
+  ; Pathology Results
+ DECLARE adenom_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC067" ) )
+ DECLARE adpolyp1_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC068" ) )
+ DECLARE adpolyp2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC069" ) )
+ DECLARE adpolyp3_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC070" ) )
+ DECLARE hyperplastic_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC071" ) )
+ DECLARE adenocarcinoma_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC072" ) )
+ DECLARE pathology_other_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC074" ) )
+ DECLARE serrated_lesions_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC099" ) )
+ DECLARE serrated_lesion1_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC100" ) )
+ DECLARE serrated_lesion2_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.GIQUIC101" ) )
+  ; Pathology Follow-Up Note
+ DECLARE proc_date_path_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288425" ) )
+ DECLARE fu_interval_path_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288429" ) )
+ DECLARE fu_interval_path_cd1 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288433" ) )
+ DECLARE fu_interval_path_cd2 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288437" ) )
+ DECLARE fu_interval_path_cd3 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288441" ) )
+ DECLARE fu_interval_path_cd4 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288445" ) )
+ DECLARE fu_interval_path_cd5 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288449" ) )
+ DECLARE fu_interval_path_cd6 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288453" ) )
+ DECLARE fu_interval_path_cd7 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288457" ) )
+ DECLARE fu_interval_path_cd8 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288461" ) )
+ DECLARE fu_interval_path_cd9 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288465" ) )
+ DECLARE fu_interval_path_cd10 = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!563288469" ) )
+ DECLARE normal_rpt = i4 WITH protect ,noconstant (0 )
+ DECLARE exception_rpt = i4 WITH protect ,noconstant (0 )
+ DECLARE exception_rpt2 = i4 WITH protect ,noconstant (0 )
+ DECLARE ifrom_ops_ind = i2 WITH protect ,noconstant (0 )
+ DECLARE compressed_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!5098" ) )
+ DECLARE uncompressed_cd = f8 WITH protect ,constant (uar_get_code_by_cki ("CKI.CODEVALUE!5100" ) )
+ DECLARE tblobin = c32000
+ DECLARE tblobout = c32000
+ DECLARE blobin = c32000
+ DECLARE blobout = c32000
+ DECLARE rtf_string = c32000
+ DECLARE clean_ccluserdir (null ) = null WITH public
+ DECLARE set_provider (null ) = null WITH public
+ 
+ SUBROUTINE  decompress_text (tblobin )
+  SET tblobout = fillstring (32000 ," " )
+  SET blobout = fillstring (32000 ," " )
+  SET outbufmaxsiz = 0
+  SET blobin = trim (tblobin )
+  CALL uar_ocf_uncompress (blobin ,size (blobin ) ,blobout ,size (blobout ) ,outbufmaxsiz )
+  SET tblobout = blobout
+  SET tblobin = fillstring (32000 ," " )
+  SET blobin = fillstring (32000 ," " )
+ END ;Subroutine
+ 
+ IF ((validate (request->batch_selection ) = 1 ) )
+  SET ifrom_ops_ind = 1
+ ENDIF
+  RECORD rec (
+   1 phys_id_npi = vc
+   1 phy_name = vc
+   1 phy_id = f8
+   1 enc [* ]
+     2 enc_id = f8
+     2 person_id = f8
+     2 mrn = vc
+     2 pt_type = vc
+     2 pt_zip_code = vc
+     2 pt_dob = dq8
+     2 pt_gender = vc
+     2 pt_race1 = vc
+     2 pt_race4 = vc
+     2 pt_race5 = vc
+     2 pt_race6 = vc
+     2 pt_race7 = vc
+     2 pt_race2 = vc
+     2 pt_race8 = vc
+     2 pt_race9 = vc
+     2 pt_height = vc
+     2 pt_weight = vc
+     2 facility_id = vc
+     2 pn_cnt = i4
+     2 qual_pn [* ]
+       3 story_id = f8
+       3 story_title = vc
+       3 story_author_id = f8
+       3 clinical_event_id = f8
+       3 event_id = f8
+       3 signature_dt = dq8
+       3 agree = vc
+       3 record_type = vc
+       3 dm_id = vc
+       3 gi_lab_type = vc
+       3 teach_status = vc
+       3 proc_date = vc
+       3 endo_proc = vc
+       3 hist_phys_document = vc
+       3 consent = vc
+       3 asa_cat = vc
+       3 disch_instr_written = vc
+       3 disch_inst_diet = vc
+       3 disch_inst_meds = vc
+       3 disch_inst_activity = vc
+       3 disch_inst_complic = vc
+       3 disch_inst_contact = vc
+       3 anticoag_tx = vc
+       3 colon_type = vc
+       3 colon_type1 = vc
+       3 colon_type2 = vc
+       3 colon_type3 = vc
+       3 yr_prev_colon = vc
+       3 gi_prep = vc
+       3 colon_ind1 = vc
+       3 colon_ind2 = vc
+       3 colon_ind3 = vc
+       3 colon_ind16 = vc
+       3 colon_ind5 = vc
+       3 colon_ind6 = vc
+       3 colon_ind7 = vc
+       3 colon_ind8 = vc
+       3 colon_ind9 = vc
+       3 colon_ind10 = vc
+       3 colon_ind11 = vc
+       3 colon_ind12 = vc
+       3 colon_ind13 = vc
+       3 colon_ind14 = vc
+       3 colon_ind15 = vc
+       3 colon_ind_text = vc
+       3 cecal_landmark_2 = vc
+       3 cecal_landmark_4 = vc
+       3 cecal_landmark_6 = vc
+       3 risk_assess = vc
+       3 cchrisk1 = vc
+       3 cchrisk2 = vc
+       3 cchrisk3 = vc
+       3 cchrisk4 = vc
+       3 cchrisk7 = vc
+       3 cchrisk8 = vc
+       3 cchrisk9 = vc
+       3 cchrisk10 = vc
+       3 polyp_removed_num = vc
+       3 polyp_partial_num = vc
+       3 polyp_retrieved_num = vc
+       3 polyp_morph_desc = vc
+       3 polyp_size_desc = vc
+       3 duration_tocecum = vc
+       3 duration_withdrawal = vc
+       3 pathology = vc
+       3 path_adenom_polyp = vc
+       3 path_adpolyp1 = vc
+       3 path_adpolyp2 = vc
+       3 path_adpolyp3 = vc
+       3 path_hyperpl_polyp = vc
+       3 path_adenocar = vc
+       3 path_other = vc
+       3 path_other_text = vc
+       3 fu_interval = vc
+       3 fu_interval_cdbp = vc
+       3 compl0 = vc
+       3 compl1 = vc
+       3 compl2 = vc
+       3 compl3 = vc
+       3 compl4 = vc
+       3 compl5 = vc
+       3 compl_text = vc
+       3 compl6 = vc
+       3 compl7 = vc
+       3 fellow_id = vc
+       3 fellow_perform = vc
+       3 fellow_year = vc
+       3 specialty = vc
+       3 pt_insurance = vc
+       3 pt_ins_other = vc
+       3 sedation = vc
+       3 sedatedby = vc
+       3 colon_ind17 = vc
+       3 cchrisk11 = vc
+       3 cchrisk12 = vc
+       3 cchrisk13 = vc
+       3 interval_other_text = vc
+       3 path_serrated = vc
+       3 path_sslesion1 = vc
+       3 path_sslesion2 = vc
+       3 pt_ethnic = vc
+     2 pf_cnt = i4
+     2 pf_multiple_error = i2 ;TODO appears to be unused in the program
+     2 pn_multiple_error = i2 ;TODO appears to be unused in the program
+     2 pn_element_66_error = i2 ;TODO appears to be unused in the program
+ 
+ )
+ 
+ SUBROUTINE  clean_ccluserdir (null )
+  DECLARE cmd = vc WITH protect ,noconstant (" " )
+  DECLARE dir_path = vc WITH constant (build2 ("/cerner/d_" ,trim (cnvtlower (currdbname ),3 ),"/ccluserdir" ) )
+  SET cmd = concat ("find " ,dir_path ,' -name "giquic_*_to_*_extract.csv"' , " -mtime +14 -exec rm -r {} +" )
+  CALL dcl (cmd ,size (trim (cmd ) ) ,0 )
+ END ;Subroutine
+ 
+ SUBROUTINE  set_provider (null )
+  SELECT INTO "proc:"
+   FROM (prsnl_alias pa ),
+    (prsnl pr )
+   PLAN (pa
+    WHERE (pa.alias =  $NPI )
+     AND (pa.prsnl_alias_type_cd = npi_cd )
+     AND (pa.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+     AND (pa.end_effective_dt_tm > cnvtdatetime (curdate ,curtime3 ) ) )
+    JOIN (pr
+    WHERE (pr.person_id = pa.person_id ) AND (pr.logical_domain_id = 0.00 ) )
+   HEAD pa.person_id
+    rec->phy_id = pa.person_id ,rec->phys_id_npi = pa.alias ,rec->phy_name = pr.name_full_formatted
+   WITH nocounter
+ END
+ CALL set_provider (null )
+ 
+ SUBROUTINE  get_path_results (parentid ,eidx, qidx)
+ SELECT INTO "proc:"
+ FROM
+  clinical_event ce
+ WHERE (ce.encntr_id = rec->enc[eidx ].enc_id)
+ 	AND (ce.parent_event_id = parentid) ;e.g. 801856457 in C137
+    AND (ce.parent_event_id != ce.event_id )
+    AND (ce.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+    AND (ce.publish_flag = 1 )
+    AND (ce.view_level = 1 )
+    AND (ce.result_status_cd IN (auth_cd , mod_cd , alter_cd ) )
+        AND (ce.event_cd IN (
+           adenom_cd ,
+           adpolyp1_cd ,
+           adpolyp2_cd ,
+           adpolyp3_cd ,
+           adenocarcinoma_cd ,
+           serrated_lesions_cd ,
+           serrated_lesion1_cd ,
+           serrated_lesion2_cd ,
+           hyperplastic_cd ,
+           pathology_other_cd,
+           fu_interval_path_cd,
+           fu_interval_path_cd1,
+           fu_interval_path_cd2,
+           fu_interval_path_cd3,
+           fu_interval_path_cd4,
+           fu_interval_path_cd5,
+           fu_interval_path_cd6,
+           fu_interval_path_cd7,
+           fu_interval_path_cd8,
+           fu_interval_path_cd9,
+           fu_interval_path_cd10 ) )
+  ORDER BY
+   ce.encntr_id ,
+   ce.updt_dt_tm ,
+   ce.event_id
+  HEAD REPORT
+   ecnt = 0
+  HEAD ce.event_id
+   IF (debug = 1)
+    call echo(build("DEBUG: get_path_results(): event_id=" ,ce.event_id))
+   ENDIF ,
+   CASE (ce.event_cd)
+    OF adenom_cd : 				; field 67
+     rec->enc[eidx ].qual_pn[qidx ].path_adenom_polyp = "1"
+    OF adpolyp1_cd :			; field 68
+      rec->enc[eidx ].qual_pn[qidx ].path_adpolyp1 = "1"
+    OF adpolyp2_cd :			; field 69
+      rec->enc[eidx ].qual_pn[qidx ].path_adpolyp2 = "1"
+    OF adpolyp3_cd :			; field 70
+      rec->enc[eidx ].qual_pn[qidx ].path_adpolyp3 = "1"
+    OF hyperplastic_cd :		; field 71
+      rec->enc[eidx ].qual_pn[qidx ].path_hyperpl_polyp = "1"
+    OF adenocarcinoma_cd :		; field 72
+      rec->enc[eidx ].qual_pn[qidx ].path_adenocar = "1"
+    OF pathology_other_cd :		; field 73, 74
+      rec->enc[eidx ].qual_pn[qidx ].path_other = "1"
+      rec->enc[eidx ].qual_pn[qidx ].path_other_text = substring (1 ,75 ,ce.result_val )
+      IF (debug = 1)
+      	call echo(build("DEBUG: get_path_results(): path_other_text =", rec->enc[eidx ].qual_pn[qidx ].path_other_text ) )
+      ENDIF
+    OF serrated_lesions_cd :	; field 99
+      rec->enc[eidx ].qual_pn[qidx ].path_serrated = "1"
+    OF serrated_lesion1_cd :	; field 100
+      rec->enc[eidx ].qual_pn[qidx ].path_sslesion1 = "1"
+    OF serrated_lesion2_cd :	; field 101
+      rec->enc[eidx ].qual_pn[qidx ].path_sslesion2 = "1"
+    OF fu_interval_path_cd :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "0"
+    OF fu_interval_path_cd1 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "1"
+    OF fu_interval_path_cd2 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "2"
+    OF fu_interval_path_cd3 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "3"
+    OF fu_interval_path_cd4 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "4"
+    OF fu_interval_path_cd5 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "5"
+    OF fu_interval_path_cd6 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "6"
+    OF fu_interval_path_cd7 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "7"
+    OF fu_interval_path_cd8 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "8"
+    OF fu_interval_path_cd9 :
+     rec->enc[eidx ].qual_pn[qidx ].fu_interval = "9"
+    OF fu_interval_path_cd10 :
+      rec->enc[eidx ].qual_pn[qidx ].fu_interval = "10"
+      rec->enc[eidx ].qual_pn[qidx ].interval_other_text = substring (1 ,50 ,ce.result_val )
+      IF (debug = 1)
+       call echo(build("DEBUG: get_path_results(): interval_other_text =",rec->enc[eidx ].qual_pn[qidx ].interval_other_text ) )
+      ENDIF
+    ENDCASE
+  FOOT  ce.event_id
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_adenocar != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_adenocar = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_adenom_polyp != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_adenom_polyp = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_adpolyp1 != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_adpolyp1 = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_adpolyp2 != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_adpolyp2 = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_adpolyp3 != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_adpolyp3 = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_hyperpl_polyp != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_hyperpl_polyp = " "
+   ENDIF
+   IF ((rec->enc[eidx ].qual_pn[qidx ].path_other != "1") )
+    rec->enc[eidx ].qual_pn[qidx ].path_other = " "
+   ENDIF
+  WITH nocounter
+
+  IF ((size (rec->enc ,5 ) = 0 ) )
+   GO TO exit_script
+  ENDIF
+  
+  
+ END ;subroutine
+ 
+ 
+
+ 
+;;;;*** PROCEDURE NOTE QUERY ***
+ SELECT INTO "proc:"
+  FROM
+   (scr_pattern sp ),	; Procedure EP
+   (scd_story_pattern ssp ),	; Procedure Note
+   (scd_story ss ),		; Procedure Note
+   (clinical_event ce ),
+   (clinical_event ce1 ),
+   (encounter e ),
+   (person p ),
+   (encntr_alias ea ),
+   (address a ),
+   (clinical_event ce2 ),
+   (ce_date_result ced ),
+   (ce_blob cb )
+  PLAN (sp
+   WHERE (sp.pattern_type_cd = enctr_pathway_cd )
+    AND (sp.cki_identifier = $EP_CKI_IDENTIFIER )		; Procedure EP
+   JOIN (ssp											; Procedure EP
+   WHERE (ssp.scr_pattern_id = sp.scr_pattern_id )
+    AND (ssp.pattern_type_cd = enctr_pathway_cd ) )
+   JOIN (ss												; Procedure Note
+   WHERE (ss.scd_story_id = ssp.scd_story_id )
+    AND (ss.author_id = rec->phy_id )
+    AND (ss.updt_dt_tm BETWEEN cnvtdatetime (sdt ) AND cnvtdatetime (cnvtdate (edt ) ,235959 ) ) )
+   JOIN (ce ;clinical event of the note type used to sign the note
+   WHERE (ce.event_id = ss.event_id )
+   	;AND (ce.updt_dt_tm BETWEEN cnvtdatetime (sdt ) AND cnvtdatetime (cnvtdate (edt ) ,235959 ) )
+   	AND (ce.result_status_cd IN (auth_cd , mod_cd , alter_cd ) )
+   	AND (ce.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+   	AND (ce.publish_flag = 1 )
+   	AND (ce.view_level = 1 ) )
+   JOIN (ce1 ;parent clinical event of this note
+   WHERE (ce1.parent_event_id = ce.event_id )
+    AND (ce.updt_dt_tm BETWEEN cnvtdatetime (sdt ) AND cnvtdatetime (cnvtdate (edt ) ,235959 ) )
+    AND (ce1.parent_event_id != ce1.event_id )
+    AND (ce1.result_status_cd IN (auth_cd , mod_cd , alter_cd ) )
+    AND (ce1.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+    AND (ce1.publish_flag = 1 )
+    AND (ce1.view_level = 1 ) )
+   JOIN (e
+   WHERE (e.encntr_id = ce.encntr_id )
+    AND (e.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3) )
+    AND (e.active_ind = 1 ) )
+   JOIN (p
+   WHERE (p.person_id = e.person_id )
+    AND (p.sex_cd IN (male_cd , female_cd ) ) )
+   JOIN (ea
+   WHERE (ea.encntr_id = e.encntr_id )
+    AND (ea.encntr_alias_type_cd = mrn_cd )
+    AND (ea.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3 ) ) )
+   JOIN (a
+   WHERE (a.parent_entity_id = p.person_id )
+    AND (a.parent_entity_name = "PERSON" )
+    AND (a.active_ind = 1 )
+    AND (a.end_effective_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+    AND (a.address_type_cd = home_address_cd )
+    AND (a.address_type_seq = 1 ) )
+   JOIN (ce2
+   WHERE (ce2.parent_event_id = ce1.event_id )
+    AND (ce.updt_dt_tm BETWEEN cnvtdatetime (sdt ) AND cnvtdatetime (cnvtdate (edt ) ,235959 ) )
+    AND (ce2.result_status_cd IN (auth_cd , mod_cd , alter_cd ) )
+    AND (ce2.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+    AND (ce2.publish_flag = 1 )
+    AND (ce2.view_level = 1 )
+    AND (ce2.event_cd IN (
+       gi_lab_type_cd1 ,
+           gi_lab_type_cd2 ,
+           gi_lab_type_cd3 ,
+           proc_date_cd ,
+           endo_proc_cd ,
+           hist_phys_document_cd ,
+           consent_cd1 ,
+           asa_cat_cd1 ,
+           asa_cat_cd2 ,
+           asa_cat_cd3 ,
+           asa_cat_cd4 ,
+           asa_cat_cd5 ,
+           asa_cat_cd6 ,
+           disch_instr_written_cd ,
+           disch_inst_diet_cd ,
+           disch_inst_meds_cd1 ,
+           disch_inst_meds_cd2 ,
+           disch_inst_activity_cd ,
+           disch_inst_complic_cd ,
+           disch_inst_contact_cd ,
+           anticoag_tx_cd1 ,
+           anticoag_tx_cd2 ,
+           colon_type_cd1 ,
+           colon_type_cd2 ,
+           colon_type_cd3 ,
+           yr_prev_colon_cd ,
+           gi_prep_cd1 ,
+           gi_prep_cd2 ,
+           colon_ind1_cd ,
+           colon_ind2_cd ,
+           colon_ind3_cd ,
+           colon_ind16_cd ,
+           colon_ind5_cd ,
+           colon_ind6_cd ,
+           colon_ind7_cd ,
+           colon_ind8_cd ,
+           colon_ind9_cd ,
+           colon_ind10_cd ,
+           colon_ind11_cd ,
+           colon_ind12_cd ,
+           colon_ind13_cd ,
+           colon_ind14_cd ,
+           colon_ind15_cd ,
+           cecal_landmark_2_cd ,
+           cecal_landmark_4_cd ,
+           cecal_landmark_6_cd ,
+           risk_assess_cd1 ,
+           risk_assess_cd2 ,
+           risk_assess_cd3 ,
+           cchrisk1_cd1 ,
+           cchrisk1_cd2 ,
+           cchrisk2_cd ,
+           cchrisk3_cd ,
+           cchrisk4_cd ,
+           cchrisk7_cd1 ,
+           cchrisk7_cd2 ,
+           cchrisk8_cd1 ,
+           cchrisk8_cd2 ,
+           cchrisk9_cd ,
+           cchrisk10_cd ,
+           duration_tocecum_cd ,
+           duration_withdrawal_cd ,
+           pathology_cd ,
+           fu_interval_cd ,
+           fu_interval_cd1 ,
+           fu_interval_cd2 ,
+           fu_interval_cd3 ,
+           fu_interval_cd4 ,
+           fu_interval_cd5 ,
+           fu_interval_cd6 ,
+           fu_interval_cd7 ,
+           fu_interval_cd8 ,
+           fu_interval_cd9 ,
+           fu_interval_cd10 ,
+           compl0_cd ,
+           compl1_cd ,
+           compl2_cd ,
+           compl3_cd ,
+           compl4_cd ,
+           compl5_cd ,
+           compl6_cd ,
+           compl7_cd ,
+           fellow_perform_cd ,
+           colon_ind17_cd ,
+           cchrisk11_cd1 ,
+           cchrisk11_cd2 ,
+           cchrisk12_cd1 ,
+           cchrisk12_cd2 ,
+           cchrisk13_cd1 ,
+           cchrisk13_cd2
+           ) ) )
+   JOIN (ced
+   WHERE (ced.event_id = outerjoin (ce2.event_id ) )
+    AND (ced.valid_until_dt_tm >= outerjoin (cnvtdatetime (curdate ,curtime3 ) ) ) )
+   JOIN (cb
+   WHERE (cb.event_id = outerjoin (ce2.event_id ) )
+    AND (cb.valid_until_dt_tm >= outerjoin (cnvtdatetime (curdate ,curtime3 ) ) ) ) )
+  ORDER BY ce.encntr_id ,
+   ce.updt_dt_tm ,
+   ce.event_id ,
+   ce2.event_cd ,
+   ce2.updt_dt_tm ,
+   ce2.event_id
+  HEAD REPORT
+   ecnt = 0 ,
+   qcnt = 0
+  HEAD ce.encntr_id
+   ecnt = (ecnt + 1 ) ,
+   IF ((mod (ecnt ,100 ) = 1 ) ) stat = alterlist (rec->enc ,(ecnt + 99 ) )
+   ENDIF
+   ,
+   CALL echo (build2 ("count = " ,ecnt ) ) ,
+    rec->enc[ecnt ].enc_id = ce.encntr_id ,rec->enc[ecnt ].person_id = ce.person_id ,
+    rec->enc[ecnt ].mrn = build2 (
+     trim (replace (uar_get_code_display (ea.alias_pool_cd ) ,"_MRN" ,"-" ) ,3 ) ,ea.alias ) ,
+   IF ((e.encntr_type_cd = pt_type_cd ) )
+    rec->enc[ecnt ].pt_type = "1"
+   ELSE
+    rec->enc[ecnt ].pt_type = "2"
+   ENDIF
+   ,rec->enc[ecnt ].pt_zip_code = substring (1 ,5 ,trim (a.zipcode ,3 ) )
+   ,rec->enc[ecnt ].pt_dob = p.birth_dt_tm
+   ,
+   IF ((p.sex_cd = male_cd ) ) rec->enc[ecnt ].pt_gender = "0"
+   ELSE rec->enc[ecnt ].pt_gender = "1"
+   ENDIF
+   ,
+   IF ((p.race_cd = pt_race1_cd ) ) rec->enc[ecnt ].pt_race1 = "1"
+   ELSEIF ((p.race_cd = pt_race4_cd ) ) rec->enc[ecnt ].pt_race4 = "1"
+   ELSEIF ((p.race_cd = pt_race5_cd ) ) rec->enc[ecnt ].pt_race5 = "1"
+   ELSEIF ((p.race_cd = pt_race6_cd ) ) rec->enc[ecnt ].pt_race6 = "1"
+   ELSEIF ((p.race_cd = pt_race2_cd ) ) rec->enc[ecnt ].pt_race2 = "1"
+   ELSEIF ((p.race_cd = pt_race8_cd ) ) rec->enc[ecnt ].pt_race8 = "1"
+   ELSEIF ((p.race_cd IN (pt_race7_cd ,
+   pt_raceei ,
+   pt_raceh ,
+   pt_raceme ,
+   pt_racemr ) ) ) rec->enc[ecnt ].pt_race7 = "1"
+   ELSEIF ((p.race_cd = pt_race9_cd ) ) rec->enc[ecnt ].pt_race9 = "1"
+   ELSE rec->enc[ecnt ].pt_race7 = "1"
+   ENDIF
+   ,rec->enc[ecnt ].facility_id = trim ( $FAC_ID ,3 ) ,qcnt = 0
+  HEAD ce.event_id
+   qcnt = (qcnt + 1 ) ,
+   IF ((mod (qcnt ,100 ) = 1 ) ) stat = alterlist (rec->enc[ecnt ].qual_pn ,(qcnt + 99 ) )
+   ENDIF
+   ,rec->enc[ecnt ].pn_cnt = qcnt
+   ,rec->enc[ecnt ].qual_pn[qcnt ].story_id = ss.scd_story_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].story_title = ce.event_title_text
+   ,rec->enc[ecnt ].qual_pn[qcnt ].story_author_id = ss.author_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].clinical_event_id = ce.clinical_event_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].event_id = ce.event_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].signature_dt = ce.updt_dt_tm
+   ,
+   ;MOD002 Update so that the record_type = 2 only when the record is "ready" to submit to GIQUIC...
+   ; 1. if no specimens were documented, the record is "ready" (2)
+   ; 2. if specimens were documented, and the pathology results were documented, the record is "ready" (2)
+   ; 3. if specimens were documented, but no pathology results were documented, the record is NOT "ready" (1)
+  
+  ;; IF ((ce.result_status_cd = auth_cd ) ) rec->enc[ecnt ].qual_pn[qcnt ].record_type = "1"
+  ;; ELSE rec->enc[ecnt ].qual_pn[qcnt ].record_type = "2"
+  ;; ENDIF
+  
+   rec->enc[ecnt ].qual_pn[qcnt ].record_type = "1" ;more logic on this later in the program...
+   ;MOD002 End
+   ,rec->enc[ecnt ].qual_pn[qcnt ].clinical_event_id = ce.clinical_event_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].event_id = ce.event_id
+   ,rec->enc[ecnt ].qual_pn[qcnt ].signature_dt = ce.updt_dt_tm
+  HEAD ce2.event_id
+   IF ((ce2.event_cd IN (cchrisk1_cd1 ,
+   cchrisk1_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk1_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk1_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk1_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk1_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk1 = "3"
+    ENDIF
+   ENDIF
+   ,
+   IF ((ce2.event_cd IN (cchrisk7_cd1 , cchrisk7_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk7_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk7_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk7_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk7_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk7 = "3"
+    ENDIF
+   ENDIF
+   ,
+   IF ((ce2.event_cd IN (cchrisk8_cd1 , cchrisk8_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk8_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk8_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk8_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk8_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk8 = "3"
+    ENDIF
+   ENDIF
+   ,
+   IF ((ce2.event_cd IN (cchrisk11_cd1 , cchrisk11_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk11_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk11_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk11_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk11_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk11 = "3"
+    ENDIF
+   ENDIF
+   ,
+   IF ((ce2.event_cd IN (cchrisk12_cd1 , cchrisk12_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk12_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk12_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk12_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk12_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk12 = "3"
+    ENDIF
+   ENDIF
+   ,
+   IF ((ce2.event_cd IN (cchrisk13_cd1 ,
+   cchrisk13_cd2 ) ) )
+    IF ((ce2.event_cd = cchrisk13_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 != "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "1"
+    ELSEIF ((ce2.event_cd = cchrisk13_cd1 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "2" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "3"
+    ENDIF
+    ,
+    IF ((ce2.event_cd = cchrisk13_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 != "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "2"
+    ELSEIF ((ce2.event_cd = cchrisk13_cd2 ) AND (rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "1" ) )
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk13 = "3"
+    ENDIF
+   ENDIF
+   ,
+   CASE (ce2.event_cd )
+    OF gi_lab_type_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].gi_lab_type = "1"
+    OF gi_lab_type_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].gi_lab_type = "2"
+    OF gi_lab_type_cd3 :
+     rec->enc[ecnt ].qual_pn[qcnt ].gi_lab_type = "3"
+    OF proc_date_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].proc_date = format (ced.result_dt_tm ,"MM/DD/YYYY ;;q" )
+    OF endo_proc_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].endo_proc = "1"
+    OF hist_phys_document_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].hist_phys_document = "1"
+    OF consent_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].consent = "1"
+    OF asa_cat_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "1"
+    OF asa_cat_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "2"
+    OF asa_cat_cd3 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "3"
+    OF asa_cat_cd4 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "4"
+    OF asa_cat_cd5 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "5"
+    OF asa_cat_cd6 :
+     rec->enc[ecnt ].qual_pn[qcnt ].asa_cat = "6"
+    OF disch_instr_written_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_instr_written = "1"
+    OF disch_inst_diet_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_diet = "1"
+    OF disch_inst_meds_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_meds = "1"
+    OF disch_inst_meds_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_meds = "2"
+    OF disch_inst_activity_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_activity = "1"
+    OF disch_inst_complic_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_complic = "1"
+    OF disch_inst_contact_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_contact = "1"
+    OF anticoag_tx_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].anticoag_tx = "1"
+    OF anticoag_tx_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].anticoag_tx = "2"
+    OF colon_type_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_type1 = "1"
+    OF colon_type_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_type2 = "2"
+    OF colon_type_cd3 :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_type3 = "3"
+    OF yr_prev_colon_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].yr_prev_colon = replace (ce2.result_val ,"," ,"" )
+    OF gi_prep_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].gi_prep = "1"
+    OF gi_prep_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].gi_prep = "2"
+    OF colon_ind1_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind1 = "1"
+    OF colon_ind2_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind2 = "1"
+    OF colon_ind3_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind3 = "1"
+    OF colon_ind16_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind16 = "1"
+    OF colon_ind5_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind5 = "1"
+    OF colon_ind6_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind6 = "1"
+    OF colon_ind7_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind7 = "1"
+    OF colon_ind8_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind8 = "1"
+    OF colon_ind9_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind9 = "1"
+    OF colon_ind10_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind10 = "1"
+    OF colon_ind11_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind11 = "1"
+    OF colon_ind12_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind12 = "1"
+    OF colon_ind13_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind13 = "1"
+    OF colon_ind14_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind14 = "1"
+    OF colon_ind15_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind15 = "1" ,
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind_text = substring (1 ,1000 ,ce2.result_val) ,
+     IF ( (ce2.result_val = "OTHER" ) ) ;i.e. the term is an OTHER term in PowerNote
+      tblobin = cb.blob_contents ,
+      IF (debug = 1)
+       call echo(build("DEBUG: cb.event_id =",cb.event_id))
+      ENDIF ,
+      IF ((cb.compression_cd = compressed_cd ) )
+       CALL decompress_text (tblobin )
+      ENDIF ,
+      rtf_string = fillstring (32000 ," " ) ,
+      CALL uar_rtf2 (tblobout ,size (tblobout ) ,rtf_string ,size (rtf_string ) ,0 ,1 ) ,
+      rec->enc[ecnt ].qual_pn[qcnt ].colon_ind_text = substring (1 ,1000 ,tblobout )
+     ELSE
+      rec->enc[ecnt ].qual_pn[qcnt ].colon_ind_text = substring (1 ,1000 , ce2.result_val)
+     ENDIF
+    OF cecal_landmark_2_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_2 = "1"
+    OF cecal_landmark_4_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_4 = "1"
+    OF cecal_landmark_6_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_6 = "1"
+    OF risk_assess_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].risk_assess = "1"
+    OF risk_assess_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].risk_assess = "2"
+    OF risk_assess_cd3 :
+     rec->enc[ecnt ].qual_pn[qcnt ].risk_assess = "0"
+    OF cchrisk2_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk2 = "1"
+    OF cchrisk3_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk3 = "1"
+    OF cchrisk4_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk4 = "1"
+    OF cchrisk9_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk9 = "1"
+    OF cchrisk10_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].cchrisk10 = "1"
+    OF duration_tocecum_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].duration_tocecum = cnvtstring (cnvtreal (
+      replace (ce2.result_val,"," ,"" ) ) ,11 ,1 )
+    OF duration_withdrawal_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].duration_withdrawal = cnvtstring (cnvtreal (
+      replace (ce2.result_val,"," ,"" ) ) ,11 ,1 )
+    OF pathology_cd :
+     IF ((ce2.event_tag != "*NOT VALUED*" ) )
+      rec->enc[ecnt ].qual_pn[qcnt ].pathology = "1"
+     ENDIF
+    OF adenom_cd : 				; field 67
+     rec->enc[ecnt ].qual_pn[qcnt ].path_adenom_polyp = "1"
+    OF adpolyp1_cd :			; field 68
+      rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp1 = "1"
+    OF adpolyp2_cd :			; field 69
+      rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp2 = "1"
+    OF adpolyp3_cd :			; field 70
+      rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp3 = "1"
+    OF hyperplastic_cd :		; field 71
+      rec->enc[ecnt ].qual_pn[qcnt ].path_hyperpl_polyp = "1"
+    OF adenocarcinoma_cd :		; field 72
+      rec->enc[ecnt ].qual_pn[qcnt ].path_adenocar = "1"
+    OF pathology_other_cd :		; field 73, 74
+      rec->enc[ecnt ].qual_pn[qcnt ].path_other = "1"
+      rec->enc[ecnt ].qual_pn[qcnt ].path_other_text = substring (1 ,75 ,ce2.result_val )
+      IF (debug = 1)
+       call echo(build("DEBUG: path_other_text =",rec->enc[ecnt ].qual_pn[qcnt ].path_other_text ) )
+      ENDIF
+    OF serrated_lesions_cd :	; field 99
+      rec->enc[ecnt ].qual_pn[qcnt ].path_serrated = "1"
+    OF serrated_lesion1_cd :	; field 100
+      rec->enc[ecnt ].qual_pn[qcnt ].path_sslesion1 = "1"
+    OF serrated_lesion2_cd :	; field 101
+      rec->enc[ecnt ].qual_pn[qcnt ].path_sslesion2 = "1"
+    OF fu_interval_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "0"
+    OF fu_interval_cd1 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "1"
+    OF fu_interval_cd2 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "2"
+    OF fu_interval_cd3 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "3"
+    OF fu_interval_cd4 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "4"
+    OF fu_interval_cd5 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "5"
+    OF fu_interval_cd6 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "6"
+    OF fu_interval_cd7 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "7"
+    OF fu_interval_cd8 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "8"
+    OF fu_interval_cd9 :
+     rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "9"
+    OF fu_interval_cd10 :
+     IF ((ce2.event_tag != "*NOT VALUED*" ) )
+      rec->enc[ecnt ].qual_pn[qcnt ].fu_interval = "10"
+      rec->enc[ecnt ].qual_pn[qcnt ].interval_other_text = substring (1 ,50 ,ce2.result_val )
+     ENDIF
+    OF compl0_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl0 = "1"
+    OF compl1_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl1 = "1"
+    OF compl2_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl2 = "1"
+    OF compl3_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl3 = "1"
+    OF compl4_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl4 = "1"
+    OF compl5_cd :
+     IF ((ce2.event_tag != "*NOT VALUED*" ) )
+      rec->enc[ecnt ].qual_pn[qcnt ].compl5 = "1"
+      rec->enc[ecnt ].qual_pn[qcnt ].compl_text = substring (1 ,75 ,ce2.result_val )
+     ENDIF
+    OF compl6_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl6 = "1"
+    OF compl7_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].compl7 = "1"
+    OF colon_ind17_cd :
+     rec->enc[ecnt ].qual_pn[qcnt ].colon_ind17 = "1"
+   ENDCASE
+   ;MOD001 Return 8888 as the insertion time if none was documented per Laurie Parker @GIQUIC
+   ,IF (rec->enc[ecnt ].qual_pn[qcnt ].duration_tocecum = "")
+     rec->enc[ecnt ].qual_pn[qcnt ].duration_tocecum = "8888"
+    ENDIF
+   ,rec->enc[ecnt ].qual_pn[qcnt ].agree = "1"
+   ,rec->enc[ecnt ].pt_height = nullterm ("" )
+   ,rec->enc[ecnt ].pt_weight = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].dm_id = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].teach_status = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].polyp_removed_num = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].polyp_partial_num = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].polyp_retrieved_num = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].polyp_morph_desc = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].polyp_size_desc = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].fu_interval_cdbp = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].fellow_id = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].fellow_perform = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].fellow_year = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].specialty = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].pt_insurance = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].pt_ins_other = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].sedation = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].sedatedby = nullterm ("" )
+   ,rec->enc[ecnt ].qual_pn[qcnt ].pt_ethnic = nullterm ("" )
+  FOOT  ce2.event_id
+   null
+  FOOT  ce.event_id
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].hist_phys_document != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].hist_phys_document = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].consent != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].consent = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_diet != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_diet = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_meds != "2" ) AND (rec->enc[ecnt ].qual_pn[qcnt ].
+   disch_inst_meds != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_meds = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_activity != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    disch_inst_activity = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_complic != "1" ) ) 
+    ;MOD002 AS014047 force disch_inst_complic = "1" because client always provides as part of standard d/c materials
+    ;rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_complic = "0"
+    rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_complic = "1"
+    ;MOD002 End
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_contact != "1" ) ) 
+   	;MOD002 AS014047 force disch_inst_contact = "1" because client always provides as part of standard d/c materials
+   	;rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_contact = "0"
+   	rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_contact = "1"
+   	;MOD002 End
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].disch_instr_written != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    disch_instr_written = "0" ,rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_diet = nullterm ("" ) ,rec->
+    enc[ecnt ].qual_pn[qcnt ].disch_inst_meds = nullterm ("" ) ,rec->enc[ecnt ].qual_pn[qcnt ].
+    disch_inst_activity = nullterm ("" ) ,rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_complic =
+    nullterm ("" ) ,rec->enc[ecnt ].qual_pn[qcnt ].disch_inst_contact = nullterm ("" )
+   ENDIF
+   ,
+   IF (NOT ((rec->enc[ecnt ].qual_pn[qcnt ].anticoag_tx IN ("1" ,
+   "2" ) ) ) ) rec->enc[ecnt ].qual_pn[qcnt ].anticoag_tx = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].colon_type1 = "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    colon_type = "1"
+   ELSEIF ((rec->enc[ecnt ].qual_pn[qcnt ].colon_type2 = "2" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    colon_type = "2"
+   ELSEIF ((rec->enc[ecnt ].qual_pn[qcnt ].colon_type3 = "3" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    colon_type = "3"
+   ELSE rec->enc[ecnt ].qual_pn[qcnt ].colon_type = " "
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_2 != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    cecal_landmark_2 = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_4 != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    cecal_landmark_4 = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_6 != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].
+    cecal_landmark_6 = "0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cchrisk2 != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].cchrisk2 = " "
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cchrisk3 != "1" ) ) rec->enc[ecnt ].qual_pn[qcnt ].cchrisk3 =
+    " "
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].cchrisk4 != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].cchrisk4 = " "
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].duration_withdrawal != "" ) ) null
+   ELSEIF (
+        (rec->enc[ecnt ].qual_pn[qcnt ].duration_withdrawal = "" )
+    AND (rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_2 = "0" )
+    AND (rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_4 = "0" )
+    AND (rec->enc[ecnt ].qual_pn[qcnt ].cecal_landmark_6 = "0" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].duration_withdrawal = "7777.0"
+   ELSE
+    rec->enc[ecnt ].qual_pn[qcnt ].duration_withdrawal = "8888.0"
+   ENDIF
+   ,
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].pathology != "1" ) )
+    rec->enc[ecnt ].qual_pn[qcnt ].pathology = "0"
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_adenocar != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_adenocar = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_adenom_polyp != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_adenom_polyp = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp1 != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp1 = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp2 != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp2 = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp3 != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_adpolyp3 = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_hyperpl_polyp != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_hyperpl_polyp = " "
+   ENDIF
+   IF ((rec->enc[ecnt ].qual_pn[qcnt ].path_other != "1") )
+    rec->enc[ecnt ].qual_pn[qcnt ].path_other = " "
+   ENDIF
+  FOOT  ce.encntr_id
+   stat = alterlist (rec->enc[ecnt ].qual_pn ,qcnt )
+  FOOT REPORT
+   stat = alterlist (rec->enc ,ecnt )
+  WITH nocounter
+  ;end select
+ ;;;****************************
+ 
+ IF ((size (rec->enc ,5 ) = 0 ) )
+  GO TO exit_script
+ ENDIF
+ 
+ ;;;***get_path_result : determine whether there is a parent CE that was documented with a child CE that means
+ ;;;						"pathology result for X procedure date" that matches the original procedure date
+ ;;;
+ 
+ SUBROUTINE get_path_result (procdt, myecnt ,myqcnt)
+ 	DECLARE num_path_results = i4
+ 	DECLARE parid = f8
+ 	SELECT INTO "proc:"
+  	FROM
+        clinical_event ce,
+        ce_date_result ced
+        WHERE (ce.event_cd = proc_date_path_cd) ;563288425 proc_date_path_cd
+           	AND (ce.encntr_id = rec->enc[ myecnt].enc_id )
+           	AND (ce.parent_event_id != ce.event_id )
+           	AND (ce.valid_until_dt_tm >= cnvtdatetime (curdate ,curtime3 ) )
+           	AND (ce.publish_flag = 1 )
+           	AND (ce.view_level = 1 )
+           	AND (ce.result_status_cd != err_cd) ;exclude in-error results/notes
+           	AND (format(ced.result_dt_tm,"MM/DD/YYYY;;q") = procdt) ;matches original procedure date documented?
+                AND (ced.event_id = ce.event_id)
+  	HEAD REPORT
+   	 acnt = 0
+  	HEAD ce.parent_event_id
+   	 acnt = (acnt + 1 ) ,
+   	 IF ( debug = 1 )
+         	call echo(build2("DEBUG: get_path_result(): "
+          	 ,acnt, " pathology results found for proc_date={" ,procdt ,"}") )
+          	call echo(build("DEBUG: get_path_result(): ce.parent_event_id="
+          	 ,ce.parent_event_id ) )
+          	call echo(build("DEBUG: get_path_result(): ce.encntr_id="
+          	 ,ce.encntr_id ) )
+         ENDIF ,
+   	 IF ((acnt = 1) AND (ce.parent_event_id != 0) )
+           	num_path_results = 1
+           	parid = ce.parent_event_id 
+ 		 		;MOD002 update record_type to "2" to indicate that pathology results were resulted
+        rec->enc[myecnt ].qual_pn[myqcnt ].record_type = "2" ;denote that pathology results have been documented
+ 		;MOD002 End
+   	 ELSE
+           	num_path_results = acnt
+   	 ENDIF
+  	FOOT ce.parent_event_id
+   		null
+   	WITH nocounter
+  	IF (num_path_results = 1)
+  		IF ( debug = 1 )
+  			call echo(build2("DEBUG: get_path_result(): retrieving 1 pathology result for proc_date={"
+         	  	 ,procdt ,"}" ) )
+         		call echo(build("DEBUG: get_path_result(): calling get_path_results(" ,parid ,"," ,myecnt
+         		 ,",",myqcnt,")" ) )
+  		ENDIF
+  		call get_path_results(parid ,myecnt, myqcnt) ;get the pathology results
+        ENDIF
+        IF ( debug = 1 )
+         call echo(build("DEBUG: get_path_result(): num_path_results={" ,num_path_results ,"}"))
+         ;call echo(build("DEBUG: get_path_result(): parid={" ,parid ,"}"))
+        ENDIF
+ END ;Subroutine
+ 
+;walk the array of encounters and PowerNotes that qualified.
+FOR (i=1 TO (size (rec->enc ,5 ) ) )
+  FOR (j=1 TO (size (rec->enc[i ].qual_pn ,5 ) ) )
+  	; if a pathology specimen was documented, look for the results...
+    IF (rec->enc[i ].qual_pn[j ].pathology = "1")
+      IF ( debug = 1 )
+       call echo(build("DEBUG: pathology specimens ordered for encounter_id={"
+        ,rec->enc[i ].enc_id ,"}") )
+       call echo(build("DEBUG: calling get_path_result("
+        ,cnvtalphanum(rec->enc[i ].qual_pn[j ].proc_date ,9)
+        ,"," ,i ,"," ,j ,")" ) )
+      ENDIF
+      call get_path_result(cnvtalphanum(rec->enc[i ].qual_pn[j ].proc_date ,9)
+       ,i ; position in array (encounter that qualified in original query)
+       ,j); position in array (PowerNote that qualified in this enounter)
+    ENDIF
+  ENDFOR
+ENDFOR
+ 
+ 
+  SELECT INTO  $OUTDEV
+   FROM (dummyt d WITH seq = size (rec->enc ,5 ) ),
+    (dummyt d2 WITH seq = 1 )
+   PLAN (d
+    WHERE maxrec (d2 ,size (rec->enc[d.seq ].qual_pn ,5 ) ) )
+    JOIN (d2
+    ;TODO: are these ALL of the required fields?
+    ;TODO: do we want to remove this "WHERE" so that all rows in the record are written to the extract?
+    WHERE (rec->enc[d.seq ].qual_pn[d2.seq ].asa_cat IN ("1" ,
+    "2" ,
+    "3" ,
+    "4" ,
+    "5" ,
+    "6" ) ) AND (rec->enc[d.seq ].qual_pn[d2.seq ].colon_type IN ("1" ,
+    "2" ,
+    "3" ) ) AND (rec->enc[d.seq ].qual_pn[d2.seq ].gi_prep IN ("1" ,
+    "2" ) ) AND (rec->enc[d.seq ].qual_pn[d2.seq ].risk_assess IN ("1" ,
+    "2" ,
+    "0" ) ) AND (rec->enc[d.seq ].qual_pn[d2.seq ].fu_interval IN ("0" ,
+    "1" ,
+    "2" ,
+    "3" ,
+    "4" ,
+    "5" ,
+    "6" ,
+    "7" ,
+    "8" ,
+    "9" ,
+    "10" ) ) )
+   HEAD REPORT
+    delim = "~" ,
+    temp_string = build2 ("agree_1" ,delim ,"record_type_2" ,delim ,"MRN_3" ,delim ,"pt_type_4" ,
+     delim ,"pt_zip_code_5" ,delim ,"pt_dob_6" ,delim ,"pt_gender_7" ,delim ,"pt_race_8" ,delim ,
+     "pt_height_9" ,delim ,"pt_weight_10" ,delim ,"facility_id_11" ,delim ,"phys_id_12" ,delim ,
+     "dm_id_13" ,delim ,"gi_lab_type_14" ,delim ,"teach_status_15" ,delim ,"proc_date_16" ,delim ,
+     "endo_proc_17" ,delim ,"hist_phys_document_18" ,delim ,"consent_19" ,delim ,"asa_cat_20" ,delim
+     ,"disch_instr_written_21" ,delim ,"disch_inst_diet_22" ,delim ,"disch_inst_meds_23" ,delim ,
+     "disch_inst_activity_24" ,delim ,"disch_inst_complic_25" ,delim ,"disch_inst_contact_26" ,delim
+     ,"anticoag_tx_27" ,delim ,"colon_type_28" ,delim ,"yr_prev_colon_29" ,delim ,"gi_prep_30" ,
+     delim ,"colon_ind1_31" ,delim ,"colon_ind_32" ,delim ,"colon_ind3_33" ,delim ,"colon_ind16_34" ,
+     delim ,"colon_ind5_35" ,delim ,"colon_ind6_36" ,delim ,"colon_ind7_37" ,delim ,"colon_ind8_38" ,
+     delim ,"colon_ind9_39" ,delim ,"colon_ind10_40" ,delim ,"colon_ind11_41" ,delim ,
+     "colon_ind1_42" ,delim ,"colon_ind13_43" ,delim ,"colon_ind14_44" ,delim ,"colon_ind15_45" ,
+     delim ,"colon_ind_text_46" ,delim ,"cecal_landmark__47" ,delim ,"cecal_landmark_4_48" ,delim ,
+     "cecal_landmark_6_49" ,delim ,"risk_assess_50" ,delim ,"cchrisk1_51" ,delim ,"cchrisk_52" ,
+     delim ,"cchrisk3_53" ,delim ,"cchrisk4_54" ,delim ,"cchrisk7_55" ,delim ,"cchrisk8_56" ,delim ,
+     "cchrisk9_57" ,delim ,"cchrisk10_58" ,delim ,"polyp_removed_num_59" ,delim ,
+     "polyp_partial_num_60" ,delim ,"polyp_retrieved_num_61" ,delim ,"polyp_morph_desc_62" ,delim ,
+     "polyp_size_desc_63" ,delim ,"duration_tocecum_64" ,delim ,"duration_withdrawal_65" ,delim ,
+     "pathology_66" ,delim ,"path_adenom_polyp_67" ,delim ,"path_adpolyp1_68" ,delim ,
+     "path_adpolyp_69" ,delim ,"path_adpolyp3_70" ,delim ,"path_hyperpl_polyp_71" ,delim ,
+     "path_adenocar_72" ,delim ,"path_other_73" ,delim ,"path_other_text_74" ,delim ,
+     "fu_interval_75" ,delim ,"fu_interval_cdbp_76" ,delim ,"compl0_77" ,delim ,"compl1_78" ,delim ,
+     "compl_79" ,delim ,"compl3_80" ,delim ,"compl4_81" ,delim ,"compl5_82" ,delim ,"compl_text_83" ,
+     delim ,"compl6_84" ,delim ,"compl7_85" ,delim ,"fellow_id_86" ,delim ,"fellow_perform_87" ,
+     delim ,"fellow_year _88" ,delim ,"specialty_89" ,delim ,"pt_insurance_90" ,delim ,
+     "pt_ins_other_91" ,delim ,"sedation_92" ,delim ,"sedatedby_93" ,delim ,"colon_ind17_94" ,delim ,
+     "cchrisk11_95" ,delim ,"cchrisk1_96" ,delim ,"cchrisk13_97" ,delim ,"interval_other_text_98" ,
+     delim ,"path_serrated_99" ,delim ,"path_sslesion1_100" ,delim ,"path_sslesion_101" ,delim ,
+     "pt_ethnic_102" ,delim ,"pt_race4_103" ,delim ,"pt_race5_104" ,delim ,"pt_race6_105" ,delim ,
+     "pt_race7_106" ,delim ,"pt_race_107" ,delim ,"pt_race8_108" ,delim ,"pt_race9_109" )
+   DETAIL
+    temp_string = build2 (rec->enc[d.seq ].qual_pn[d2.seq ].agree ,delim ,rec->enc[d.seq ].qual_pn[d2
+     .seq ].record_type ,delim ,rec->enc[d.seq ].mrn ,delim ,rec->enc[d.seq ].pt_type ,delim ,rec->
+     enc[d.seq ].pt_zip_code ,delim ,format (rec->enc[d.seq ].pt_dob ,"mm/dd/yyyy ;;q" ) ,delim ,rec
+     ->enc[d.seq ].pt_gender ,delim ,rec->enc[d.seq ].pt_race1 ,delim ,rec->enc[d.seq ].pt_height ,
+     delim ,rec->enc[d.seq ].pt_weight ,delim ,rec->enc[d.seq ].facility_id ,delim ,rec->phys_id_npi
+     ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].dm_id ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     gi_lab_type ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].teach_status ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].proc_date ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].endo_proc ,delim ,rec->enc[
+     d.seq ].qual_pn[d2.seq ].hist_phys_document ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].consent ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].asa_cat ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     disch_instr_written ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].disch_inst_diet ,delim ,rec->enc[d
+     .seq ].qual_pn[d2.seq ].disch_inst_meds ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     disch_inst_activity ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].disch_inst_complic ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].disch_inst_contact ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     anticoag_tx ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_type ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].yr_prev_colon ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].gi_prep ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].colon_ind1 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind2 ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind3 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     colon_ind16 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind5 ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].colon_ind6 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind7 ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].colon_ind8 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind9 ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind10 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     colon_ind11 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind12 ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].colon_ind13 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].colon_ind14 ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].colon_ind15 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     colon_ind_text ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cecal_landmark_2 ,delim ,rec->enc[d
+     .seq ].qual_pn[d2.seq ].cecal_landmark_4 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     cecal_landmark_6 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].risk_assess ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].cchrisk1 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk2 ,delim ,rec->enc[d
+     .seq ].qual_pn[d2.seq ].cchrisk3 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk4 ,delim ,rec
+     ->enc[d.seq ].qual_pn[d2.seq ].cchrisk7 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk8 ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk9 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     cchrisk10 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].polyp_removed_num ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].polyp_partial_num ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].polyp_retrieved_num
+      ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].polyp_morph_desc ,delim ,rec->enc[d.seq ].qual_pn[d2
+     .seq ].polyp_size_desc ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].duration_tocecum ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].duration_withdrawal ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     pathology ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].path_adenom_polyp ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].path_adpolyp1 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].path_adpolyp2 ,delim ,
+     rec->enc[d.seq ].qual_pn[d2.seq ].path_adpolyp3 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     path_hyperpl_polyp ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].path_adenocar ,delim ,rec->enc[d
+     .seq ].qual_pn[d2.seq ].path_other ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].path_other_text ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].fu_interval ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     fu_interval_cdbp ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].compl0 ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].compl1 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].compl2 ,delim ,rec->enc[d.seq
+     ].qual_pn[d2.seq ].compl3 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].compl4 ,delim ,rec->enc[d
+     .seq ].qual_pn[d2.seq ].compl5 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].compl_text ,delim ,rec
+     ->enc[d.seq ].qual_pn[d2.seq ].compl6 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].compl7 ,delim ,
+     rec->enc[d.seq ].qual_pn[d2.seq ].fellow_id ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     fellow_perform ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].fellow_year ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].specialty ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].pt_insurance ,delim ,rec->
+     enc[d.seq ].qual_pn[d2.seq ].pt_ins_other ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].sedation ,
+     delim ,rec->enc[d.seq ].qual_pn[d2.seq ].sedatedby ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     colon_ind17 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk11 ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].cchrisk12 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].cchrisk13 ,delim ,rec->enc[
+     d.seq ].qual_pn[d2.seq ].interval_other_text ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].
+     path_serrated ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].path_sslesion1 ,delim ,rec->enc[d.seq ].
+     qual_pn[d2.seq ].path_sslesion2 ,delim ,rec->enc[d.seq ].qual_pn[d2.seq ].pt_ethnic ,delim ,rec
+     ->enc[d.seq ].pt_race4 ,delim ,rec->enc[d.seq ].pt_race5 ,delim ,rec->enc[d.seq ].pt_race6 ,
+     delim ,rec->enc[d.seq ].pt_race7 ,delim ,rec->enc[d.seq ].pt_race2 ,delim ,rec->enc[d.seq ].
+     pt_race8 ,delim ,rec->enc[d.seq ].pt_race9 ,eol ) ,
+    row + 1 ,
+    col 0 ,
+    temp_string
+   FOOT REPORT
+    temp_string = char (13 ) ,
+    row + 1 ,
+    col 0 ,
+    temp_string
+   WITH nocounter ,memsort ,format = variable ,maxrow = 1 ,maxcol = 32750
+  ;end select
+ 
+ 
+#exit_script
+ 
+ CALL echorecord (rec )
+#end_script
+ SET last_mod = "002 AS014047 07/12/2016 1200 CCPS-5240"
+END GO
