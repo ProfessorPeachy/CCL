@@ -1,0 +1,44 @@
+select
+  sc.surg_case_id
+, sc.encntr_id
+, pd.periop_doc_id
+, ce.event_id
+, ce.parent_event_id
+, ce.event_cd
+, event_display = uar_get_code_display(ce.event_cd)
+, ce.reference_nbr
+, ref_prefix = substring(1, findstring("SN", ce.reference_nbr) - 1, ce.reference_nbr)
+, laterality = ce.result_val
+, ce.event_end_dt_tm
+
+from
+  surgical_case sc
+, perioperative_document pd
+, clinical_event ce
+
+plan sc
+  where sc.surg_case_id = 428811799.00
+
+join pd
+  where pd.surg_case_id = sc.surg_case_id
+
+join ce
+  where ce.encntr_id = sc.encntr_id
+    and ce.reference_nbr > " "
+    and findstring("SN", ce.reference_nbr) > 1
+    and cnvtreal(substring(1, findstring("SN", ce.reference_nbr) - 1, ce.reference_nbr)) = pd.periop_doc_id
+    and ce.event_cd in (
+        3016927.00,     ; SN - Proc - Modifiers
+        21191414.00,    ; SN - SP - Prep Area Details
+        2962393361.00   ; SN - IL - Site Details
+    )
+    and trim(ce.result_val, 3) > " "
+    and ce.valid_until_dt_tm > cnvtdatetime(curdate, curtime3)
+
+order by
+  sc.surg_case_id
+, pd.periop_doc_id
+, ce.event_cd
+, ce.event_end_dt_tm
+
+with nocounter, maxrec = 1000
