@@ -1,0 +1,49 @@
+/****************************************************************************************
+; File Name:
+;   premier_ops_force_success_reply_status.ccl
+;
+; Purpose:
+;   Ensures an OPS/sys_runccl job returns a SUCCESS status after the script finishes.
+;
+; Background:
+;   Some CCL batch jobs may complete the intended extract/output processing but still
+;   report as failed in OPS if reply->status_data[1].status is not defined or is left
+;   in a failed/default state.
+;
+; Usage:
+;   Place this logic near the end of the CCL script, after the main processing has
+;   completed and after any required output files have been written.
+;
+; Notes:
+;   - The validate() check prevents a compile/runtime issue if reply->status_data
+;     has not already been defined by the calling context.
+;   - The status is first defaulted to "F" and then set to "S" after the script
+;     reaches the successful completion point.
+;   - Do not place the final "S" assignment before critical processing is complete,
+;     or OPS may show success even when the extract did not actually finish correctly.
+;
+; Status Values:
+;   F = Failure
+;   S = Success
+****************************************************************************************/
+
+; If the OPS reply status structure does not exist, define it.
+if (validate(reply->status_data[1].status) = 0)
+  record reply
+  (
+    1 status_data[1]
+      2 status = c1
+  )
+endif
+
+; Default the OPS status to failure.
+; This keeps the job from falsely reporting success before the script finishes.
+set reply->status_data[1].status = "F"
+
+
+/****************************************************************************************
+; Main script processing should complete before this point.
+; Set OPS status to success only after all required processing/output has completed.
+****************************************************************************************/
+
+set reply->status_data[1].status = "S"
