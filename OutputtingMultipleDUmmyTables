@@ -1,0 +1,794 @@
+free record encounter
+record encounter(
+    1 data[*]
+		2 encntrid               = f8
+		2 recur_ind              = i2
+		2 pft_encntr_id          = f8
+		2 personid               = f8
+		2 etype                  = f8
+		2 admitcd                = f8
+		2 dischcd                = f8
+		2 exclude_ind            = i2
+		2 attend_id              = f8
+		2 inpatient_admit_dt_tm  = vc
+		
+		2 pft_encntr_alias       = vc
+		2 pft_next_beg_effective_dt_tm = dq8
+		2 pft_coding_end_dt_tm = dq8
+		2 recur_seq              = i4
+		2 alias_seq              = i4
+		2 recur_current_month    = i4
+		2 recur_current_year     = i4
+
+		2 reg_dt_tm              = dq8
+		2 disch_dt_tm            = dq8
+		2 arrive_dt_tm           = dq8
+		2 inpatient_admit_raw_dt_tm = dq8
+		2 admit_src_cd           = f8
+		2 med_service_cd         = f8
+		2 loc_facility_cd        = f8
+		2 encntr_type_class_cd   = f8
+
+		2 pft_beg_effective_dt_tm = dq8
+		2 pft_end_effective_dt_tm = dq8
+		2 pft_yyyymm = f8
+		2 pft_dx_yyyymm = f8  
+		2 pft_svc_beg_dt_tm      = dq8
+		2 pft_svc_end_dt_tm      = dq8
+		2 pft_reg_dt_tm          = dq8		
+		;encounter segment
+		2 1_facility             = vc
+		2 2_pat_acct_no          = vc
+		2 3_adm_date             = vc
+		2 4_disch_serv_date      = vc
+		2 5_site_of_care_id      = c15
+		2 5_site_of_care_cd      = c15
+		2 6_patient_class        = c15
+		2 7_adm_type_code        = c15
+		2 8_point_of_origin_cd   = c15
+		2 9_disch_disp_cd        = c15
+		2 10_total_charges       = vc
+		2 11_total_costs         = vc
+		2 12_amt_paid            = vc
+		2 13_adm_diag_code       = vc
+		2 14_drg_code            = vc
+		2 15_apdrg_code          = vc
+		2 16_apdrg_state         = vc
+		2 17_adm_phys_id         = vc
+		2 18_disch_phys_id       = vc
+		2 19_primcare_phys_id    = vc
+		2 20_responisble_phys_id = vc
+		2 21_case_mgr_id         = vc
+		2 22_med_rec_no          = vc
+		2 23_master_patient_id   = vc
+		2 24_social_security_no  = vc
+		2 25_pat_last_name       = vc
+		2 26_pat_first_name      = vc
+		2 27_pat_middle_initial  = c1
+		2 28_pat_dob             = vc
+		2 29_pat_addr_1          = vc
+		2 30_pat_addr_2          = vc
+		2 31_pat_city            = vc
+		2 32_pat_state           = vc
+		2 33_pat_zipcode         = vc
+		2 34_sex_code            = c15
+		2 35_marital_code        = c15
+		2 36_race_cd             = c15
+		2 37_pat_relation_code   = vc
+		2 38_employer_id         = vc
+		2 39_pat_tel_no          = vc
+		2 40_hisp_ethnicity      = vc
+		2 41_apr_drg_code        = vc
+		2 42_apr_rom             = vc
+		2 43_apr_soi             = vc
+		2 44_hic                 = vc
+		2 45_ms_drg_code         = vc
+		2 46_pat_type            = c15
+		2 47_pat_county          = vc
+		2 48_pat_country         = vc
+		2 49_disch_var_cost      = vc
+		2 50_disch_fix_cost      = vc
+		/* future use  */
+		2 51_vent_days           = vc
+		2 52_smoker_flag         = vc
+		2 53_pat_weight          = vc
+		2 54_birth_weight        = vc
+		2 55_baby_pat_no         = vc
+		2 56_Ethnicty            = vc
+		2 57_ED_Visit            = vc
+		2 58_CNC_Care_Setting    = vc
+		2 59_TIN                 = vc
+		2 testcharge             = f8
+		2 last_proc_rank         = i4
+	   ;diagnosis segment
+	   2 diag_cnt = i4
+		2 diag[*]
+			3 3_icd_diagnosis_code = vc
+			3 4_icd_diag_rank      = vc
+			3 5_diag_date          = vc
+			3 6_poa_code           = c15
+			3 7_diag_type          = c15
+			3 8_icd_type           = vc
+		;payor segment
+		2 payor[*]
+			3 3_payor_id           = vc
+			3 4_payor_description  = c30
+			3 5_plan_id            = vc
+			3 6_plan_desc          = c30
+			3 7_payor_plan_rank    = i4
+			3 8_plan_type          = c15
+			3 8_plan_type_cd       = vc
+			3 9_plan_amt_paid      = vc
+		;practitioner segment
+		2 prac[*]
+			3 prsnl_id             = f8
+			3 3_staff_id           = vc
+			3 4_staff_type         = c1
+			3 5_service_start_date = vc
+			3 6_service_end_date   = vc
+			3 7_staff_role         = c15
+		;procedure segment
+		2 proc[*]
+			3 3_proc_code           = vc
+			3 4_proc_rank           = vc
+			3 5_proc_type           = vc
+			3 6_cpt4_mod_code       = vc
+			3 7_proc_order_date     = vc
+			3 8_proc_date           = vc
+			3 9_proc_phys_id        = vc
+			3 10_billed_charges     = vc
+			3 11_proc_amt_paid      = vc
+			3 12_proc_cost          = vc
+			3 13_anestheist_phys_id = vc
+			3 14_site_of_care_id    = vc
+			3 15_cpt4_mod_code2    = vc
+			3 16_cpt4_mod_code3    = vc
+			3 17_cpt4_mod_code4    = vc
+		;resource segment
+		2 resource[*]
+			3 bill_item_id          = f8
+			3 price_sched_id        = f8
+			3 charge_item_id        = f8
+			3 3_resource_id         = vc
+			3 4_order_no            = vc
+			3 5_service_date        = vc
+			3 6_resource_qty        = f8
+			3 qcf_qty               = f8
+			3 J_code                = i2
+			3 7_ord_date            = vc
+			3 8_ord_phys_id         = vc
+			3 9_ord_res_id          = vc
+			3 10_total_res_cost     = vc
+			3 11_specimen_type_code = vc
+			3 12_specimen_id        = vc
+			3 13_rate_cd            = vc
+			3 14_non_covered_charge = vc
+			3 15_tot_charge         = f8
+			3 16_tot_var_cost       = vc
+			3 17_tot_fix_cost       = vc
+			3 18_cpt_code           = vc
+			3 19_rev_code           = vc
+			3 rev_code              = vc
+			3 cpt_code              = vc
+    ; event segment
+    2 event[*]
+        3 1_facility_id         = vc
+        3 2_pat_acct_number     = vc
+        3 3_event_type_code     = vc
+        3 4_event_date          = vc
+        3 5_event_reason_code   = vc
+        3 6_unit_loc_id         = vc
+        3 6_unit_loc_cd         = f8
+        3 prev_unit_loc_id      = f8
+        3 7_unit_loc_desc       = vc
+        3 8_Prev_Unit_Loc_ID    = vc
+        3 9_Site_of_Care_ID     = vc
+        3 10_Event_Minutes      = vc
+        3 hide_row              = i2
+    ; Test Result segment
+    2 tr_cnt = i4
+    2 test_result[*]
+        3 1_order_no            = vc
+        3 2_facility_id         = vc
+        3 3_pat_acct_number     = vc
+        3 4_service_date        = vc
+        3 5_test_id             = vc
+        3 6_test_desc           = c20
+        3 7_test_result         = vc
+        3 8_upper_ctrl_limit    = vc
+        3 9_lower_ctrl_limit    = vc
+        3 10_result_units       = vc
+        3 11_abnormal_flag_code = vc
+        3 12_interpret_res_id   = vc
+        3 13_interpret_phys_id  = vc
+        3 14_test_result_status_code = vc
+        3 15_qual_interpret     = vc
+        3 hide_row              = i2
+		;mde segments
+		2 newborn                  = c1
+		2 arrival_date             = vc
+		2 arrival_time             = vc
+		2 birth_weight             = vc
+		2 observation_services     = vc
+		2 decision_to_admit_date   = vc
+		2 decision_to_admit_time   = vc
+		2 ed_departure_date        = vc
+		2 ed_departure_time        = vc
+		2 ed_patient               = vc
+		2 provider_contact_date    = vc
+		2 provider_contact_time    = vc
+		2 discharge_disposition    = vc
+		2 psychiatric_care_setting = vc
+)
+
+
+**************************************************************
+ DEBUG OUTPUT - DIAGNOSIS
+**************************************************************
+
+select into $OUTDEV
+    rec_nbr                       = d1.seq
+  , diag_nbr                      = d2.seq
+  , encntrid                      = encounter->data[d1.seq].encntrid
+  , pft_encntr_id                 = encounter->data[d1.seq].pft_encntr_id
+  , pat_acct_no                   = encounter->data[d1.seq].2_pat_acct_no
+  , adm_date                      = encounter->data[d1.seq].3_adm_date
+  , disch_serv_date               = encounter->data[d1.seq].4_disch_serv_date
+
+  , icd_diagnosis_code            = encounter->data[d1.seq].diag[d2.seq].3_icd_diagnosis_code
+  , icd_diag_rank                 = encounter->data[d1.seq].diag[d2.seq].4_icd_diag_rank
+  , diag_date                     = encounter->data[d1.seq].diag[d2.seq].5_diag_date
+  , poa_code                      = encounter->data[d1.seq].diag[d2.seq].6_poa_code
+  , diag_type                     = encounter->data[d1.seq].diag[d2.seq].7_diag_type
+  , icd_type                      = encounter->data[d1.seq].diag[d2.seq].8_icd_type
+
+from
+    (dummyt d1 with seq = value(size(encounter->data,5)))
+  , (dummyt d2 with seq = 1)
+
+
+plan d1
+  where maxrec(d2, size(encounter->data[d1.seq].diag,5))
+
+join d2
+
+order by
+    encounter->data[d1.seq].2_pat_acct_no
+  , d1.seq
+  , d2.seq
+
+with nocounter, format, separator = " ", maxrec = 1000000 
+
+select into $OUTDEV
+    rec_nbr                       = d1.seq
+
+  ; Core keys / indicators
+  , encntrid                      = encounter->data[d1.seq].encntrid
+  , recur_ind                     = encounter->data[d1.seq].recur_ind
+  , pft_encntr_id                 = encounter->data[d1.seq].pft_encntr_id
+  , pft_encntr_alias              = encounter->data[d1.seq].pft_encntr_alias
+  , personid                      = encounter->data[d1.seq].personid
+  , etype                         = encounter->data[d1.seq].etype
+  , admitcd                       = encounter->data[d1.seq].admitcd
+  , dischcd                       = encounter->data[d1.seq].dischcd
+  , exclude_ind                   = encounter->data[d1.seq].exclude_ind
+  , attend_id                     = encounter->data[d1.seq].attend_id
+  , inpatient_admit_dt_tm         = encounter->data[d1.seq].inpatient_admit_dt_tm
+
+  ; Level 3 diagnosis fields
+  , diag_rec_nbr                  = d2.seq
+  , icd_diagnosis_code            = encounter->data[d1.seq].diag[d2.seq].3_icd_diagnosis_code
+  , icd_diag_rank                 = encounter->data[d1.seq].diag[d2.seq].4_icd_diag_rank
+  , diag_date                     = encounter->data[d1.seq].diag[d2.seq].5_diag_date
+  , poa_code                      = encounter->data[d1.seq].diag[d2.seq].6_poa_code
+  , diag_type                     = encounter->data[d1.seq].diag[d2.seq].7_diag_type
+  , icd_type                      = encounter->data[d1.seq].diag[d2.seq].8_icd_type
+  ; PFT recurring/detail fields added for new flow
+  , recur_seq                     = encounter->data[d1.seq].recur_seq
+  , alias_seq                     = encounter->data[d1.seq].alias_seq
+  , recur_current_month           = encounter->data[d1.seq].recur_current_month
+  , recur_current_year            = encounter->data[d1.seq].recur_current_year
+
+  ; Raw encounter / PFT dates added for new flow
+  , reg_dt_tm                     = encounter->data[d1.seq].reg_dt_tm "@SHORTDATETIME"
+  , disch_dt_tm                   = encounter->data[d1.seq].disch_dt_tm "@SHORTDATETIME"
+  , arrive_dt_tm                  = encounter->data[d1.seq].arrive_dt_tm "@SHORTDATETIME"
+  , inpatient_admit_raw_dt_tm     = encounter->data[d1.seq].inpatient_admit_raw_dt_tm "@SHORTDATETIME"
+  , pft_beg_effective_dt_tm       = encounter->data[d1.seq].pft_beg_effective_dt_tm "@SHORTDATETIME"
+  , pft_end_effective_dt_tm       = encounter->data[d1.seq].pft_end_effective_dt_tm "@SHORTDATETIME"
+  , pft_svc_beg_dt_tm             = encounter->data[d1.seq].pft_svc_beg_dt_tm "@SHORTDATETIME"
+  , pft_svc_end_dt_tm             = encounter->data[d1.seq].pft_svc_end_dt_tm "@SHORTDATETIME"
+  , pft_reg_dt_tm                 = encounter->data[d1.seq].pft_reg_dt_tm "@SHORTDATETIME"
+
+  ; Raw encounter code fields added for new flow
+  , admit_src_cd                  = encounter->data[d1.seq].admit_src_cd
+  , med_service_cd                = encounter->data[d1.seq].med_service_cd
+  , loc_facility_cd               = encounter->data[d1.seq].loc_facility_cd
+  , encntr_type_class_cd          = encounter->data[d1.seq].encntr_type_class_cd
+
+  ; Premier encounter fields
+  , facility                      = encounter->data[d1.seq].1_facility
+  , pat_acct_no                   = encounter->data[d1.seq].2_pat_acct_no
+  , adm_date                      = encounter->data[d1.seq].3_adm_date
+  , disch_serv_date               = encounter->data[d1.seq].4_disch_serv_date
+  , site_of_care_id               = encounter->data[d1.seq].5_site_of_care_id
+  , site_of_care_cd               = encounter->data[d1.seq].5_site_of_care_cd
+  , patient_class                 = encounter->data[d1.seq].6_patient_class
+  , adm_type_code                 = encounter->data[d1.seq].7_adm_type_code
+  , point_of_origin_cd            = encounter->data[d1.seq].8_point_of_origin_cd
+  , disch_disp_cd                 = encounter->data[d1.seq].9_disch_disp_cd
+  , total_charges                 = encounter->data[d1.seq].10_total_charges
+  , total_costs                   = encounter->data[d1.seq].11_total_costs
+  , amt_paid                      = encounter->data[d1.seq].12_amt_paid
+  , adm_diag_code                 = encounter->data[d1.seq].13_adm_diag_code
+  , drg_code                      = encounter->data[d1.seq].14_drg_code
+  , apdrg_code                    = encounter->data[d1.seq].15_apdrg_code
+  , apdrg_state                   = encounter->data[d1.seq].16_apdrg_state
+  , adm_phys_id                   = encounter->data[d1.seq].17_adm_phys_id
+  , disch_phys_id                 = encounter->data[d1.seq].18_disch_phys_id
+  , primcare_phys_id              = encounter->data[d1.seq].19_primcare_phys_id
+  , responisble_phys_id           = encounter->data[d1.seq].20_responisble_phys_id
+  , case_mgr_id                   = encounter->data[d1.seq].21_case_mgr_id
+  , med_rec_no                    = encounter->data[d1.seq].22_med_rec_no
+  , master_patient_id             = encounter->data[d1.seq].23_master_patient_id
+  , social_security_no            = encounter->data[d1.seq].24_social_security_no
+  , pat_last_name                 = encounter->data[d1.seq].25_pat_last_name
+  , pat_first_name                = encounter->data[d1.seq].26_pat_first_name
+  , pat_middle_initial            = encounter->data[d1.seq].27_pat_middle_initial
+  , pat_dob                       = encounter->data[d1.seq].28_pat_dob
+  , pat_addr_1                    = encounter->data[d1.seq].29_pat_addr_1
+  , pat_addr_2                    = encounter->data[d1.seq].30_pat_addr_2
+  , pat_city                      = encounter->data[d1.seq].31_pat_city
+  , pat_state                     = encounter->data[d1.seq].32_pat_state
+  , pat_zipcode                   = encounter->data[d1.seq].33_pat_zipcode
+  , sex_code                      = encounter->data[d1.seq].34_sex_code
+  , marital_code                  = encounter->data[d1.seq].35_marital_code
+  , race_cd                       = encounter->data[d1.seq].36_race_cd
+  , pat_relation_code             = encounter->data[d1.seq].37_pat_relation_code
+  , employer_id                   = encounter->data[d1.seq].38_employer_id
+  , pat_tel_no                    = encounter->data[d1.seq].39_pat_tel_no
+  , hisp_ethnicity                = encounter->data[d1.seq].40_hisp_ethnicity
+  , apr_drg_code                  = encounter->data[d1.seq].41_apr_drg_code
+  , apr_rom                       = encounter->data[d1.seq].42_apr_rom
+  , apr_soi                       = encounter->data[d1.seq].43_apr_soi
+  , hic                           = encounter->data[d1.seq].44_hic
+  , ms_drg_code                   = encounter->data[d1.seq].45_ms_drg_code
+  , pat_type                      = encounter->data[d1.seq].46_pat_type
+  , pat_county                    = encounter->data[d1.seq].47_pat_county
+  , pat_country                   = encounter->data[d1.seq].48_pat_country
+  , disch_var_cost                = encounter->data[d1.seq].49_disch_var_cost
+  , disch_fix_cost                = encounter->data[d1.seq].50_disch_fix_cost
+  , vent_days                     = encounter->data[d1.seq].51_vent_days
+  , smoker_flag                   = encounter->data[d1.seq].52_smoker_flag
+  , pat_weight                    = encounter->data[d1.seq].53_pat_weight
+  , birth_weight_54               = encounter->data[d1.seq].54_birth_weight
+  , baby_pat_no                   = encounter->data[d1.seq].55_baby_pat_no
+  , ethnicty                      = encounter->data[d1.seq].56_Ethnicty
+  , ed_visit                      = encounter->data[d1.seq].57_ED_Visit
+  , cnc_care_setting              = encounter->data[d1.seq].58_CNC_Care_Setting
+  , tin                           = encounter->data[d1.seq].59_TIN
+
+  ; Other internal / MDE fields
+  , testcharge                    = encounter->data[d1.seq].testcharge
+  , last_proc_rank                = encounter->data[d1.seq].last_proc_rank
+  , newborn                       = encounter->data[d1.seq].newborn
+  , arrival_date                  = encounter->data[d1.seq].arrival_date
+  , arrival_time                  = encounter->data[d1.seq].arrival_time
+  , birth_weight                  = encounter->data[d1.seq].birth_weight
+  , observation_services          = encounter->data[d1.seq].observation_services
+  , decision_to_admit_date        = encounter->data[d1.seq].decision_to_admit_date
+  , decision_to_admit_time        = encounter->data[d1.seq].decision_to_admit_time
+  , ed_departure_date             = encounter->data[d1.seq].ed_departure_date
+  , ed_departure_time             = encounter->data[d1.seq].ed_departure_time
+  , ed_patient                    = encounter->data[d1.seq].ed_patient
+  , provider_contact_date         = encounter->data[d1.seq].provider_contact_date
+  , provider_contact_time         = encounter->data[d1.seq].provider_contact_time
+  , discharge_disposition         = encounter->data[d1.seq].discharge_disposition
+  , psychiatric_care_setting      = encounter->data[d1.seq].psychiatric_care_setting
+
+from
+    (dummyt d1 with seq = value(size(encounter->data,5)))
+  , (dummyt d2 with seq = 1)
+
+plan d1
+  where maxrec(d2, size(encounter->data[d1.seq].diag,5))
+
+join d2
+
+order by
+  d1.seq, d2.seq
+
+with nocounter, format, separator = " ", maxrec = 1000000
+
+ echojson(encounter, $outdev)
+
+**************************************************************
+ DEBUG OUTPUT - FULL ENCOUNTER RECORD STRUCTURE
+ Includes parent level and all 3rd-level repeating lists
+**************************************************************
+
+select into $OUTDEV
+
+    ;**********************************************************
+    ; Sequence / parent identifiers
+    ;**********************************************************
+    row_nbr                         = d1.seq
+  , diag_nbr                        = d2.seq
+  , payor_nbr                       = d3.seq
+  , prac_nbr                        = d4.seq
+  , proc_nbr                        = d5.seq
+  , resource_nbr                    = d6.seq
+  ;**********************************************************
+  ; Parent level fields
+  ;**********************************************************
+  , encntrid                        = encounter->data[d1.seq].encntrid
+  , recur_ind                       = encounter->data[d1.seq].recur_ind
+  , pft_encntr_id                   = encounter->data[d1.seq].pft_encntr_id
+  , personid                        = encounter->data[d1.seq].personid
+  , etype                           = encounter->data[d1.seq].etype
+  , admitcd                         = encounter->data[d1.seq].admitcd
+  , dischcd                         = encounter->data[d1.seq].dischcd
+  , exclude_ind                     = encounter->data[d1.seq].exclude_ind
+  , attend_id                       = encounter->data[d1.seq].attend_id
+  , inpatient_admit_dt_tm           = encounter->data[d1.seq].inpatient_admit_dt_tm
+
+  ;**********************************************************
+  ; Encounter segment
+  ;**********************************************************
+  , facility                        = encounter->data[d1.seq].1_facility
+  , pat_acct_no                     = encounter->data[d1.seq].2_pat_acct_no
+  , adm_date                        = encounter->data[d1.seq].3_adm_date
+  , disch_serv_date                 = encounter->data[d1.seq].4_disch_serv_date
+  , site_of_care_id                 = encounter->data[d1.seq].5_site_of_care_id
+  , site_of_care_cd                 = encounter->data[d1.seq].5_site_of_care_cd
+  , patient_class                   = encounter->data[d1.seq].6_patient_class
+  , adm_type_code                   = encounter->data[d1.seq].7_adm_type_code
+  , point_of_origin_cd              = encounter->data[d1.seq].8_point_of_origin_cd
+  , disch_disp_cd                   = encounter->data[d1.seq].9_disch_disp_cd
+  , total_charges                   = encounter->data[d1.seq].10_total_charges
+  , total_costs                     = encounter->data[d1.seq].11_total_costs
+  , amt_paid                        = encounter->data[d1.seq].12_amt_paid
+  , adm_diag_code                   = encounter->data[d1.seq].13_adm_diag_code
+  , drg_code                        = encounter->data[d1.seq].14_drg_code
+  , apdrg_code                      = encounter->data[d1.seq].15_apdrg_code
+  , apdrg_state                     = encounter->data[d1.seq].16_apdrg_state
+  , adm_phys_id                     = encounter->data[d1.seq].17_adm_phys_id
+  , disch_phys_id                   = encounter->data[d1.seq].18_disch_phys_id
+  , primcare_phys_id                = encounter->data[d1.seq].19_primcare_phys_id
+  , responsible_phys_id             = encounter->data[d1.seq].20_responisble_phys_id
+  , case_mgr_id                     = encounter->data[d1.seq].21_case_mgr_id
+  , med_rec_no                      = encounter->data[d1.seq].22_med_rec_no
+  , master_patient_id               = encounter->data[d1.seq].23_master_patient_id
+  , social_security_no              = encounter->data[d1.seq].24_social_security_no
+  , pat_last_name                   = encounter->data[d1.seq].25_pat_last_name
+  , pat_first_name                  = encounter->data[d1.seq].26_pat_first_name
+  , pat_middle_initial              = encounter->data[d1.seq].27_pat_middle_initial
+  , pat_dob                         = encounter->data[d1.seq].28_pat_dob
+  , pat_addr_1                      = encounter->data[d1.seq].29_pat_addr_1
+  , pat_addr_2                      = encounter->data[d1.seq].30_pat_addr_2
+  , pat_city                        = encounter->data[d1.seq].31_pat_city
+  , pat_state                       = encounter->data[d1.seq].32_pat_state
+  , pat_zipcode                     = encounter->data[d1.seq].33_pat_zipcode
+  , sex_code                        = encounter->data[d1.seq].34_sex_code
+  , marital_code                    = encounter->data[d1.seq].35_marital_code
+  , race_cd                         = encounter->data[d1.seq].36_race_cd
+  , pat_relation_code               = encounter->data[d1.seq].37_pat_relation_code
+  , employer_id                     = encounter->data[d1.seq].38_employer_id
+  , pat_tel_no                      = encounter->data[d1.seq].39_pat_tel_no
+  , hisp_ethnicity                  = encounter->data[d1.seq].40_hisp_ethnicity
+  , apr_drg_code                    = encounter->data[d1.seq].41_apr_drg_code
+  , apr_rom                         = encounter->data[d1.seq].42_apr_rom
+  , apr_soi                         = encounter->data[d1.seq].43_apr_soi
+  , hic                             = encounter->data[d1.seq].44_hic
+  , ms_drg_code                     = encounter->data[d1.seq].45_ms_drg_code
+  , pat_type                        = encounter->data[d1.seq].46_pat_type
+  , pat_county                      = encounter->data[d1.seq].47_pat_county
+  , pat_country                     = encounter->data[d1.seq].48_pat_country
+  , disch_var_cost                  = encounter->data[d1.seq].49_disch_var_cost
+  , disch_fix_cost                  = encounter->data[d1.seq].50_disch_fix_cost
+  , vent_days                       = encounter->data[d1.seq].51_vent_days
+  , smoker_flag                     = encounter->data[d1.seq].52_smoker_flag
+  , pat_weight                      = encounter->data[d1.seq].53_pat_weight
+  , birth_weight_54                 = encounter->data[d1.seq].54_birth_weight
+  , baby_pat_no                     = encounter->data[d1.seq].55_baby_pat_no
+  , ethnicity_56                    = encounter->data[d1.seq].56_Ethnicty
+  , ed_visit_57                     = encounter->data[d1.seq].57_ED_Visit
+  , cnc_care_setting_58             = encounter->data[d1.seq].58_CNC_Care_Setting
+  , tin_59                          = encounter->data[d1.seq].59_TIN
+  , testcharge                      = encounter->data[d1.seq].testcharge
+  , last_proc_rank                  = encounter->data[d1.seq].last_proc_rank
+
+  ;**********************************************************
+  ; Diagnosis segment
+  ;**********************************************************
+  , diag_icd_diagnosis_code         = encounter->data[d1.seq].diag[d2.seq].3_icd_diagnosis_code
+  , diag_icd_diag_rank              = encounter->data[d1.seq].diag[d2.seq].4_icd_diag_rank
+  , diag_date                       = encounter->data[d1.seq].diag[d2.seq].5_diag_date
+  , diag_poa_code                   = encounter->data[d1.seq].diag[d2.seq].6_poa_code
+  , diag_type                       = encounter->data[d1.seq].diag[d2.seq].7_diag_type
+  , diag_icd_type                   = encounter->data[d1.seq].diag[d2.seq].8_icd_type
+
+  ;**********************************************************
+  ; Payor segment
+  ;**********************************************************
+  , payor_id                        = encounter->data[d1.seq].payor[d3.seq].3_payor_id
+  , payor_description               = encounter->data[d1.seq].payor[d3.seq].4_payor_description
+  , plan_id                         = encounter->data[d1.seq].payor[d3.seq].5_plan_id
+  , plan_desc                       = encounter->data[d1.seq].payor[d3.seq].6_plan_desc
+  , payor_plan_rank                 = encounter->data[d1.seq].payor[d3.seq].7_payor_plan_rank
+  , plan_type                       = encounter->data[d1.seq].payor[d3.seq].8_plan_type
+  , plan_type_cd                    = encounter->data[d1.seq].payor[d3.seq].8_plan_type_cd
+  , plan_amt_paid                   = encounter->data[d1.seq].payor[d3.seq].9_plan_amt_paid
+;
+  ;**********************************************************
+  ; Practitioner segment
+  ;**********************************************************
+  , prac_prsnl_id                   = encounter->data[d1.seq].prac[d4.seq].prsnl_id
+  , prac_staff_id                   = encounter->data[d1.seq].prac[d4.seq].3_staff_id
+  , prac_staff_type                 = encounter->data[d1.seq].prac[d4.seq].4_staff_type
+  , prac_service_start_date         = encounter->data[d1.seq].prac[d4.seq].5_service_start_date
+  , prac_service_end_date           = encounter->data[d1.seq].prac[d4.seq].6_service_end_date
+  , prac_staff_role                 = encounter->data[d1.seq].prac[d4.seq].7_staff_role
+
+  ;**********************************************************
+  ; Procedure segment
+  ;**********************************************************
+  , proc_code                       = encounter->data[d1.seq].proc[d5.seq].3_proc_code
+  , proc_rank                       = encounter->data[d1.seq].proc[d5.seq].4_proc_rank
+  , proc_type                       = encounter->data[d1.seq].proc[d5.seq].5_proc_type
+  , proc_cpt4_mod_code              = encounter->data[d1.seq].proc[d5.seq].6_cpt4_mod_code
+  , proc_order_date                 = encounter->data[d1.seq].proc[d5.seq].7_proc_order_date
+  , proc_date                       = encounter->data[d1.seq].proc[d5.seq].8_proc_date
+  , proc_phys_id                    = encounter->data[d1.seq].proc[d5.seq].9_proc_phys_id
+  , proc_billed_charges             = encounter->data[d1.seq].proc[d5.seq].10_billed_charges
+  , proc_amt_paid                   = encounter->data[d1.seq].proc[d5.seq].11_proc_amt_paid
+  , proc_cost                       = encounter->data[d1.seq].proc[d5.seq].12_proc_cost
+  , proc_anestheist_phys_id         = encounter->data[d1.seq].proc[d5.seq].13_anestheist_phys_id
+  , proc_site_of_care_id            = encounter->data[d1.seq].proc[d5.seq].14_site_of_care_id
+  , proc_cpt4_mod_code2             = encounter->data[d1.seq].proc[d5.seq].15_cpt4_mod_code2
+  , proc_cpt4_mod_code3             = encounter->data[d1.seq].proc[d5.seq].16_cpt4_mod_code3
+  , proc_cpt4_mod_code4             = encounter->data[d1.seq].proc[d5.seq].17_cpt4_mod_code4
+
+  ;**********************************************************
+  ; Resource segment
+  ;**********************************************************
+  , resource_bill_item_id           = encounter->data[d1.seq].resource[d6.seq].bill_item_id
+  , resource_price_sched_id         = encounter->data[d1.seq].resource[d6.seq].price_sched_id
+  , resource_charge_item_id         = encounter->data[d1.seq].resource[d6.seq].charge_item_id
+  , resource_id                     = encounter->data[d1.seq].resource[d6.seq].3_resource_id
+  , resource_order_no               = encounter->data[d1.seq].resource[d6.seq].4_order_no
+  , resource_service_date           = encounter->data[d1.seq].resource[d6.seq].5_service_date
+  , resource_qty                    = encounter->data[d1.seq].resource[d6.seq].6_resource_qty
+  , resource_qcf_qty                = encounter->data[d1.seq].resource[d6.seq].qcf_qty
+  , resource_j_code                 = encounter->data[d1.seq].resource[d6.seq].J_code
+  , resource_ord_date               = encounter->data[d1.seq].resource[d6.seq].7_ord_date
+  , resource_ord_phys_id            = encounter->data[d1.seq].resource[d6.seq].8_ord_phys_id
+  , resource_ord_res_id             = encounter->data[d1.seq].resource[d6.seq].9_ord_res_id
+  , resource_total_res_cost         = encounter->data[d1.seq].resource[d6.seq].10_total_res_cost
+  , resource_specimen_type_code     = encounter->data[d1.seq].resource[d6.seq].11_specimen_type_code
+  , resource_specimen_id            = encounter->data[d1.seq].resource[d6.seq].12_specimen_id
+  , resource_rate_cd                = encounter->data[d1.seq].resource[d6.seq].13_rate_cd
+  , resource_non_covered_charge     = encounter->data[d1.seq].resource[d6.seq].14_non_covered_charge
+  , resource_tot_charge             = encounter->data[d1.seq].resource[d6.seq].15_tot_charge
+  , resource_tot_var_cost           = encounter->data[d1.seq].resource[d6.seq].16_tot_var_cost
+  , resource_tot_fix_cost           = encounter->data[d1.seq].resource[d6.seq].17_tot_fix_cost
+  , resource_cpt_code_18            = encounter->data[d1.seq].resource[d6.seq].18_cpt_code
+  , resource_rev_code_19            = encounter->data[d1.seq].resource[d6.seq].19_rev_code
+  , resource_rev_code               = encounter->data[d1.seq].resource[d6.seq].rev_code
+  , resource_cpt_code               = encounter->data[d1.seq].resource[d6.seq].cpt_code
+
+  ;**********************************************************
+  ; MDE fields
+  ;**********************************************************
+  , newborn                         = encounter->data[d1.seq].newborn
+  , arrival_date                    = encounter->data[d1.seq].arrival_date
+  , arrival_time                    = encounter->data[d1.seq].arrival_time
+  , birth_weight                    = encounter->data[d1.seq].birth_weight
+  , observation_services            = encounter->data[d1.seq].observation_services
+  , decision_to_admit_date          = encounter->data[d1.seq].decision_to_admit_date
+  , decision_to_admit_time          = encounter->data[d1.seq].decision_to_admit_time
+  , ed_departure_date               = encounter->data[d1.seq].ed_departure_date
+  , ed_departure_time               = encounter->data[d1.seq].ed_departure_time
+  , ed_patient                      = encounter->data[d1.seq].ed_patient
+  , provider_contact_date           = encounter->data[d1.seq].provider_contact_date
+  , provider_contact_time           = encounter->data[d1.seq].provider_contact_time
+  , discharge_disposition           = encounter->data[d1.seq].discharge_disposition
+  , psychiatric_care_setting        = encounter->data[d1.seq].psychiatric_care_setting
+;
+from
+    (dummyt d1 with seq = value(size(encounter->data,5)))
+  , (dummyt d2 with seq = 1) ;diag
+  , (dummyt d3 with seq = 1) ;payor
+  , (dummyt d4 with seq = 1) ;prac
+  , (dummyt d5 with seq = 1) ;proc
+  , (dummyt d6 with seq = 1) ;resource
+;  , (dummyt d7 with seq = 1) ;event
+;  , (dummyt d8 with seq = 1) ;test_result
+
+plan d1
+  where maxrec(d2, size(encounter->data[d1.seq].diag,5))
+    and maxrec(d3, size(encounter->data[d1.seq].payor,5))
+    and maxrec(d4, size(encounter->data[d1.seq].prac,5))
+    and maxrec(d5, size(encounter->data[d1.seq].proc,5))
+    and maxrec(d6, size(encounter->data[d1.seq].resource,5))
+ ;   and maxrec(d7, size(encounter->data[d1.seq].event,5))
+;    and maxrec(d8, size(encounter->data[d1.seq].test_result,5))
+
+join d2 ;diag
+join d3 ;payor
+join d4 ;prac
+join d5 ;proc
+join d6 ;resource
+;join d7 ;event
+;join d8 ;test_result
+
+;order by
+;    encounter->data[d1.seq].2_pat_acct_no
+;  , d1.seq
+;  , d2.seq
+;  , d3.seq
+;  , d4.seq
+;  , d5.seq
+;  , d6.seq
+;  , d7.seq
+;  , d8.seq
+
+with nocounter, format, separator = " ", maxrec = 1000000
+
+
+;**************************************************************
+; DEBUG OUTPUT - EVENT
+; This will return no rows when EVENT[] is empty.
+;**************************************************************
+
+select into $OUTDEV
+    rec_nbr                       = d1.seq
+  , event_nbr                     = d2.seq
+  , encntrid                      = encounter->data[d1.seq].encntrid
+  , pft_encntr_id                 = encounter->data[d1.seq].pft_encntr_id
+  , pat_acct_no                   = encounter->data[d1.seq].2_pat_acct_no
+  , adm_date                      = encounter->data[d1.seq].3_adm_date
+  , disch_serv_date               = encounter->data[d1.seq].4_disch_serv_date
+
+  , facility_id                   = encounter->data[d1.seq].event[d2.seq].1_facility_id
+  , event_pat_acct_number         = encounter->data[d1.seq].event[d2.seq].2_pat_acct_number
+  , event_type_code               = encounter->data[d1.seq].event[d2.seq].3_event_type_code
+  , event_date                    = encounter->data[d1.seq].event[d2.seq].4_event_date
+  , event_reason_code             = encounter->data[d1.seq].event[d2.seq].5_event_reason_code
+  , unit_loc_id                   = encounter->data[d1.seq].event[d2.seq].6_unit_loc_id
+  , unit_loc_cd                   = encounter->data[d1.seq].event[d2.seq].6_unit_loc_cd
+  , prev_unit_loc_id              = encounter->data[d1.seq].event[d2.seq].prev_unit_loc_id
+  , unit_loc_desc                 = encounter->data[d1.seq].event[d2.seq].7_unit_loc_desc
+  , prev_unit_loc_id_8            = encounter->data[d1.seq].event[d2.seq].8_Prev_Unit_Loc_ID
+  , site_of_care_id_9             = encounter->data[d1.seq].event[d2.seq].9_Site_of_Care_ID
+  , event_minutes_10              = encounter->data[d1.seq].event[d2.seq].10_Event_Minutes
+  , hide_row                      = encounter->data[d1.seq].event[d2.seq].hide_row
+
+from
+    (dummyt d1 with seq = value(size(encounter->data,5)))
+  , (dummyt d2 with seq = 1)
+
+plan d1
+  where maxrec(d2, size(encounter->data[d1.seq].event,5))
+
+join d2
+
+order by
+    encounter->data[d1.seq].2_pat_acct_no
+  , d1.seq
+  , d2.seq
+
+with nocounter, format, separator = " ", maxrec = 1000000
+
+
+;**************************************************************
+; DEBUG OUTPUT - TEST RESULT
+; This will return no rows when TEST_RESULT[] is empty.
+;**************************************************************
+
+select into $OUTDEV
+    rec_nbr                       = d1.seq
+  , test_result_nbr               = d2.seq
+  , tr_cnt                        = encounter->data[d1.seq].tr_cnt
+  , encntrid                      = encounter->data[d1.seq].encntrid
+  , pft_encntr_id                 = encounter->data[d1.seq].pft_encntr_id
+  , pat_acct_no                   = encounter->data[d1.seq].2_pat_acct_no
+  , adm_date                      = encounter->data[d1.seq].3_adm_date
+  , disch_serv_date               = encounter->data[d1.seq].4_disch_serv_date
+
+  , order_no                      = encounter->data[d1.seq].test_result[d2.seq].1_order_no
+  , facility_id                   = encounter->data[d1.seq].test_result[d2.seq].2_facility_id
+  , test_pat_acct_number          = encounter->data[d1.seq].test_result[d2.seq].3_pat_acct_number
+  , service_date                  = encounter->data[d1.seq].test_result[d2.seq].4_service_date
+  , test_id                       = encounter->data[d1.seq].test_result[d2.seq].5_test_id
+  , test_desc                     = encounter->data[d1.seq].test_result[d2.seq].6_test_desc
+  , test_result                   = encounter->data[d1.seq].test_result[d2.seq].7_test_result
+  , upper_ctrl_limit              = encounter->data[d1.seq].test_result[d2.seq].8_upper_ctrl_limit
+  , lower_ctrl_limit              = encounter->data[d1.seq].test_result[d2.seq].9_lower_ctrl_limit
+  , result_units                  = encounter->data[d1.seq].test_result[d2.seq].10_result_units
+  , abnormal_flag_code            = encounter->data[d1.seq].test_result[d2.seq].11_abnormal_flag_code
+  , interpret_res_id              = encounter->data[d1.seq].test_result[d2.seq].12_interpret_res_id
+  , interpret_phys_id             = encounter->data[d1.seq].test_result[d2.seq].13_interpret_phys_id
+  , result_status_code            = encounter->data[d1.seq].test_result[d2.seq].14_test_result_status_code
+  , qual_interpret                = encounter->data[d1.seq].test_result[d2.seq].15_qual_interpret
+  , hide_row                      = encounter->data[d1.seq].test_result[d2.seq].hide_row
+
+from
+    (dummyt d1 with seq = value(size(encounter->data,5)))
+  , (dummyt d2 with seq = 1)
+
+plan d1
+  where maxrec(d2, size(encounter->data[d1.seq].test_result,5))
+
+join d2
+
+order by
+    encounter->data[d1.seq].2_pat_acct_no
+  , d1.seq
+  , d2.seq
+
+with nocounter, format, separator = " ", maxrec = 1000000
+call echojson(encounter, $OUTDEV)
+
+
+
+
+
+**************************************************************
+ DEBUG - RAW DIAGNOSIS ROWS FOR ONE ENCOUNTER
+ Purpose:
+   Shows all diagnosis rows for the encounter before applying
+   the Premier diagnosis filters.
+**************************************************************
+
+declare debug_encntr_id = f8 with constant(114424963.00), protect
+
+select into $OUTDEV
+    encntr_id                    = di.encntr_id
+  , diagnosis_id                 = di.diagnosis_id
+  , person_id                    = di.person_id
+
+  , diag_dt_tm                   = di.diag_dt_tm "@SHORTDATETIME"
+  , beg_effective_dt_tm          = di.beg_effective_dt_tm "@SHORTDATETIME"
+  , end_effective_dt_tm          = di.end_effective_dt_tm "@SHORTDATETIME"
+
+  , active_ind                   = di.active_ind
+  , active_status_cd             = di.active_status_cd
+  , active_status_disp           = uar_get_code_display(di.active_status_cd)
+
+  , diag_type_cd                 = di.diag_type_cd
+  , diag_type_disp               = uar_get_code_display(di.diag_type_cd)
+  , diag_type_key                = uar_get_displaykey(di.diag_type_cd)
+
+  , diag_priority                = di.diag_priority
+  , clinical_diag_priority       = di.clinical_diag_priority
+
+  , diag_class_cd                = di.diag_class_cd
+  , diag_class_disp              = uar_get_code_display(di.diag_class_cd)
+  , diag_class_key               = uar_get_displaykey(di.diag_class_cd)
+
+  , diagnosis_display            = di.diagnosis_display
+  , diag_ftdesc                  = di.diag_ftdesc
+  , diag_note                    = di.diag_note
+  , diagnosis_group              = di.diagnosis_group
+
+  , nomenclature_id              = di.nomenclature_id
+  , mod_nomenclature_id          = di.mod_nomenclature_id
+  , originating_nomenclature_id  = di.originating_nomenclature_id
+  , clu_subkey1_flag             = di.clu_subkey1_flag
+  , parent_entity_id             = di.parent_entity_id
+
+from
+    diagnosis di
+
+plan di
+  where di.encntr_id = debug_encntr_id
+
+order by
+    di.diag_type_cd
+  , di.diag_priority
+  , di.clinical_diag_priority
+  , di.diag_dt_tm
+  , di.diagnosis_id
+
+with nocounter, format, separator = " ", maxrec = 1000000
