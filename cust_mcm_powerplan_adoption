@@ -1,0 +1,240 @@
+drop program cust_mcm_powerplan_adoption go
+create program cust_mcm_powerplan_adoption
+ 
+prompt
+	"Output to File/Printer/MINE: " = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Plan Name (description w/ wildcards): " = "*Readmission*"
+	;, "Plan Type (exact display from 30183): " = "Quality Measures"
+	, "Include Suggested Plans?" = "Yes"
+	, "Virtual Domain Client (mnemonic): " = "*"
+	, "Days to Look Back: " = "30"
+	, "Script Killtime (secs): " = "30"
+ 
+with Output
+	, PlanName
+	;, PlanType
+	, SuggestedYes
+	, LDClient
+	, DaysLookback
+	, RunTime
+ 
+record
+	Data(
+		1 Results[*]
+			2 Patient = vc
+			2 MRN = vc
+			2 FIN = vc
+			2 Nurse_Unit = vc
+			2 Facility = vc
+			2 Source = vc
+			2 PowerPlan = vc
+			2 PowerPlanType = vc
+			2 Status = vc
+			2 Created = vc
+			2 Clinician = vc
+			2 Role = vc
+			2 Registration = vc
+			2 Logical_Client = vc
+	)
+ 
+Declare Lookback = i4
+	set LookBack = cnvtint($DaysLookback)
+Declare KillTime = i4
+	set KillTime = cnvtint($RunTime)
+Declare i = i4
+	set i = 0
+ 
+/* Start Capture Suggested Plans */
+if (
+	cnvtupper($SuggestedYes) = "YES"
+)
+ 
+	select distinct into "nl:"
+ 
+	from
+	 pathway_catalog pc
+	 , task_activity ta
+	 , person p
+	 , prsnl pr
+	 , encntr_alias ea
+	 , encntr_alias ea2
+	 , encounter e
+	 , logical_domain ld
+ 
+	plan e where e.reg_dt_tm > cnvtdatetime(curdate-Lookback,0)
+	 and e.reg_dt_tm < cnvtdatetime(curdate,curtime3)
+	 and e.active_ind = 1
+ 
+	join p where e.person_id = p.person_id
+ 
+	Join ta where e.encntr_id = ta.encntr_id
+	 ;and ta.SUGGESTED_ENTITY_ID > 0
+ 
+	Join pc  where ta.SUGGESTED_ENTITY_ID = pc.pathway_catalog_id
+		and pc.description = $PlanName
+		;and pc.pathway_type_cd = value(uar_get_code_by("Display", 30183, $PlanType))
+ 
+	Join pr where ta.updt_id = pr.person_id
+ 
+	Join ea where outerjoin(e.encntr_id) = ea.encntr_id
+	 and ea.ENCNTR_ALIAS_TYPE_CD = outerjoin(value(uar_get_code_by("Meaning", 319, "MRN")))
+ 
+	Join ea2 where outerjoin(e.encntr_id) = ea2.encntr_id
+	 and ea2.ENCNTR_ALIAS_TYPE_CD = outerjoin(value(uar_get_code_by("Meaning", 319, "FIN NBR")))
+ 
+	join ld where outerjoin(p.logical_domain_id) = ld.logical_domain_id
+		and ld.mnemonic = outerjoin($LDClient)
+ 
+	head report
+		stat = alterlist(Data->Results,50000)
+ 
+ 
+	detail
+ 
+		i = i + 1
+ 
+		if (MOD(i,100) = 1 and i > 50000)
+			stat = alterlist(Data->Results, i+99)
+		endif
+ 
+		;Start adding values to record
+			Data->Results[i].Patient = trim(p.name_full_formatted)
+			Data->Results[i].MRN = trim(ea.alias)
+			Data->Results[i].FIN = trim(ea2.alias)
+			Data->Results[i].Nurse_Unit = evaluate(; Location of patient
+			 	uar_get_code_display (e.loc_nurse_unit_cd)
+			 	, " ", "-None-"
+			 	, uar_get_code_display (e.loc_nurse_unit_cd), trim(uar_get_code_display(e.loc_nurse_unit_cd))
+			 )
+			Data->Results[i].Facility = trim(uar_get_code_display(e.loc_facility_cd))
+			Data->Results[i].Source = "Suggested Plans"
+			Data->Results[i].PowerPlan = trim(pc.description)
+			Data->Results[i].PowerPlanType = trim(uar_get_code_display(pc.pathway_type_cd))
+			Data->Results[i].Status = trim(uar_get_code_display(ta.task_status_cd))
+			Data->Results[i].Created = trim(format(ta.task_create_dt_tm, "mm/dd/yyyy hh:mm;;q"))
+			Data->Results[i].Clinician = trim(pr.name_full_formatted)
+			Data->Results[i].Role = trim(uar_get_code_display(pr.position_cd))
+			Data->Results[i].Registration = trim(format(e.reg_dt_tm, "mm/dd/yyyy hh:mm;;q"))
+			Data->Results[i].Logical_Client = trim(ld.mnemonic)
+ 
+;	foot report
+;		stat = alterlist(Data->Results,i)
+ 
+	with
+		 time = KillTime
+		 , format
+		 , separator = " "
+ 
+endif
+/* End Capture Suggested Plans */
+ 
+/* Start Capture Ordered Plans */
+ 
+	select distinct into "nl:"
+ 
+	from
+	 pathway_catalog pc
+	 ,pathway path
+	 , person p
+	 , prsnl pr
+	 , encntr_alias ea
+	 , encntr_alias ea2
+	 , encounter e
+	 , logical_domain ld
+ 
+	plan e where e.reg_dt_tm > cnvtdatetime(curdate-Lookback,0)
+	 and e.reg_dt_tm < cnvtdatetime(curdate,curtime3)
+	 and e.active_ind = 1
+ 
+	join p where e.person_id = p.person_id
+ 
+	Join path where e.encntr_id = path.encntr_id
+	 and path.active_ind = 1
+ 
+	Join pc where path.pathway_catalog_id = pc.pathway_catalog_id
+		and pc.description = $PlanName
+		;and pc.pathway_type_cd = value(uar_get_code_by("Display", 30183, $PlanType))
+ 
+	Join pr where path.status_prsnl_id = pr.person_id
+ 
+	Join ea where outerjoin(e.encntr_id) = ea.encntr_id
+	 and ea.ENCNTR_ALIAS_TYPE_CD = outerjoin(value(uar_get_code_by("Meaning", 319, "MRN")))
+ 
+	Join ea2 where outerjoin(e.encntr_id) = ea2.encntr_id
+	 and ea2.ENCNTR_ALIAS_TYPE_CD = outerjoin(value(uar_get_code_by("Meaning", 319, "FIN NBR")))
+ 
+	join ld where outerjoin(p.logical_domain_id) = ld.logical_domain_id
+		and ld.mnemonic = outerjoin($LDClient)
+ 
+	head report
+		row + 0
+ 		stat = alterlist(Data->Results,50000)
+	detail
+ 
+		i = i + 1
+ 
+		if (MOD(i,100) = 1 and i > 50000)
+			stat = alterlist(Data->Results, i+99)
+		endif
+ 
+		;Start adding values to record
+			Data->Results[i].Patient = trim(p.name_full_formatted)
+			Data->Results[i].MRN = trim(ea.alias)
+			Data->Results[i].FIN = trim(ea2.alias)
+			Data->Results[i].Nurse_Unit = evaluate(; Location of patient
+			 	uar_get_code_display (e.loc_nurse_unit_cd)
+			 	, " ", "-None-"
+			 	, uar_get_code_display (e.loc_nurse_unit_cd), trim(uar_get_code_display(e.loc_nurse_unit_cd))
+			 )
+			Data->Results[i].Facility = trim(uar_get_code_display(e.loc_facility_cd))
+			Data->Results[i].Source = "PowerOrders"
+			Data->Results[i].PowerPlan = trim(pc.description)
+			Data->Results[i].PowerPlanType = trim(uar_get_code_display(pc.pathway_type_cd))
+			Data->Results[i].Status = trim(uar_get_code_display(path.pw_status_cd))
+			Data->Results[i].Created = trim(format(path.start_dt_tm, "mm/dd/yyyy hh:mm;;q"))
+			Data->Results[i].Clinician = trim(pr.name_full_formatted)
+			Data->Results[i].Role = trim(uar_get_code_display(pr.position_cd))
+			Data->Results[i].Registration = trim(format(e.reg_dt_tm, "mm/dd/yyyy hh:mm;;q"))
+			Data->Results[i].Logical_Client = trim(ld.mnemonic)
+ 
+	foot report
+		stat = alterlist(Data->Results,i)
+ 
+	with
+		 time = KillTime
+		 , format
+		 , separator = " "
+ 
+/* End Capture Ordered Plans */
+ 
+/*Create Output*/
+select into $Output
+	Patient = trim(substring(1, 200, Data->Results[d1.seq].Patient))
+	, MRN = trim(substring(1, 200, Data->Results[d1.seq].MRN))
+	, FIN = trim(substring(1, 200, Data->Results[d1.seq].FIN))
+	, Nurse_Unit = trim(substring(1, 200, Data->Results[d1.seq].Nurse_Unit))
+	, Facility = trim(substring(1, 200, Data->Results[d1.seq].Facility))
+	, Source = trim(substring(1, 200, Data->Results[d1.seq].Source))
+	, PowerPlan = trim(substring(1, 200, Data->Results[d1.seq].PowerPlan))
+	, Plan_Type = trim(substring(1, 200, Data->Results[d1.seq].PowerPlanType))
+	, Status = trim(substring(1, 200, Data->Results[d1.seq].Status))
+	, Created = trim(substring(1, 200, Data->Results[d1.seq].Created))
+	, Clinician = trim(substring(1, 200, Data->Results[d1.seq].Clinician))
+	, Role = trim(substring(1, 200, Data->Results[d1.seq].Role))
+	, Registration = trim(substring(1, 200, Data->Results[d1.seq].Registration))
+	, Logical_Client = trim(substring(1, 200, Data->Results[d1.seq].Logical_Client))
+ 
+from (dummyt  d1  with seq = value(size(Data->Results, 5)))
+ 
+;where Data->Results[d1.seq]->Location != " "
+ 
+order by Logical_Client, Source, Status, PowerPlan, Facility, Patient
+ 
+with
+	nocounter
+	, separator=" "
+	, format
+	, time = KillTime
+/*End Output*/
+end
+go
