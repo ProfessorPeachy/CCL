@@ -1,0 +1,234 @@
+
+drop program 1_amj_tn_ins_sch_appt go
+create program 1_amj_tn_ins_sch_appt
+ 
+prompt 
+	"Output to File/Printer/MINE" = "MINE"
+	, "Select Admit Start Date:" = "SYSDATE"
+	, "Select Admit End Date:" = "SYSDATE"
+	, "Plan Keyword" = "" 
+
+with OUTDEV, START_DATE, END_DATE, plan_name_key
+ 
+ 
+
+/***********************************************************************************************************************
+*                                        VARIABLE DECLARES
+***********************************************************************************************************************/
+declare num = i4
+ 
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+ 
+/***********************************************************************************************************************
+*                                        RECORD STRUCTURE
+***********************************************************************************************************************/
+free record rec
+record rec
+(1 cnt                  = i4
+ 1 qual[*]
+    2 facility          = vc
+    2 eid               = f8
+    2 pid               = f8
+    2 admit_date        = vc
+    2 admit_time        = vc
+    2 rn_unit           = vc
+    2 room_bed          = vc
+    2 patient_name      = vc
+    2 medrecnbr         = vc
+    2 finnbr            = vc
+    2 date_of_birth     = vc
+    2 patient_race      = vc
+    2 patient_ethnicity = vc
+    2 appt_dt			= vc
+    2 appt_location		= vc
+    2 order_name		= vc
+    2 health_plan		= vc
+    2 auc_dsn			= vc
+    2 auc_score			= vc
+    2 auc_modifier		= vc
+    2 qualifed_cdsm		= vc
+    2 insur_name		= vc
+    2 order_id			= f8
+    2 pcp_id			= f8
+    2 pcp_name			= vc
+ 
+)
+ 
+/***********************************************************************************************************************
+*                                        PATIENT POPULATION
+***********************************************************************************************************************/
+
+
+SELECT INTO "NL:"
+	;e.reg_dt_tm
+	 p.name_full_formatted
+	;, ea.alias
+	;, e.encntr_id
+ 
+FROM
+	SCH_APPT   SA
+	, person   p
+	, PERSON_PLAN_RELTN   PP
+	, HEALTH_PLAN   H
+	, encounter   e
+	, encntr_alias   ea
+
+plan SA
+	where sa.beg_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+;p	and sa.appt_location_cd in   (2554063067.00, 2554063073.00) ; Spring Hill Imaging
+	and sa.role_meaning = "PATIENT"
+	and sa.state_meaning in ("CHECKED IN" ,"CHECKED OUT", "RESCHEDULED", "SCHEDULED", "CANCELED")
+join p
+    where p.person_id = sa.person_id
+      and p.active_ind = 1
+join e
+	where e.person_id = sa.person_id
+    ;and e. between cnvtdatetime(bdate) and cnvtdatetime(edate)
+   ; where e.reg_dt_tm between cnvtdatetime(cnvtdate(10122021),0)
+;                          and cnvtdatetime(cnvtdate(10122021),2359)
+     ; and e.loc_facility_cd = 21250403.0
+      ;and e.encntr_type_cd = 309308.0
+      and e.active_ind = 1
+join ea
+    where ea.encntr_id = e.encntr_id
+      and ea.encntr_alias_type_cd in (1077.0,1079.0)
+      and ea.active_ind = 1
+ ;     and ea.alias = "2264095"
+join pp
+	where  p.person_id = pp.person_id
+	 and pp.active_ind = 1
+	 and pp.priority_seq = 1
+	 and pp.end_effective_dt_tm >= cnvtdate(12302100)
+join h
+	where  h.health_plan_id = pp.health_plan_id
+	 and h.active_ind = 1
+	 ;and h.plan_name = "*Medicare*"
+	; and h.plan_name_key = "*TENNCARE*"
+	 AND OPERATOR(h.plan_name_key,"REGEXPLIKE", $plan_name_key) 
+ 
+ORDER BY
+	sa.person_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head sa.person_id
+    dx_cnt = 0
+    cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = p.person_id
+    rec->qual[cnt].patient_name = p.name_full_formatted
+    rec->qual[cnt].date_of_birth = datebirthformat(p.birth_dt_tm,p.birth_tz,0,"MM/dd/yyyy;;ZZZ")
+    rec->qual[cnt].admit_date = format(e.reg_dt_tm,"MM/dd/yyyy")
+    rec->qual[cnt].admit_time = format(e.reg_dt_tm,"HH:mm")
+    rec->qual[cnt].rn_unit = uar_get_code_display(e.loc_nurse_unit_cd)
+    rec->qual[cnt].room_bed = build2(trim(uar_get_code_display(e.loc_room_cd)),"-",
+                                     trim(uar_get_code_display(e.loc_bed_cd)))
+    rec->qual[cnt].patient_race = uar_get_code_display(p.race_cd)
+    rec->qual[cnt].patient_ethnicity = uar_get_code_display(p.ethnic_grp_cd)
+    rec->qual[cnt].facility = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].appt_dt =format(sa.beg_dt_tm,"MM/DD/YYYY;;d")
+    rec->qual[cnt].appt_location = uar_get_code_display(sa.appt_location_cd)
+    rec->qual[cnt].insur_name = H.PLAN_NAME
+
+ 
+ detail
+    if(ea.encntr_alias_type_cd = 1077.0)
+        rec->qual[cnt].finnbr = ea.alias
+    elseif(ea.encntr_alias_type_cd = 1079.0)
+        rec->qual[cnt].medrecnbr = ea.alias
+    endif
+foot report
+    if(cnt > 0)
+        stat = alterlist(rec->qual,cnt)
+        rec->cnt = cnt
+    endif
+ 
+WITH nocounter,time=3900
+
+
+SET CODE_VALUE = 0.0
+SET CDF_MEANING = "PCP"
+SET CODE_SET = 331
+EXECUTE CPM_GET_CD_FOR_CDF
+SET PCP_CD = CODE_VALUE
+
+
+
+select into $outdev
+	pcp_name = trim(substring(1,200,pr.name_full_formatted),3)
+	,eid = rec->qual[d1.seq].eid
+;	, patient_name = trim(substring(1,200,p.name_full_formatted),3)
+;	, patient_dob = trim(substring(1,20,format(p.birth_dt_tm,"MM/dd/YYYY")),3)
+	;, ppr.person_prsnl_r_cd
+from 
+	person_prsnl_reltn ppr
+	,prsnl pr			;personnel
+	;,person p			;patient
+	,(dummyt   d1  with seq = value(size(rec->qual,5)))	
+plan d1
+	where d1.seq > 0
+join ppr
+	where ppr.person_id = rec->qual[d1.seq].pid
+	and ppr.person_prsnl_r_cd = pcp_cd
+	and ppr.active_ind = 1
+join pr
+	where pr.person_id = ppr.prsnl_person_id
+	and pr.active_ind = 1  
+	and pr.beg_effective_dt_tm <=cnvtdatetime(curdate ,curtime3)   
+	and pr.end_effective_dt_tm >= cnvtdatetime(curdate ,curtime3)	
+detail
+	rec->qual[d1.seq].pcp_name = pr.name_full_formatted
+;	
+;plan ppr
+;	where ppr.prsnl_person_id = $pcp
+;	;where ppr.person_prsnl_r_cd = pcp_cd  ;1115
+;	and ppr.active_ind = 1
+;	and ppr.beg_effective_dt_tm <= cnvtdatetime (curdate ,curtime3)  
+;	and ppr.end_effective_dt_tm >=cnvtdatetime (curdate ,curtime3)  
+;join pr
+;	where pr.person_id = ppr.prsnl_person_id  
+;	and pr.active_ind = 1  
+;	and pr.beg_effective_dt_tm <=cnvtdatetime(curdate ,curtime3)   
+;	and pr.end_effective_dt_tm >= cnvtdatetime(curdate ,curtime3)
+;join p
+;	where p.person_id = ppr.person_id
+;	and p.active_ind = 1	
+;order by pr.name_full_formatted, p.name_full_formatted
+with nocounter, format, separator =  " ", time = 600, maxrec=100
+
+/***********************************************************************************************************************
+*                                        OUTPUT
+***********************************************************************************************************************/
+
+
+SELECT INTO $outdev
+	  Appt_Date = trim(substring(1,80,rec->qual[d1.seq].appt_dt))
+	, patient_name = trim(substring(1,120,rec->qual[d1.seq].patient_name))
+	, DOB = rec->qual[d1.seq].date_of_birth
+	, MRN = rec->qual[d1.seq].medrecnbr
+	, Appt_Location = trim(substring(1,20,rec->qual[d1.seq].appt_location))
+	, Health_plan = trim(substring(1,200,rec->qual[d1.seq].insur_name)) 
+	, pcp = trim(substring(1,200,rec->qual[d1.seq].pcp_name)) 
+FROM
+	(dummyt   d1  with seq = value(size(rec->qual,5)))
+ 
+plan d1
+    where d1.seq > 0
+ 
+ORDER BY
+	Appt_Date
+	, patient_name
+ 
+WITH time=3900,format,separator="",nocounter
+
+end
+go
+ 
