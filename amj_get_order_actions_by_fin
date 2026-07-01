@@ -1,0 +1,32 @@
+drop program amj_get_order_actions_by_fin go
+create program amj_get_order_actions_by_fin
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "FIN" = "" 
+
+with OUTDEV, FIN
+
+
+select INTO $OUTDEV
+O.order_id, o.order_mnemonic, O.orig_order_dt_tm, O.order_status_cd 
+,UAR_GET_CODE_DISPLAY(OA.action_type_cd), OA.action_dt_tm
+,OA.action_sequence
+,OA.clinical_display_line
+,OA.*
+from 
+encntr_alias ea
+,orders o
+,ORDER_ACTION OA
+plan ea
+where ea.alias = $FIN ;"204689215"
+join o
+where o.encntr_id = ea.encntr_id
+and o.order_mnemonic = "*PSO*"
+JOIN OA
+WHERE OA.order_id = O.order_id
+ORDER BY O.orig_order_dt_tm ASC, OA.action_dt_tm ASC
+WITH FORMAT(DATE,"@SHORTDATETIME"), FORMAT, SEPARATOR = " ", TIME = 60
+
+end
+go
