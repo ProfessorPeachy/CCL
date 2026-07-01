@@ -1,0 +1,325 @@
+drop program 1_AMJ_TN_g_PHARMACY go
+create program 1_AMJ_TN_g_PHARMACY
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"      ;* Enter or select the printer or file name to send this report to.
+	, "Starting Prescription Date:" = ""
+	, "Ending Prescription Date:" = "CURDATE"
+ 
+with OUTDEV, START_DATE, END_DATE
+ 
+ 
+ 
+/*******************************************************************************************
+        VARIABLES
+*******************************************************************************************/
+declare num = i4
+declare date_range = i4
+declare pharmacy_catalog_cd = f8 with constant(uar_get_code_by("MEANING",6000,"PHARMACY")),protect
+declare complete_order_status_cd = f8 with constant(uar_get_code_by("MEANING",6004,"COMPLETED")),protect
+declare canceled_order_status_cd = f8 with constant(uar_get_code_by("MEANING",6004,"CANCELED")),protect;mod 001
+declare pharmacy_activity_cd = f8 with constant(uar_get_code_by("MEANING",106,"PHARMACY")),protect
+declare delivered_status_cd = f8 with constant(uar_get_code_by("MEANING",3401,"DELIVERED")),protect
+declare inprogress_status_cd = f8 with constant(uar_get_code_by("MEANING",3401,"IN PROGRESS")),protect
+declare order_action_cd = f8 with constant(uar_get_code_by("MEANING",6003,"ORDER")),protect
+declare ins_default_guaranter = f8 with constant(uar_get_code_by("MEANING",351,"DEFGUAR")),protect
+ 
+ 
+set bdate = concat($START_DATE,' 00:00')
+set edate = concat($END_DATE,' 23:59')
+set date_range = datetimediff(cnvtdatetime($END_DATE),cnvtdatetime($START_DATE))
+ 
+if(date_range > 61)
+select into $outdev
+    msg = "Date range greater than 61 days.  Select a smaller date range."
+    ,sd = $START_DATE
+    ,ed = $END_DATE
+    ,dr = date_range
+    from dummyt d
+plan d
+detail
+    row 0
+    ,col 0, "Date range greater than 61 days. Select a smaller date range."
+    ,row+1
+    ,col 0, "Date Range: ",sd," ",ed
+    ,row+2
+    ,col 0, "Total Days: ",dr
+with nocounter
+go to exit_script
+endif
+/*******************************************************************************************
+        RECORD STRUCTURE
+*******************************************************************************************/
+ 
+free record rec
+record rec(
+  1 cnt = i4
+  1 qual[*]
+  	2 order_id = f8
+	2 encntr_id = f8
+	2 person_id = f8
+	2 order_phys_id = f8
+	2 med_prescription_date = vc
+	2 prescribe_location = vc
+	2 med_descrip = vc
+	2 generic_name = vc
+	2 days_supply = vc
+	2 medrecnbr = vc
+	2 fin_nbr = vc
+	2 primary_payer = vc
+	2 second_payer = vc
+;	2 fac_npi = vc
+;	2 ord_prov_npi = f8
+	2 ord_status = vc
+    2 prescribe_physician = vc
+;	2 chg_item_id = f8
+;	2 ndc_nbr = vc
+;	2 service_dt_tm = vc
+	2 pat_name = vc
+	2 pat_dob = vc
+	2 prescriber_npi = vc
+;
+;	2 med_prod_id = f8
+;	2 med_cost_hx_id = f8
+	2 strength = vc
+	2 strength_unit = vc
+	2 strength_and_unit = vc
+	2 quantity = vc
+	2 quantity_unit = vc
+	2 qty_and_unit = vc
+	2 volume = vc
+	2 volume_unit = vc
+	2 vol_and_unit = vc
+	2 free_text_dose = vc
+	2 free_text_dose_unit = vc
+	2 ft_dose_and_unit = vc
+	2 refills = vc
+	2 pharmacy = vc
+;	2 brand_ind = i2
+;	2 awp = i4
+;	2 txn_id_text = vc
+)
+ 
+/*******************************************************************************************
+        ALL COMPLETED OR DISCONTINUED PHARMACY ORDERS
+*******************************************************************************************/
+select into "NL:"
+    o.order_id
+from
+    orders o
+    ,encntr_alias ea
+    ,order_detail od
+    ,messaging_audit ma
+    ,organization org
+    ,encntr_plan_reltn epr
+    ,encntr_person_reltn ep
+    ,health_plan hp
+    ,person p
+plan o
+;where o.orig_order_dt_tm between cnvtdatetime(curdate-200,0) and cnvtdatetime(curdate-18,2359)
+;where o.orig_order_dt_tm between cnvtdatetime(cnvtdate(05152020),0) and cnvtdatetime(cnvtdate(05202020),2359)
+where o.orig_order_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+  and o.catalog_type_cd = pharmacy_catalog_cd;2516.0;pharmacy
+  and o.activity_type_cd = pharmacy_activity_cd;705.0;pharmacy
+  and o.orig_ord_as_flag = 1;prescription
+  and o.order_status_cd != canceled_order_status_cd;mod 001 2542.0
+;  and o.order_status_cd in (complete_order_status_cd;2543.0;completed
+;                            ;,2550.0;ordered dna
+;                            ,2545.0;discontinued
+;                            )
+;  and o.order_id in (543496963.0,543497013.0)
+;  and o.encntr_id in (102189015.0);,102967062.0)
+join ea
+    where ea.encntr_id = o.encntr_id
+      and ea.active_ind = 1
+      and ea.end_effective_dt_tm >= cnvtdate(12302100)
+join od
+    where od.order_id = o.order_id
+join ma
+    where ma.order_id = o.order_id
+      and ma.status_cd in (delivered_status_cd;4053728.0;delivered
+                           ,inprogress_status_cd;4053732.0
+                           )
+join org
+    where org.organization_id = ma.org_id
+      and org.active_ind = 1
+      and org.end_effective_dt_tm >= cnvtdate(12302100)
+join epr
+;    where expand(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].encntr_id)
+    where epr.encntr_id = o.encntr_id
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+join ep
+    where ep.encntr_id = epr.encntr_id
+      and ep.related_person_id = epr.person_id
+;      and ep.person_reltn_type_cd = 158.0;ins_default_guaranter;1150.0;default guaranter
+      and ep.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id = epr.health_plan_id
+      and hp.active_ind = 1
+      and hp.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+join p
+	where p.person_id = o.person_id
+ 
+order by
+    o.order_id
+ 
+head report
+    pcnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head o.order_id
+    pcnt = pcnt + 1
+    if(mod(pcnt,100)=1 and pcnt !=1)
+        stat = alterlist(rec->qual,pcnt+99)
+    endif
+ 
+    rec->qual[pcnt].order_id = o.order_id
+    rec->qual[pcnt].med_descrip = o.order_mnemonic
+    rec->qual[pcnt].generic_name = o.ordered_as_mnemonic
+    rec->qual[pcnt].ord_status = uar_get_code_display(o.order_status_cd)
+    rec->qual[pcnt].encntr_id = o.encntr_id
+    rec->qual[pcnt].person_id = o.person_id
+    rec->qual[pcnt].med_prescription_date = format(o.orig_order_dt_tm,"MM/dd/yyyy HH:mm;;d")
+    rec->qual[pcnt].days_supply = cnvtstring(o.day_of_treatment_sequence)
+    rec->qual[pcnt].prescribe_location = org.org_name
+    rec->qual[pcnt].order_phys_id = ma.ordering_phys_id
+    rec->qual[pcnt].pat_name = p.name_full_formatted
+    rec->qual[pcnt].pat_dob = format(p.birth_dt_tm,"MM/dd/yyyy ;;d")
+ 
+detail
+    if(ea.encntr_alias_type_cd = 1079.0)
+        rec->qual[pcnt].medrecnbr = ea.alias
+    elseif(ea.encntr_alias_type_cd = 1077.0)
+        rec->qual[pcnt].fin_nbr = ea.alias
+    endif
+ 
+ 
+    if(epr.priority_seq = 1)
+        rec->qual[pcnt].primary_payer = hp.plan_name
+    elseif(epr.priority_seq = 2)
+        rec->qual[pcnt].second_payer = hp.plan_name
+    endif
+ 
+    case (od.oe_field_meaning)
+        of "STRENGTHDOSE":
+            rec->qual[pcnt].strength = od.oe_field_display_value
+        of "STRENGTHDOSEUNIT":
+            rec->qual[pcnt].strength_unit = od.oe_field_display_value
+        of "FREETEXTDOSE":
+            rec->qual[pcnt].free_text_dose = od.oe_field_display_value
+        of "FREETEXTDOSEUNIT":
+            rec->qual[pcnt].free_text_dose_unit = od.oe_field_display_value
+        of "VOLUMEDOSE":
+            rec->qual[pcnt].volume = od.oe_field_display_value
+        of "VOLUMEDOSEUNIT":
+            rec->qual[pcnt].volume_unit = od.oe_field_display_value
+        of "DISPENSEQTY":
+            rec->qual[pcnt].quantity = od.oe_field_display_value
+        of "DISPENSEQTYUNIT":
+            rec->qual[pcnt].quantity_unit = od.oe_field_display_value
+        of "NBRREFILLS":
+            rec->qual[pcnt].refills = od.oe_field_display_value
+        of "ROUTINGPHARMACYNAME":
+            rec->qual[pcnt].pharmacy = od.oe_field_display_value
+    endcase
+ 
+foot o.order_id
+    rec->qual[pcnt].strength_and_unit = build2(trim(rec->qual[pcnt].strength,3)," ",trim(rec->qual[pcnt].strength_unit,3))
+    rec->qual[pcnt].ft_dose_and_unit =
+        build2(trim(rec->qual[pcnt].free_text_dose,3)," ",trim(rec->qual[pcnt].free_text_dose_unit,3))
+    rec->qual[pcnt].vol_and_unit = build2(trim(rec->qual[pcnt].volume,3)," ",trim(rec->qual[pcnt].volume_unit,3))
+    rec->qual[pcnt].qty_and_unit = build2(trim(rec->qual[pcnt].quantity,3)," ",trim(rec->qual[pcnt].quantity_unit,3))
+ 
+foot report
+    if(pcnt>0)
+        stat = alterlist(rec->qual,pcnt)
+        rec->cnt = pcnt
+    endif
+with nocounter,time=3900
+/*******************************************************************************************
+        ALL COMPLETED OR DISCONTINUED PHARMACY ORDERS
+*******************************************************************************************/
+select into "NL:"
+    pr.name_full_formatted
+    ;,prescriber_npi
+from
+    order_action oa
+    ,prsnl pr
+    ,prsnl_alias pa
+ 
+plan oa
+    where expand(num,1,size(rec->qual,5),oa.order_id,rec->qual[num].order_id)
+      and oa.action_type_cd = order_action_cd;2534.0
+join pr
+    where pr.person_id = oa.order_provider_id
+      and pr.active_ind = 1
+      and pr.end_effective_dt_tm >= cnvtdate(12302100)
+join pa
+	where pa.person_id = pr.person_id
+	  and pa.alias_pool_cd =    26026547.00
+order by
+    oa.order_id
+head oa.order_id;pr.person_id
+    pos = locateval(num,1,size(rec->qual,5),oa.order_id,rec->qual[num].order_id)
+ 
+detail
+    rec->qual[pos].prescribe_physician = pr.name_full_formatted
+    rec->qual[pos].prescriber_npi = pa.alias
+ 
+with nocounter,time=3900,expand=1
+ 
+call echorecord(rec)
+/*******************************************************************************************
+       OUTPUT SECTION
+*******************************************************************************************/
+;if(date_range > 61)
+;select into $outdev
+;    msg = "Date range greater than 61 days.  Select a smaller date range."
+;    ,sd = $START_DATE
+;    ,ed = $END_DATE
+;    ,dr = date_range
+;    from dummyt d
+;plan d
+;detail
+;    row 0
+;    ,col 0, "Date range greater than 61 days. Select a smaller date range."
+;    ,row+1
+;    ,col 0, "Date Range: ",sd," ",ed
+;    ,row+2
+;    ,col 0, "Total Days: ",dr
+;with nocounter
+;go to exit_script
+;else
+select into $outdev
+    prescription_date = trim(substring(1,20,rec->qual[d1.seq].med_prescription_date))
+    ,FIN = trim(substring(1,40,rec->qual[d1.seq].fin_nbr))
+    ,mrn = trim(substring(1,40,rec->qual[d1.seq].medrecnbr))
+    ,pat_name = trim(substring(1,40,rec->qual[d1.seq].pat_name))
+    ,pat_dob = trim(substring(1,20,rec->qual[d1.seq].pat_dob))
+    ,generic_drug_name = trim(substring(1,120,rec->qual[d1.seq].generic_name))
+    ,description = trim(substring(1,120,rec->qual[d1.seq].med_descrip))
+    ,strength_dose = trim(substring(1,40,rec->qual[d1.seq].strength_and_unit))
+    ,free_text_dose = trim(substring(1,20,rec->qual[d1.seq].free_text_dose))
+    ,volume_dose = trim(substring(1,20,rec->qual[d1.seq].vol_and_unit))
+    ,quantity = trim(substring(1,20,rec->qual[d1.seq].qty_and_unit))
+    ,days_supply = trim(substring(1,20,rec->qual[d1.seq].days_supply))
+    ,nbr_of_refills = trim(substring(1,30,rec->qual[d1.seq].refills))
+    ,prescribing_MD = trim(substring(1,120,rec->qual[d1.seq].prescribe_physician))
+    ,prescriber_npi = trim(substring(1,20,rec->qual[d1.seq].prescriber_npi))
+    ,prescribing_location = trim(substring(1,120,rec->qual[d1.seq].prescribe_location))
+    ,destination_pharmacy = trim(substring(1,120,rec->qual[d1.seq].pharmacy))
+    ,primary_payer = trim(substring(1,120,rec->qual[d1.seq].primary_payer))
+    ,secondary_payer = trim(substring(1,120,rec->qual[d1.seq].second_payer))
+ 
+ 
+from
+    (dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1
+where d1.seq > 0
+with nocounter,separator="",format,time=3900
+;endif
+#EXIT_SCRIPT
+end go
+ 
