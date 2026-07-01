@@ -1,0 +1,96 @@
+drop program 1_amj_patient_los go
+create program 1_amj_patient_los
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Select encounter types:" = 0          ;* Select encounter types for the report.
+	;<<hidden>>"Select All" = ""
+	;<<hidden>>"Reset" = "" 
+
+with OUTDEV, ENCNTR_TYPES
+
+
+
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+
+**************************************************************/
+declare	cm_pso_inpatient_cd 		= f8 with protect, constant(uar_get_code_by('DISPLAYKEY',200,'CMPSOINPATIENT'));	 2569084515.00
+declare	adt_cd 						= f8 with protect, constant(uar_get_code_by("DISPLAYKEY",6000,"ADMITTRANSFERDISCHARGE"));  636727.00
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+
+;Person-Name	Encounter #	Encounter Type	Admit date/time	DC date/time	Facility	Nurse Unit	DC Disposition	Total in Hours/minutes	Total minutes
+;Blackburn, Jamie Adam	204699965	Observation	12/31/2024  04:39am	12/31/2024 17:30pm	Wayne	2A	Home	14 hrs 51 min	891
+
+SELECT into $OUTDEV
+	e.encntr_id
+	,P.name_full_formatted
+	,fin =  ea.alias
+	,encounter_type = uar_get_code_display(e.encntr_type_cd)
+	,e.arrive_dt_tm
+	,e.reg_dt_tm
+	,e.disch_dt_tm
+	,facility	 = uar_get_code_display(e.loc_facility_cd)
+	,nurse_unit	= uar_get_code_display(e.loc_nurse_unit_cd)
+	,dc_disposition	= uar_get_code_display(e.disch_disposition_cd)
+	,Total_Hours_minutes	= FORMAT(DATETIMEDIFF(E.disch_dt_tm,E.reg_dt_tm), "HH hrs MM min;;Z")
+	,total_minutes		= cnvtmin(E.disch_dt_tm) - cnvtmin(E.reg_dt_tm)
+;	,has_admit_order	= 
+from
+	 encounter e
+	 ,orders o
+	,encntr_alias ea
+	,person p
+plan e
+;	where e.encntr_id =   111468653.00
+	where e.beg_effective_dt_tm >= cnvtdatetime(curdate-3, curtime3)
+	and e.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+	and e.active_ind = 1
+	;AND E.encntr_type_cd =      309312.00;OBSERVATION
+	AND e.encntr_type_cd = $ENCNTR_TYPES
+;	AND E.med_service_cd = 
+JOIN O
+	where o.person_id = E.person_id
+	AND O.encntr_id = E.encntr_id
+;	and o.orig_order_dt_tm >= cnvtdatetime(encntr_rec->encntrs[d1.seq].begin_date_dq8)
+;	and o.encntr_id = encntr_rec->encntrs[d1.seq].encntrid
+	and o.catalog_type_cd =  adt_cd;     636727.00 ; Admit/Transfer/Discharge
+	AND O.order_mnemonic = "PSO Admit to Inpatient"
+;	and o.order_mnemonic in ("PSO Admit to Inpatient","PSO Place in Observation")
+JOIN EA
+	WHERE EA.encntr_id = E.encntr_id
+	AND EA.END_EFFECTIVE_DT_TM > SYSDATE 
+	AND EA.active_ind = 1
+	AND EA.ENCNTR_ALIAS_TYPE_CD= 1077 ;CV_ENCNTR_ALIAS_TYPE.CODE_VALUE 
+JOIN P
+	WHERE P.person_id = E.person_id
+	AND P.active_ind = 1	
+;;	and ea.alias = "204699965"
+;JOIN TI
+;	WHERE TI.ENCNTR_ID 	 = E.encntr_id
+;	AND  (TI.TRACKING_ID=TI.TRACKING_ID and TI.tracking_type_flag=0 )
+;JOIN FN_TRACKING_CHECKIN
+;	WHERE FN_TRACKING_CHECKIN.TRACKING_ID=TI.TRACKING_ID
+;	;AND FN_TRACKING_CHECKIN.CHECKOUT_DISPOSITION_CD = 
+;JOIN FN_TRACKING_LOCATOR
+;	WHERE FN_TRACKING_LOCATOR.tracking_id = TI.tracking_id
+;	;AND FN_TRACKING_LOCATOR.LOC_NURSE_UNIT_CD = 
+;	;FN_TRACKING_LOCATOR.LOC_ROOM_C
+;JOIN P
+;	WHERE P.person_id = E.person_id
+;	AND P.active_ind = 1
+WITH NOCOUNTER, FORMAT, SEPARATOR = " ", FORMAT(DATE,"@SHORTDATETIME")
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
