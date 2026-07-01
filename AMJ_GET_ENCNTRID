@@ -1,0 +1,103 @@
+drop program AMJ_GET_ENCNTRID go
+create program AMJ_GET_ENCNTRID
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "FIN" = ""                             ;* Enter Fin
+	, "MRN" = ""                             ;* Enter MRN
+	, "Person ID" = ""                       ;* Enter Person ID
+	, "Encounter ID" = "" 
+
+with OUTDEV, fin, mrn, personid, encntrid
+
+
+;  
+declare med_service_par= vc with noconstant(" 1 = 1"), protect 
+declare fin_parser_str = vc with noconstant(" 1 = 1"),protect
+declare mrn_parser_str = vc with noconstant(" 1 = 1"),protect
+declare pid_parser_str = vc with noconstant(" 1 = 1"),protect
+declare eid_parser_str = vc with noconstant(" 1 = 1"),protect
+
+declare person_query_flag = i4 with noconstant(0),protect
+declare encounter_query_flag = i4 with noconstant(0),protect
+
+
+
+if ($fin > " ") ;204016421 
+	set fin_parser_str =build2(' ea.alias = "',$fin,'"')
+	call echo(fin_parser_str)
+	set encounter_query_flag = 1
+endif
+
+
+if ($mrn > " ");2211496
+	set mrn_parser_str =build2(' ea.alias = "',$mrn,'"')
+	call echo(mrn_parser_str)
+	set person_query_flag = 1
+endif
+
+
+if ($personid > " ")    ;15703332.00
+	set pid_parser_str =build2(" p.person_id = ",$personid)
+	call echo(pid_parser_str)
+	set person_query_flag = 1
+endif
+
+
+if ($encntrid > " ") ;109821401.00
+	set eid_parser_str =build2(" e.encntr_id = ",$encntrid)
+	call echo(eid_parser_str)
+	set encounter_query_flag = 1
+endif
+
+
+;where parser(build("cvo.code_set in (",s_code_set,")"))
+
+call echo(fin_parser_str)
+call echo(mrn_parser_str)
+call echo(pid_parser_str)
+call echo(eid_parser_str)
+
+
+
+select into $outdev
+	p.name_full_formatted
+	,mrn = ea2.alias
+	,fin = ea.alias
+	,e.encntr_id
+	,enc_beg_effective = e.beg_effective_dt_tm
+	,e.arrive_dt_tm
+	,e.disch_dt_tm
+	,e.arrive_dt_tm
+	,p.person_id
+	, fin_contrib_system = uar_get_code_display(ea.contributor_system_cd),fin_alias_pool=uar_get_code_display(ea.alias_pool_cd),ea.*
+from 
+	encntr_alias ea
+	,encntr_alias ea2
+	,encounter e
+	,person p
+plan ea
+	where parser(fin_parser_str)
+	;where ea.alias = $fin
+	and ea.encntr_alias_type_cd = 1077  ;fin
+	and ea.active_ind = 1
+join ea2
+	where ea2.encntr_id = ea.encntr_id
+	and parser(mrn_parser_str)
+	and ea2.encntr_alias_type_cd = 1079 ;mrn
+	and ea2.active_ind = 1
+join e
+	where e.encntr_id = ea2.encntr_id
+    and parser(eid_parser_str)
+	and e.active_ind = 1
+join p
+	where p.person_id = e.person_id
+	and parser(pid_parser_str)
+	and p.active_ind = 1	
+order by e.beg_effective_dt_tm asc
+with nocounter, format, separator = " ", maxrec=100, time = 30
+
+
+
+end
+go
