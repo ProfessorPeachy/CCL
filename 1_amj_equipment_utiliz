@@ -1,0 +1,95 @@
+drop program 1_amj_equipment_utiliz go
+create program 1_amj_equipment_utiliz
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Begin Date" = "CURDATE"
+	, "End Date" = "CURDATE" 
+
+with OUTDEV, BEGIN_DATE, END_DATE
+
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+
+declare beg_dt_tm = dq8
+declare end_dt_tm = dq8
+declare fin_alias_cd = f8
+declare surgeon_role_cd = f8
+declare equip_event_cd = f8 with constant(21246426.00)
+
+set beg_dt_tm = cnvtdatetime($BEGIN_DATE)
+set end_dt_tm = cnvtdatetime($END_DATE)
+
+
+;========================================================
+; surgical equipment utilization tied to a surgical case
+;========================================================
+select distinct into $outdev
+	  actual_dt_tm                = s.surg_start_dt_tm "@SHORTDATETIME"
+	, surg_stop_dt_tm             = s.surg_stop_dt_tm  "@SHORTDATETIME"
+	, patient_name                = p.name_full_formatted
+	, fin                         = ea.alias
+	, patient_care_device         = equip.result_val
+	, equipment_type              = equip.result_val
+	, serial_number               = serial.result_val
+	, physician                   = pr.name_full_formatted
+	, pr.physician_ind
+	, department                  = uar_get_code_display(s.surg_case_nbr_locn_cd)
+	, s.surgeon_prsnl_id
+	, s.anesth_prsnl_id
+from
+	  surgical_case            s
+	, perioperative_document   pcd
+	, clinical_event           equip
+	, clinical_event           serial
+	, encounter                e
+	, encntr_alias             ea
+	, person                   p
+	, prsnl                    pr
+plan s
+;  	where s.encntr_id =   112712510.00
+  where s.surg_start_dt_tm between cnvtdatetime(beg_dt_tm) and cnvtdatetime(end_dt_tm)
+join pcd
+  	where pcd.surg_case_id = s.surg_case_id
+join equip
+  	where equip.encntr_id = s.encntr_id
+    and substring(1,9, equip.reference_nbr) = cnvtstring(pcd.periop_doc_id)
+    and equip.event_cd = equip_event_cd
+    and equip.record_status_cd = 188
+    and equip.valid_until_dt_tm >= cnvtdatetime(curdate,curtime3)
+join serial
+  	where serial.encntr_id = s.encntr_id
+    and substring(1,9, serial.reference_nbr) = cnvtstring(pcd.periop_doc_id)
+    and serial.event_cd = equip_event_cd
+    and serial.collating_seq = equip.collating_seq
+    and serial.record_status_cd = 188
+    and serial.valid_until_dt_tm >= cnvtdatetime(curdate,curtime3)
+join e
+  	where e.encntr_id = s.encntr_id
+  	and e.active_ind = 1
+join ea
+  	where ea.encntr_id = s.encntr_id
+    and ea.encntr_alias_type_cd = 1077; fin_alias_cd
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+join p
+  	where p.person_id = e.person_id
+join pr
+    where pr.person_id = s.surgeon_prsnl_id
+WITH NOCOUNTER, FORMAT, SEPARATOR = " "
+
+
+
+
+
+
+end
+go
