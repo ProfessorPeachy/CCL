@@ -1,0 +1,447 @@
+DROP PROGRAM amj_pft_trans_pay_rec GO
+CREATE PROGRAM amj_pft_trans_pay_rec
+ 
+prompt
+	"OUTPUT TO FILE/PRINTER/MINE" = "MINE"
+	, "Please select a start date." = "CURDATE"
+	, "Please select an end date." = "CURDATE"
+ 
+with OUTDEV, START_DATE, END_DATE
+ 
+/**************************************************************
+DEBUGGING
+ 
+The variables for debugging and ops jobs are set here.
+**************************************************************/
+ 
+/* Declaring the variables that enable the prompts to be automatically
+entered in Debugging mode, or manually entered otherwise */
+DECLARE DEBUGGING_ON = I1 WITH CONSTANT(FALSE), PROTECT ; Debugging off
+;DECLARE DEBUGGING_ON = I1 WITH CONSTANT(TRUE), PROTECT	; Debugging on
+ 
+/* Declares the set of variables that may be altered for the purposes
+of debugging the report. */
+DECLARE pSTART_DATE = C20 WITH NOCONSTANT(""), PROTECT
+DECLARE pEND_DATE = C20 WITH NOCONSTANT(""), PROTECT
+ 
+/* Sets the values of the variables for use in debugging */
+IF (DEBUGGING_ON = TRUE)
+ 
+	SET pSTART_DATE = "01-JAN-2018 00:00:00"
+	SET pEND_DATE = "31-DEC-2018 23:59:59"
+ 
+/* Sets the values of the variables for use in production */
+ELSE
+ 
+	/* Tests to see if the report is being run as an ops job. This section
+	will set the variable values as a constant for ops job reports. */
+	IF(VALIDATE(REQUEST->BATCH_SELECTION))
+ 
+		SET pSTART_DATE = CONCAT($2, " 00:00:00")
+		SET pEND_DATE = CONCAT($3, " 23:59:59")
+ 
+	/* The variable values for standard production reports are set here. */
+	ELSE
+ 
+		SET pSTART_DATE = CONCAT($START_DATE, " 00:00:00")
+		SET pEND_DATE = CONCAT($END_DATE, " 23:59:59")
+ 
+	ENDIF
+ENDIF
+ 
+/**************************************************************
+RECORD STRUCTURES
+ 
+Declaring the record structure for the report
+**************************************************************/
+ 
+FREE RECORD DATA
+RECORD DATA
+(
+	1 CNT						= I4
+	1 REC[*]
+	    2 rENCNTR_ID			= F8
+	    2 rACCOUNT_TYPE		 	= C1
+	    2 rBILLING_ENTITY		= C100
+	    2 rBATCH_STATUS			= F8
+	    2 rBATCH_TYPE			= I2
+	    2 rFIN					= C15
+	    2 rTRANS_ALIAS			= C20
+	    2 rTRANS_TYPE			= F8
+	    2 rTRANS_SUBTYPE		= F8
+	    2 rTRANS_REASON			= F8
+	    2 rTRANS_TOTAL_AMOUNT	= F8
+	    2 rPOST_DT_TM			= DQ8
+	    2 rUPDT_DT_TM			= DQ8
+	    2 rPOST_BY				= C50
+	    2 rPAT_NAME				= C30
+	    2 rREG_DATE				= DQ8
+	    2 rDIS_DATE				= DQ8
+)
+ 
+/*****************************************************************
+REPORT VARIABLES
+ 
+Declaring variables for the report
+******************************************************************/
+ 
+DECLARE vVERSION = VC WITH CONSTANT("CUST_SCRIPT:DPT_ORG_PROGRAM_NAME - 1.0"), PROTECT
+;Array Index counter
+DECLARE CNT = I4 WITH NOCONSTANT(0),PROTECT
+DECLARE vCUR_DT_TM = VC WITH CONSTANT(FORMAT(SYSDATE, "DD-MMM-YYYY HH:MM;;D")), PROTECT
+DECLARE vDATE_DSP = VC WITH CONSTANT(CONCAT("REPORT RUN DATE: ", vCUR_DT_TM)), PROTECT
+DECLARE NUM = I4 WITH NOCONSTANT(0), PROTECT
+DECLARE POS = I4 WITH NOCONSTANT(0), PROTECT
+ 
+;Code value variables
+DECLARE cACTIVE = F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE")), PROTECT
+ 
+;Variable for displaying the name of the person running this report
+DECLARE vUSR_NM = VC WITH PROTECT
+ 
+;Select to get USERNAME of report runner
+SELECT INTO "NL:"
+ 
+FROM PRSNL P
+ 
+WHERE P.PERSON_ID = REQINFO -> UPDT_ID
+ 
+DETAIL
+	vUSR_NM = P.NAME_FULL_FORMATTED
+ 
+WITH NOCOUNTER
+ 
+DECLARE vRUN_DSP = VC WITH CONSTANT(CONCAT("RUN BY: ", vUSR_NM)), PROTECT
+ 
+ 
+/*****************************************************************
+PATIENT ENCOUNTER DATA QUERY
+ 
+This section queries for Apex payment reconciliation data specific
+to patient encounters.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qENCNTR_ID = PE.ENCNTR_ID
+	, qBILLING_ENTITY = B.BE_NAME
+	, qBATCH_STATUS = BT.BATCH_STATUS_CD
+	, qBATCH_TYPE = BT.BATCH_TYPE_FLAG
+	, qTRANS_ALIAS = PTA.PFT_TRANS_ALIAS
+	, qTRANS_TYPE = BTF.TRANS_TYPE_CD
+	, qTRANS_SUBTYPE = BTF.TRANS_SUBTYPE_CD
+	, qTRANS_REASON = BTF.TRANS_REASON_CD
+	, qTRANS_TOTAL_AMOUNT = BTF.TRANS_TOTAL_AMOUNT
+	, qPOST_DT_TM = BTF.POST_DT_TM
+	, qUPDT_DT_TM = BTF.UPDT_DT_TM
+	, qPOST_BY = PR.NAME_FIRST
+	, qREG_DATE = PE.REG_DT_TM
+	, qDIS_DATE = PE.DISCH_DT_TM
+ 
+FROM
+	PFT_TRANS_RELTN   P
+	, PFT_ENCNTR   PE
+	, BILLING_ENTITY   B
+	, ACCOUNT   A
+	, TRANS_LOG   TL
+	, PFT_TRANS_ALIAS   PTA
+	, BATCH_TRANS_FILE   BTF
+	, BATCH_TRANS   BT
+	, PRSNL   PR
+ 
+PLAN P
+	WHERE P.BEG_EFFECTIVE_DT_TM BETWEEN CNVTDATETIME(pSTART_DATE) AND CNVTDATETIME(pEND_DATE)
+	AND P.PARENT_ENTITY_NAME = "PFTENCNTR"
+	AND P.TRANS_TYPE_CD != VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 18649, "CHARGE"))
+	AND P.ACTIVE_IND = 1
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN PE
+	WHERE PE.PFT_ENCNTR_ID = P.PARENT_ENTITY_ID
+ 
+JOIN B
+	WHERE B.BILLING_ENTITY_ID = PE.BILLING_ENTITY_ID
+;	AND (B.BILLING_ENTITY_ID = 1641838.0 OR (B.PARENT_BE_ID = 1641838.0 AND B.PARENT_BE_ID > 0.0))
+	AND B.ACTIVE_IND = 1
+	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN A
+	WHERE A.ACCT_ID = PE.ACCT_ID
+ 
+JOIN TL
+	WHERE TL.ACTIVITY_ID = P.ACTIVITY_ID
+ 
+JOIN PTA
+	WHERE PTA.PFT_TRANS_ALIAS_ID = TL.TRANS_ALIAS_ID
+	AND PTA.ACTIVE_IND = 1
+	AND PTA.PFT_TRANS_ALIAS IN
+	(
+		"REC001"
+		, "REC002"
+		, "REC003"
+		, "REC004"
+		, "REC100"
+		, "REC200"
+		, "REC300"
+		, "REC400"
+	)
+ 
+JOIN BTF
+	WHERE BTF.BATCH_TRANS_FILE_ID = P.BATCH_TRANS_FILE_ID
+ 
+JOIN BT
+	WHERE BT.BATCH_TRANS_ID = BTF.BATCH_TRANS_ID
+ 
+JOIN PR
+	WHERE PR.PERSON_ID = BTF.CREATED_PRSNL_ID
+	AND PR.PRSNL_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 309, "CONTRIBUTORSYSTEM"))
+	AND PR.NAME_FULL_FORMATTED = "Contributor_system, RECTANGLE"
+	AND PR.ACTIVE_IND = 1
+	AND PR.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+ORDER BY
+	qENCNTR_ID
+ 
+DETAIL
+ 
+	CNT = CNT + 1
+ 
+	STAT = ALTERLIST(DATA->REC, CNT)
+ 
+	DATA->REC[CNT].rENCNTR_ID = qENCNTR_ID
+	DATA->REC[CNT].rACCOUNT_TYPE = "P"
+	DATA->REC[CNT].rBILLING_ENTITY = qBILLING_ENTITY
+	DATA->REC[CNT].rBATCH_STATUS = qBATCH_STATUS
+	DATA->REC[CNT].rBATCH_TYPE = qBATCH_TYPE
+	DATA->REC[CNT].rTRANS_ALIAS = qTRANS_ALIAS
+	DATA->REC[CNT].rTRANS_TYPE = qTRANS_TYPE
+	DATA->REC[CNT].rTRANS_SUBTYPE = qTRANS_SUBTYPE
+	DATA->REC[CNT].rTRANS_REASON = qTRANS_REASON
+	DATA->REC[CNT].rTRANS_TOTAL_AMOUNT = qTRANS_TOTAL_AMOUNT
+	DATA->REC[CNT].rPOST_DT_TM = qPOST_DT_TM
+	DATA->REC[CNT].rUPDT_DT_TM = qUPDT_DT_TM
+	DATA->REC[CNT].rPOST_BY = qPOST_BY
+	DATA->REC[CNT].rREG_DATE = qREG_DATE
+	DATA->REC[CNT].rDIS_DATE = qDIS_DATE
+ 
+ 
+ 
+	/* Any string records in the record structure not populated in this query
+	must be set to "" here */
+	DATA->REC[CNT].rFIN = ""
+ 
+FOOT REPORT
+	DATA->CNT = CNT
+ 
+WITH  COUNTER, TIME = 3600
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+IF (CNT = 0)
+	GO TO END_REPORT
+ENDIF
+ 
+/*****************************************************************
+ACCOUNT DATA QUERY
+ 
+This section queries for Apex payment reconciliation data specific
+to general and client accounts.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qBILLING_ENTITY = B.BE_NAME
+	, qBATCH_STATUS = BT.BATCH_STATUS_CD
+	, qBATCH_TYPE = BT.BATCH_TYPE_FLAG
+	, qTRANS_ALIAS = PTA.PFT_TRANS_ALIAS
+	, qTRANS_TYPE = BTF.TRANS_TYPE_CD
+	, qTRANS_SUBTYPE = BTF.TRANS_SUBTYPE_CD
+	, qTRANS_REASON = BTF.TRANS_REASON_CD
+	, qTRANS_TOTAL_AMOUNT = BTF.TRANS_TOTAL_AMOUNT
+	, qPOST_DT_TM = BTF.POST_DT_TM
+	, qUPDT_DT_TM = BTF.UPDT_DT_TM
+	, qPOST_BY = PR.NAME_FIRST
+ 
+FROM
+	PFT_TRANS_RELTN   P
+	, BILLING_ENTITY   B
+	, ACCOUNT A
+	, TRANS_LOG   TL
+	, PFT_TRANS_ALIAS   PTA
+	, BATCH_TRANS_FILE   BTF
+	, BATCH_TRANS   BT
+	, PRSNL   PR
+ 
+PLAN P
+	WHERE P.BEG_EFFECTIVE_DT_TM BETWEEN CNVTDATETIME(pSTART_DATE) AND CNVTDATETIME(pEND_DATE)
+	AND P.PARENT_ENTITY_NAME = "ACCOUNT"
+	AND P.TRANS_TYPE_CD != VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 18649, "CHARGE"))
+	AND P.ACTIVE_IND = 1
+	AND P.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN A
+	WHERE A.ACCT_ID = P.PARENT_ENTITY_ID
+	AND A.ACCT_SUB_TYPE_CD IN
+	(
+		VALUE(UAR_GET_CODE_BY("MEANING" ,20849 ,"GENERAL"))
+		, VALUE(UAR_GET_CODE_BY("MEANING" ,20849 ,"CLIENT"))
+	)
+;
+JOIN B
+	WHERE B.BILLING_ENTITY_ID = A.BILLING_ENTITY_ID
+;	AND (B.BILLING_ENTITY_ID = 1641838.0 OR (B.PARENT_BE_ID = 1641838.0 AND B.PARENT_BE_ID > 0.0));this was commented out before
+	AND B.ACTIVE_IND = 1
+	AND B.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN TL
+	WHERE TL.ACTIVITY_ID = P.ACTIVITY_ID
+ 
+JOIN PTA
+	WHERE PTA.PFT_TRANS_ALIAS_ID = TL.TRANS_ALIAS_ID
+	AND PTA.ACTIVE_IND = 1
+	AND PTA.PFT_TRANS_ALIAS IN
+	(
+		"REC001"
+		, "REC002"
+		, "REC003"
+		, "REC004"
+		, "REC100"
+		, "REC200"
+		, "REC300"
+		, "REC400"
+	)
+ 
+JOIN BTF
+	WHERE BTF.BATCH_TRANS_FILE_ID = P.BATCH_TRANS_FILE_ID
+ 
+JOIN BT
+	WHERE BT.BATCH_TRANS_ID = BTF.BATCH_TRANS_ID
+ 
+JOIN PR
+	WHERE PR.PERSON_ID = BTF.CREATED_PRSNL_ID
+	AND PR.PRSNL_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 309, "CONTRIBUTORSYSTEM"))
+	AND PR.NAME_FULL_FORMATTED = "Contributor_system, RECTANGLE"
+	AND PR.ACTIVE_IND = 1
+	AND PR.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+ORDER BY
+	qPOST_DT_TM
+ 
+HEAD REPORT
+ 
+	CNT = DATA->CNT
+ 
+DETAIL
+ 
+	CNT = CNT + 1
+ 
+	STAT = ALTERLIST(DATA->REC, CNT)
+ 
+	CASE(A.ACCT_SUB_TYPE_CD)
+ 
+		OF VALUE(UAR_GET_CODE_BY("MEANING" ,20849 ,"GENERAL")) :  DATA->REC[CNT].rACCOUNT_TYPE = "G"
+		OF VALUE(UAR_GET_CODE_BY("MEANING" ,20849 ,"CLIENT")) : DATA->REC[CNT].rACCOUNT_TYPE = "C"
+ 
+	ENDCASE
+ 
+	DATA->REC[CNT].rBILLING_ENTITY = qBILLING_ENTITY
+	DATA->REC[CNT].rBATCH_STATUS = qBATCH_STATUS
+	DATA->REC[CNT].rBATCH_TYPE = qBATCH_TYPE
+	DATA->REC[CNT].rTRANS_ALIAS = qTRANS_ALIAS
+	DATA->REC[CNT].rTRANS_TYPE = qTRANS_TYPE
+	DATA->REC[CNT].rTRANS_SUBTYPE = qTRANS_SUBTYPE
+	DATA->REC[CNT].rTRANS_REASON = qTRANS_REASON
+	DATA->REC[CNT].rTRANS_TOTAL_AMOUNT = qTRANS_TOTAL_AMOUNT
+	DATA->REC[CNT].rPOST_DT_TM = qPOST_DT_TM
+	DATA->REC[CNT].rUPDT_DT_TM = qUPDT_DT_TM
+	DATA->REC[CNT].rPOST_BY = qPOST_BY
+ 
+FOOT REPORT
+ 
+	DATA->CNT = CNT
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH  COUNTER, TIME = 60
+ 
+/* Use to display data stored in the record structure if applicable */
+;CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+FIN QUERY
+ 
+This section queries for the patient's FINs where applicable.
+******************************************************************/
+ 
+SELECT INTO "NL:"
+	qFIN = EA.ALIAS
+	, qPAT_NAME = P.NAME_FULL_FORMATTED
+ 
+FROM
+	(DUMMYT D WITH SEQ = VALUE(DATA->CNT))
+	, ENCNTR_ALIAS EA
+	, ENCOUNTER E
+	, PERSON P
+ 
+PLAN D
+ 
+JOIN EA
+	WHERE EA.ENCNTR_ID = DATA->REC[D.SEQ].rENCNTR_ID
+	AND EA.ENCNTR_ALIAS_TYPE_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 319, "FINNBR"))
+	AND EA.ACTIVE_IND = 1
+	AND EA.ACTIVE_STATUS_CD = VALUE(UAR_GET_CODE_BY("DISPLAYKEY", 48, "ACTIVE"))
+	AND EA.END_EFFECTIVE_DT_TM >= CNVTDATETIME(CURDATE, CURTIME3)
+ 
+JOIN E
+	WHERE EA.ENCNTR_ID = E.ENCNTR_ID
+ 
+JOIN P
+	WHERE P.PERSON_ID = E.PERSON_ID
+ 
+DETAIL
+ 
+	DATA->REC[D.SEQ].rFIN = qFIN
+	DATA->REC[D.SEQ].rPAT_NAME = qPAT_NAME
+ 
+/* If the report is known to run longer than 60 seconds, change the value below */
+WITH  COUNTER, TIME = 60
+ 
+/* Use to display data stored in the record structure if applicable */
+CALL ECHORECORD(DATA)
+ 
+/*****************************************************************
+REPORT OUTPUT
+ 
+This section generates the output for the report.
+******************************************************************/
+ 
+SELECT INTO $OUTDEV
+	BILLING_ENTITY = DATA->REC[D.SEQ].rBILLING_ENTITY
+	, BATCH_STATUS = UAR_GET_CODE_DISPLAY(DATA->REC[D.SEQ].rBATCH_STATUS)
+	, BATCH_TYPE = DATA->REC[D.SEQ].rBATCH_TYPE
+	, FIN = DATA->REC[D.SEQ].rFIN
+	, TRANS_ALIAS = DATA->REC[D.SEQ].rTRANS_ALIAS
+	, TRANS_TYPE = UAR_GET_CODE_DISPLAY(DATA->REC[D.SEQ].rTRANS_TYPE)
+	, TRANS_SUBTYPE = UAR_GET_CODE_DISPLAY(DATA->REC[D.SEQ].rTRANS_SUBTYPE)
+	, TRANS_REASON = UAR_GET_CODE_DISPLAY(DATA->REC[D.SEQ].rTRANS_REASON)
+	, TRANS_TOTAL_AMOUNT = DATA->REC[D.SEQ].rTRANS_TOTAL_AMOUNT
+	, POST_DT_TM = FORMAT(DATA->REC[D.SEQ].rPOST_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+	, UPDT_DT_TM = FORMAT(DATA->REC[D.SEQ].rUPDT_DT_TM, "DD-MMM-YYYY HH:MM;;D")
+	, POST_BY = DATA->REC[D.SEQ].rPOST_BY
+	, PAT_NAME = DATA->REC[D.SEQ].rPAT_NAME
+	, REG_DATE = FORMAT(DATA->REC[D.SEQ].rREG_DATE, "DD-MMM-YYYY HH:MM;;D")
+	, DIS_DATE = FORMAT(DATA->REC[D.SEQ].rDIS_DATE, "DD-MMM-YYYY HH:MM;;D")
+ 
+FROM
+	(DUMMYT D WITH SEQ = VALUE(DATA->CNT))
+ 
+PLAN D
+ 
+ORDER BY
+	POST_DT_TM
+ 
+WITH COUNTER, FORMAT, SEPARATOR = " ", TIME = 60
+ 
+#END_REPORT
+ 
+ 
+END
+GO
