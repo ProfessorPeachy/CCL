@@ -1,0 +1,59 @@
+drop program run_script_dynamically_by_date go
+create program run_script_dynamically_by_date
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"      ;* Enter or select the printer or file name to send this report to.
+	, "Starting Prescription Date:" = ""
+	, "Ending Prescription Date:" = "CURDATE"
+	, "File Type" = "F" 
+
+with OUTDEV, START_DATE, END_DATE, Type
+
+
+
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+; Constants
+; Declare constants and counters
+DECLARE days_to_run = I4 WITH PROTECT, CONSTANT(365)  ; number of days to loop
+DECLARE i           = I4 WITH PROTECT, NOCONSTANT(0)
+
+
+; Date variables
+DECLARE loop_date   = DQ8 WITH PROTECT, NOCONSTANT(CNVTDATETIME("01-JAN-1900"))
+DECLARE formatted_dt = VC WITH PROTECT, NOCONSTANT(" ")
+DECLARE MONTH = VC WITH PROTECT, NOCONSTANT(" ") 
+DECLARE YEAR = VC WITH PROTECT, NOCONSTANT(" ")
+DECLARE MONTH_YEAR = VC WITH PROTECT, NOCONSTANT(" ")
+
+
+FOR (i = 0 TO days_to_run - 1)
+    ; Set loop_date to CURDATE - 3 + i (starting from 3 days ago)
+    SET loop_date = CNVTDATETIME(CURDATE - days_to_run + i, 0)
+
+    ; Format as DD-MMM-YYYY
+    SET formatted_dt = FORMAT(loop_date, "DD-MMM-YYYY;;D")
+    SET MONTH = PIECE(formatted_dt,"-",2,"notfound")
+    SET YEAR = PIECE(formatted_dt,"-",3,"notfound")
+    SET MONTH_YEAR = cnvtlower(BUILD2(MONTH,YEAR))
+
+    ; Echo raw and formatted date
+  ;  CALL ECHO(BUILD2("Raw datetime: ", loop_date))
+  ;  CALL ECHO(BUILD2("Date Selected: ", formatted_dt))
+    
+    CALL ECHO(BUILD2(
+        'EXECUTE 1_AMJ_TN_MAXOR_PHARMACY ',
+        '"MINE"',
+        ', "', formatted_dt, '", "', formatted_dt, '", "', month_year, '" go'
+    ))    
+ENDFOR
+
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
