@@ -1,0 +1,44 @@
+select 
+  patient_name        = p.name_full_formatted
+, person_id           = p.person_id
+, encntr_id           = sc.encntr_id
+, surg_case_id        = sc.surg_case_id
+, surg_case_nbr       = sc.surg_case_nbr_formatted
+, birth_dt_tm         = format(p.birth_dt_tm, "YYYY-MM-DD;;D")
+, surg_start_dt_tm    = format(sc.surg_start_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+, surg_stop_dt_tm     = format(sc.surg_stop_dt_tm, "YYYY-MM-DD HH:MM:SS;;D")
+, zipcode             = a.zipcode
+, zipcode_key         = a.zipcode_key
+, P.active_ind
+,ADDRESS_UPDATE_DTTM =  A.updt_dt_tm
+,ADDRESS_TYPE = UAR_GET_CODE_DISPLAY(A.address_type_cd)
+,A.*
+,P.*
+
+from
+  person p
+, surgical_case sc
+, address a
+
+plan p
+  where p.name_last_key = "BAIRD"
+    and p.birth_dt_tm between cnvtdatetime("29-OCT-1972 00:00:00")
+                          and cnvtdatetime("29-OCT-1972 23:59:59")
+    and p.active_ind = 1
+
+join sc
+  where sc.person_id = p.person_id
+    and sc.active_ind = 1
+    and sc.surg_start_dt_tm between cnvtdatetime("01-JUL-2025 00:00:00") and cnvtdatetime("31-DEC-2025 23:59:59")
+    and sc.surg_stop_dt_tm between cnvtdatetime("01-JUL-2025 00:00:00") and cnvtdatetime("31-DEC-2025 23:59:59")
+
+join a
+  where a.parent_entity_id = p.person_id
+    and a.parent_entity_name = "PERSON"
+    and a.active_ind = 1
+    and a.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+    and a.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3)
+
+order by
+  p.name_full_formatted
+, sc.surg_start_dt_tm
