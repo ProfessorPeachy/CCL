@@ -1,0 +1,110 @@
+drop program 1_amj_test_locateval go
+create program 1_amj_test_locateval
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "MAXROWS" = 0 
+
+with OUTDEV, MAXROWS
+
+
+declare sz = i4 with noconstant(0)
+declare idx1 = i4 with noconstant(0)
+declare idx2 = i4 with noconstant(0)
+
+; sz should be set to whatever your encounter list size is in the real program.
+; For ad hoc testing, just pull a small list of encounters into a record first.
+free record enc_list
+record enc_list(
+  1 cnt = i4
+  1 qual[*]
+    2 encntrid = f8
+)
+
+; build a small encounter list
+select into "nl:"
+from encounter e
+plan e
+  where e.active_ind = 1
+  and e.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+detail
+  enc_list->cnt = enc_list->cnt + 1
+  stat = alterlist(enc_list->qual, enc_list->cnt)
+  enc_list->qual[enc_list->cnt].encntrid = e.encntr_id
+with maxrec = 200
+
+set sz = enc_list->cnt
+
+select into "nl:"
+from encounter e
+plan e
+  where expand(idx1, 1, sz, e.encntr_id, enc_list->qual[idx1].encntrid)
+head report
+  rowcnt = 0
+detail
+  idx2 = locateval(idx2, 1, sz, e.encntr_id, enc_list->qual[idx2].encntrid)
+
+  ; if idx1 is correct, then:
+  ; enc_list->qual[idx1].encntrid should equal e.encntr_id
+  ; and idx2 should equal idx1
+  if (enc_list->qual[idx1].encntrid != e.encntr_id or idx2 != idx1)
+    rowcnt = rowcnt + 1
+    if (rowcnt <= $MAXROWS)
+      call echo(build(
+        "MISMATCH | e.encntr_id=", cnvtstring(e.encntr_id, 20, 0),
+        " | idx1=", cnvtstring(idx1, 10, 0),
+        " | list[idx1]=", cnvtstring(enc_list->qual[idx1].encntrid, 20, 0),
+        " | idx2=", cnvtstring(idx2, 10, 0)
+      ))
+    endif
+  endif
+
+foot report
+  call echo(build("Done. Total mismatches found: ", cnvtstring(rowcnt, 10, 0)))
+with nocounter
+
+
+;Expected result:
+;Total mismatches found: 0
+
+;If it’s 0, you’ve proven that idx1 is already the correct list index and locateval() is not needed.
+
+;Test 2: Use idx1 directly and confirm it always matches
+;This one just asserts correctness by printing any row where idx1 points to the wrong encounter (again should print nothing except the footer).
+
+
+;select into "nl:"
+;from encounter e
+;plan e
+;  where e.active_ind = 1
+;detail
+;  enc_list->cnt = enc_list->cnt + 1
+;  stat = alterlist(enc_list->qual, enc_list->cnt)
+;  enc_list->qual[enc_list->cnt].encntrid = e.encntr_id
+;with maxrec = 200
+;
+;set sz = enc_list->cnt
+;
+;select into "nl:"
+;from encounter e
+;plan e
+;  where expand(idx1, 1, sz, e.encntr_id, enc_list->qual[idx1].encntrid)
+;head report
+;  bad = 0
+;detail
+;  if (enc_list->qual[idx1].encntrid != e.encntr_id)
+;    bad = bad + 1
+;    if (bad <= $MAXROWS)
+;      call echo(build(
+;        "BAD IDX1 | e.encntr_id=", cnvtstring(e.encntr_id, 20, 0),
+;        " | idx1=", cnvtstring(idx1, 10, 0),
+;        " | list[idx1]=", cnvtstring(enc_list->qual[idx1].encntrid, 20, 0)
+;      ))
+;    endif
+;  endif
+;foot report
+;  call echo(build("Done. Total bad idx1 rows: ", cnvtstring(bad, 10, 0)))
+;with nocounter
+
+end
+go
