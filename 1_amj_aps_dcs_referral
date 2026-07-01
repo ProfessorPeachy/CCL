@@ -1,0 +1,72 @@
+drop program 1_amj_aps_dcs_referral go
+create program 1_amj_aps_dcs_referral
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to.
+	, "Action Begin Date:" = "CURDATE"
+	, "Action End Date:" = "CURDATE"
+	, "Facility" = 0 
+
+with OUTDEV, START_DATE, END_DATE, FACILITY
+
+declare mf_CS8_AUTH_CD      = f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2628"))
+declare mf_CS8_MODIFIED_CD	= f8 with protect, constant(uar_get_code_by_cki("CKI.CODEVALUE!2636")),protect
+declare fin_cd				= f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect;1077.0
+declare mrn_cd				= f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect;1079.0
+declare aos_dcs_refno_cd	= f8 with constant(uar_get_code_by("DISPLAYKEY",72,"SWAPSDCSREFERRALNUMBER")),protect;1079.0
+
+select into $OUTDEV
+	facility 			= uar_get_code_display(e.loc_facility_cd)
+	,unit 				= uar_get_code_display(e.loc_nurse_unit_cd)
+	,room 				= uar_get_code_display(e.loc_room_cd)
+	,name				= p.name_full_formatted
+	,mrn				= ea2.alias
+	,fin 				= ea.alias
+	,event				= uar_get_code_display(ce.event_cd)
+	,referral_number	= ce.result_val
+	,documented_dttm 	= cep.action_dt_tm
+	,age				= cnvtage(p.birth_dt_tm)
+	,location			= uar_get_code_display(e.loc_facility_cd)
+from 
+	ce_event_prsnl 	cep
+	,clinical_event ce
+	,encounter 		e
+	,encntr_alias 	ea ;fin
+	,encntr_alias 	ea2 ; mrn
+	,person 		p
+plan ce
+	where ce.event_end_dt_tm >= cnvtdatetime($start_date)
+	and ce.event_end_dt_tm <= cnvtdatetime($end_date)
+    and ce.event_cd = aos_dcs_refno_cd
+    and ce.result_status_cd in (mf_CS8_AUTH_CD, mf_CS8_MODIFIED_CD)
+    and ce.view_level = 1
+    and ce.valid_until_dt_tm >= cnvtdatetime(curdate, curtime3)
+join cep
+  where cep.event_id = ce.event_id
+    and cep.action_dt_tm >= cnvtdatetime($start_date)
+    and cep.action_dt_tm <= cnvtdatetime($end_date)
+    and cep.valid_until_dt_tm >= cnvtdatetime(curdate, curtime3)
+join e
+	where e.encntr_id = ce.encntr_id
+	and e.loc_facility_cd = $facility
+	and e.active_ind = 1
+join ea
+	where ea.encntr_id = e.encntr_id
+	and ea.encntr_alias_type_cd = fin_cd ; fin
+	and ea.active_ind = 1
+join ea2
+	where ea2.encntr_id = e.encntr_id
+	and ea2.encntr_alias_type_cd = mrn_cd; mrn
+	and ea2.active_ind = 1	
+join p
+	where p.person_id = e.person_id
+	and p.active_ind = 1	
+with nocounter, format, separator = " ", time = 3600, FORMAT(DATE, "@SHORTDATETIME")
+
+
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+
+end
+go
