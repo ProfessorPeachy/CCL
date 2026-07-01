@@ -1,0 +1,250 @@
+drop program 1_amj_direct_admit go
+create program 1_amj_direct_admit
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"
+	, "Select Admit Start Date" = ""
+	, "Select Admit End Date" = ""
+	, "FACILITY" = 21250403.00
+ 
+with OUTDEV, begin_dt, end_dt, FAC
+ 
+set bdate = concat($begin_dt,' 00:00')
+set edate = concat($end_dt,' 23:59')
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+ DECLARE MRN_VAR = F8
+ SET MRN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"MRN")
+ 
+ DECLARE FIN_VAR = F8
+ SET FIN_VAR = UAR_GET_CODE_BY("MEANING",319 ,"FIN NBR")
+ 
+declare num = i2
+declare cnt = i2
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ free record rec
+record rec
+(1 cnt = i4
+ 1 qual[*]
+    2 eid = f8
+ 	2 pid = f8
+ 	2 finnbr = vc
+ 	2 mrn = vc
+ 	2 facility = vc
+ 	2 nurse_unit = vc
+ 	2 enc_type_class = vc
+    2 enc_type = vc
+	2 patient_name = vc
+	2 admit_dt_tm = vc
+	2 reason_for_visit = vc
+	2 discharge_dt_tm = vc
+	2 medical_service = vc
+	2 Discharge_Disposition = vc
+	2 Attending_md = vc
+	2 Admit_md = vc
+	2 admit_source = vc
+ )
+/*************************************************************************************
+;        Direct Admit patient
+*************************************************************************************/
+ 
+ SELECT INTO "NL:"
+	P.NAME_FULL_FORMATTED
+	, MRN = EA.ALIAS
+	, FIN = EAN.ALIAS
+	, Reason_for_Visit = E.REASON_FOR_VISIT
+	, Admit_Source = UAR_GET_CODE_DISPLAY(E.ADMIT_SRC_CD)
+	, Discharge_Disposition = UAR_GET_CODE_DISPLAY(E.DISCH_DISPOSITION_CD)
+	, PF.DESCRIPTION
+	, E.REG_DT_TM "@SHORTDATETIME"
+	, facility = UAR_GET_CODE_DISPLAY(EL.LOC_FACILITY_CD)
+	;, nurse_unit = UAR_GET_CODE_DISPLAY(EL.LOC_NURSE_UNIT_CD)
+	, nurse_unit = UAR_GET_CODE_DISPLAY(PT.O_LOC_NURSE_UNIT_CD)
+	, enc_type = UAR_GET_CODE_DISPLAY(E.ENCNTR_TYPE_CD)
+ 
+FROM
+	PERSON   P
+	, ENCOUNTER   E
+	, ENCNTR_ALIAS   EA
+	, ENCNTR_ALIAS   EAN
+	, PM_FLX_CONVERSATION   PF
+	, PM_TRANSACTION   PT
+	, ENCNTR_LOC_HIST   EL
+ 
+PLAN E
+where e.reg_dt_tm BETWEEN CNVTDATETIME($begin_dt) AND CNVTDATETIME($end_dt)
+ 
+Join el where el.encntr_id = e.encntr_id
+and el.loc_facility_cd = $FAC
+and el.active_ind = 1
+ 
+Join pt where pt.n_encntr_id = e.encntr_id
+ 
+join pf where pf.task = pt.task_number
+ and pf.conversation_id =       964316.00 ;direct admit
+ 
+JOIN P WHERE P.PERSON_ID = E.PERSON_ID
+;and P.PERSON_ID = 12612868
+and cnvtupper(p.name_full_formatted) != "*CERNER*"
+and p.active_ind = 1
+ 
+JOIN EA WHERE EA.ENCNTR_ID = E.ENCNTR_ID
+AND EA.ENCNTR_ALIAS_TYPE_CD = MRN_VAR
+;and EA.ALIAS = "1475183"
+and ea.active_ind = 1
+ 
+JOIN EAN WHERE EAN.ENCNTR_ID = E.ENCNTR_ID
+AND EAN.ENCNTR_ALIAS_TYPE_CD = FIN_VAR
+;and EAN.ALIAS = "200003434"
+and ean.active_ind = 1
+ 
+ORDER BY
+	e.encntr_id
+ 
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,100)
+ 
+head e.encntr_id
+ cnt = cnt + 1
+ 
+    if(mod(cnt,100)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+99)
+    endif
+ 
+    rec->qual[cnt].eid = e.encntr_id
+    rec->qual[cnt].pid = e.person_id
+    rec->qual[cnt].finnbr = ean.alias
+    rec->qual[cnt].mrn = ea.alias
+    rec->qual[cnt].admit_dt_tm = format(e.REG_DT_TM,"MM/dd/yyyy HH:mm;;d")
+	rec->qual[cnt].discharge_dt_tm = format(e.DISCH_DT_TM,"MM/dd/yyyy HH:mm;;d")
+	rec->qual[cnt].facility = facility
+	rec->qual[cnt].nurse_unit = nurse_unit
+	rec->qual[cnt].reason_for_visit = E.REASON_FOR_VISIT
+ 	rec->qual[cnt].Discharge_Disposition = Discharge_Disposition
+ 	rec->qual[cnt].patient_name = p.name_full_formatted
+ 	rec->qual[cnt].admit_source = admit_source
+ 	rec->qual[cnt].enc_type = enc_type
+foot report
+	if(cnt>0)
+		stat = alterlist(rec->qual,cnt)
+		rec->cnt = cnt
+		endif
+ 
+WITH nocounter,time=3600
+ /*************************************************************************************
+;         Attending MD
+*************************************************************************************/
+SELECT INTO "nl:"
+	Attending_md = pr.name_full_formatted
+ 
+FROM
+	encounter   e
+	, prsnl   pr
+	, ENCNTR_PRSNL_RELTN   EP
+ 
+Plan E
+where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+JOIN ep WHERE ep.encntr_id = e.encntr_id
+AND ep.encntr_prsnl_r_cd =  1119.00 ; attending physician
+;AND ep.end_effective_dt_tm >= cnvtdate(12312100)
+ 
+JOIN pr WHERE pr.PERSON_ID = ep.prsnl_person_id
+AND pr.ACTIVE_IND = 1
+AND pr.PHYSICIAN_IND = 1
+ 
+ORDER BY
+	e.encntr_id
+ 
+head e.encntr_id
+ pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+ rec->qual[pos].Attending_md = Attending_md
+ 
+WITH nocounter,time=3600
+ 
+/*************************************************************************************
+;         Admitting MD
+*************************************************************************************/
+SELECT INTO "nl:"
+	Admit_md = pr.name_full_formatted
+ 
+FROM
+	encounter   e
+	, prsnl   pr
+	, ENCNTR_PRSNL_RELTN   EP
+ 
+Plan E
+where expand(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+JOIN ep WHERE ep.encntr_id = e.encntr_id
+AND ep.encntr_prsnl_r_cd =  1116.00 ; admitting physician
+;AND ep.end_effective_dt_tm >= cnvtdate(12312100)
+ 
+JOIN pr WHERE pr.PERSON_ID = ep.prsnl_person_id
+AND pr.ACTIVE_IND = 1
+AND pr.PHYSICIAN_IND = 1
+ 
+ORDER BY
+	e.encntr_id
+ 
+head e.encntr_id
+ pos = locateval(num,1,size(rec->qual,5),e.encntr_id,rec->qual[num].eid)
+ 
+detail
+ 
+ rec->qual[pos].Admit_md = Admit_md
+ 
+WITH nocounter,expand=1,time=3600
+ 
+call echorecord(rec)
+/*************************************************************************************
+;         Output
+*************************************************************************************/
+SELECT INTO $outdev
+ 
+ 
+	 Patient_Name = trim(substring(1,100,rec->qual[d1.seq].patient_name))
+	, MRN = trim(substring(1,20,rec->qual[d1.seq].mrn))
+	, FIN = trim(substring(1,20,rec->qual[d1.seq].finnbr))
+	, Reason_for_Visit = trim(substring(1,100,rec->qual[d1.seq].reason_for_visit))
+	, Nurse_Unit = trim(substring(1,100,rec->qual[d1.seq].nurse_unit))
+	, Admit_DT_TM = trim(substring(1,20,rec->qual[d1.seq].admit_dt_tm))
+	, Admitting_Physician = trim(substring(1,100,rec->qual[d1.seq].Admit_md))
+	, Attending_Physician = trim(substring(1,100,rec->qual[d1.seq].Attending_md))
+	, Admit_Source = trim(substring(1,100,rec->qual[d1.seq].admit_source))
+	, Discharge_Disposition = trim(substring(1,120,rec->qual[d1.seq].Discharge_Disposition))
+	, Encounter_type = trim(substring(1,100,rec->qual[d1.seq].enc_type))
+	;, Facility_Name = trim(substring(1,100,rec->qual[d1.seq].facility))
+	;, Discharge_DT_TM = trim(substring(1,20,rec->qual[d1.seq].discharge_dt_tm))
+ 
+ 
+ 
+FROM
+	(dummyt   d1  with seq=value(size(rec->qual,5)))
+	,(dummyt   d2  with seq=1)
+ 
+plan d1
+    where d1.seq > 0
+ join d2
+ 
+ORDER BY
+	Nurse_unit
+	,Admit_dt_tm
+ 
+WITH nocounter,separator="",format,time=3600, outerjoin = d1
+ 
+end
+go
+ 

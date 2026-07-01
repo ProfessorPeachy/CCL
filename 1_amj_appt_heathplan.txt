@@ -1,0 +1,98 @@
+drop program 1_amj_appt_heathplan go
+create program 1_amj_appt_heathplan
+ 
+prompt
+	"Output to File/Printer/MINE" = "MINE"                             ;* Enter or select the printer or file name to send this re
+	, "Select the Beginning Date" = ""
+	, "Select the End Date" = ""
+	, "Select Appt Location(s)" = VALUE(Neurosurgery, 2554053655.00)
+ 
+with OUTDEV ,begin_dt, end_dt, APPT_LOC
+ 
+ SELECT * FROM CODE_VALUE CV
+ PLAN CV
+ WHERE CV.code_value = 22282402
+ 
+/**************************************************************
+; DVDev DECLARED SUBROUTINES
+**************************************************************/
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare SSN_VAR = f8
+SET SSN_VAR = uar_get_code_by("DISPLAYKEY",263,"SSN")
+ 
+ DECLARE MRN_VAR = F8
+ SET MRN_VAR = UAR_GET_CODE_BY("DISPLAY",319,"MRN")
+ 
+  DECLARE FIN_VAR = F8
+  SET FIN_VAR = UAR_GET_CODE_BY("MEANING",319,"FIN NBR")
+ 
+ 
+/**************************************************************
+; DVDev Start Coding
+**************************************************************/
+ 
+ 
+;    Your Code Goes Here
+ SELECT DISTINCT INTO $OUTDEV
+	P.NAME_FULL_FORMATTED
+	, P.BIRTH_DT_TM
+	, SA.BEG_DT_TM "@SHORTDATETIME"
+	, SA_APPT_LOCATION_DISP = UAR_GET_CODE_DISPLAY(SA.APPT_LOCATION_CD)
+	, E_ENCNTR_TYPE_DISP = UAR_GET_CODE_DISPLAY(E.ENCNTR_TYPE_CD)
+	, MRN = EA.ALIAS
+	, FIN = EAN.ALIAS
+	, SSN = PA.ALIAS
+	, E.ARRIVE_DT_TM "@SHORTDATETIME"
+	, SA_SLOT_STATE_DISP = UAR_GET_CODE_DISPLAY(SA.SLOT_STATE_CD)
+ 
+ 
+FROM
+	PERSON   P
+	, ENCOUNTER   E
+	, ENCNTR_ALIAS   EA
+	, ENCNTR_ALIAS   EAN
+	, SCH_APPT   SA
+	, PERSON_ALIAS   PA
+ 
+PLAN P
+ 
+ 
+JOIN E WHERE E.PERSON_ID = P.PERSON_ID
+ ;AND (P.NAME_LAST_KEY != "ZZ*" AND P.NAME_LAST_KEY != "XX*")
+;AND E.ARRIVE_DT_TM = CNVTDATETIME($begin_dt)
+and E.ENCNTR_TYPE_CD =  22282402
+ 
+JOIN EA WHERE EA.ENCNTR_ID = E.ENCNTR_ID
+AND EA.ENCNTR_ALIAS_TYPE_CD = MRN_VAR
+ 
+JOIN EAN WHERE EAN.ENCNTR_ID = OUTERJOIN(E.ENCNTR_ID)
+AND EAN.ENCNTR_ALIAS_TYPE_CD = OUTERJOIN(FIN_VAR)
+ 
+JOIN PA WHERE PA.PERSON_ID = P.PERSON_ID
+AND pa.alias_pool_cd = SSN_VAR
+ 
+ 
+JOIN SA WHERE SA.person_id = p.person_id
+;AND  SA.BEG_DT_TM between CNVTDATETIME($begin_dt)AND CNVTDATETIME($end_dt)
+AND SA.appt_location_cd = $APPT_LOC
+;AND SA.ROLE_MEANING = "RESOURCE"
+ and SA.SLOT_STATE_CD !=  9543
+ 
+ORDER BY
+	P.NAME_FULL_FORMATTED
+	, SA.BEG_DT_TM
+	, E.ARRIVE_DT_TM
+ 
+WITH NOCOUNTER, SEPARATOR=" ", FORMAT, TIME = 120
+ 
+ 
+/**************************************************************
+; DVDev DEFINED SUBROUTINES
+**************************************************************/
+ 
+end
+go
+ 

@@ -1,0 +1,249 @@
+drop program amj_recurring_encounters go
+create program amj_recurring_encounters
+
+prompt 
+	"Output to File/Printer/MINE" = "MINE"   ;* Enter or select the printer or file name to send this report to. 
+
+with OUTDEV
+
+
+
+
+/***********************************************************************
+  TEST: Recurring Coding Summary dates + Diagnosis History
+  FIN: 205065103
+
+  Purpose:
+  - Pull recurring Coding Summary monthly dates.
+  - Link encounter to PFT_ENCNTR.
+  - Pull diagnosis history rows as of each Coding Summary date.
+  - Do not use numbered shadow/custom tables.
+************************************************************************/
+
+declare v_fin = vc with protect, constant("205065103")
+declare v_coding_summary_cd = f8 with protect, constant(3722442.00)
+
+select into $OUTDEV
+    fin                         = ea.alias
+  , encntr_id                   = e.encntr_id
+  , pft_encntr_id               = pe.pft_encntr_id
+  , pe.pft_encntr_alias
+  , person_id                   = e.person_id
+
+  , coding_event_id             = pce.event_id
+  , coding_parent_event_id      = pce.parent_event_id
+  , coding_event_dt_tm          = pce.event_end_dt_tm "@SHORTDATETIME"
+  , coding_valid_from           = pce.valid_from_dt_tm "@SHORTDATETIME"
+  , coding_valid_until          = pce.valid_until_dt_tm "@SHORTDATETIME"
+  , coding_status               = uar_get_code_display(pce.result_status_cd)
+
+  , diagnosis_id                = d.diagnosis_id
+  , diag_dt_tm                  = d.diag_dt_tm "@SHORTDATETIME"
+  , diagnosis_display           = d.diagnosis_display
+  , diag_priority               = d.diag_priority
+  , diag_type                   = uar_get_code_display(d.diag_type_cd)
+
+  , diagnosis_hist_id           = dh.diagnosis_hist_id
+  , hist_diag_dt_tm             = dh.diag_dt_tm "@SHORTDATETIME"
+  , hist_diag_priority          = dh.diag_priority
+  , hist_diag_type              = uar_get_code_display(dh.diag_type_cd)
+  , hist_nomenclature_id        = dh.nomenclature_id
+
+  , diag_code                   = n.source_identifier
+  , diag_description            = n.source_string
+  , nomen_source_vocab          = uar_get_code_display(n.source_vocabulary_cd)
+
+from
+    encntr_alias ea
+  , encounter e
+  , pft_encntr pe
+  , clinical_event pce
+  , diagnosis d
+  , diagnosis_hist dh
+  , nomenclature n
+
+plan ea
+  where ea.alias = v_fin
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+
+join e
+  where e.encntr_id = ea.encntr_id
+    and e.active_ind = 1
+
+join pe
+  where pe.encntr_id = e.encntr_id
+    and pe.active_ind = 1
+
+join pce
+  where pce.encntr_id = e.encntr_id
+    and pce.event_cd = v_coding_summary_cd
+    and pce.event_id = pce.parent_event_id
+    and pce.result_status_cd = 25
+
+join d
+  where d.encntr_id = e.encntr_id
+    and d.active_ind = 1
+
+join dh
+  where dh.diagnosis_id = d.diagnosis_id
+ ;   and dh.diag_dt_tm <= cnvtdatetime(pce.event_end_dt_tm)
+
+join n
+  where n.nomenclature_id = dh.nomenclature_id
+
+ order by
+    pe.pft_encntr_alias
+    ,pce.event_end_dt_tm
+ , dh.diag_priority
+  , dh.diag_dt_tm
+  , n.source_identifier
+
+with nocounter, format, separator = " ", time = 30
+
+
+select into $OUTDEV
+    fin                     = ea.alias
+  , encntr_id               = e.encntr_id
+  , person_id               = e.person_id
+
+  , pft_encntr_id           = pe.pft_encntr_id
+  , pft_encntr_alias        = pe.pft_encntr_alias
+  , pe_beg_effective        = pe.beg_effective_dt_tm "@SHORTDATETIME"
+  , pe_end_effective        = pe.end_effective_dt_tm "@SHORTDATETIME"
+  , pe_updt_dt_tm           = pe.updt_dt_tm "@SHORTDATETIME"
+  , pe_active_ind           = pe.active_ind
+  , pe_active_status_cd     = pe.active_status_cd
+  , pe_active_status        = uar_get_code_display(pe.active_status_cd)
+
+from
+    encntr_alias ea
+  , encounter e
+  , pft_encntr pe
+
+plan ea
+  where ea.alias = "205065103"
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+
+join e
+  where e.encntr_id = ea.encntr_id
+    and e.active_ind = 1
+
+join pe
+  where pe.encntr_id = e.encntr_id
+    and pe.active_ind = 1
+
+order by
+    pe.pft_encntr_alias
+  , pe.beg_effective_dt_tm
+  , pe.pft_encntr_id
+
+with nocounter, format, separator = " ", time = 300
+
+
+select into $OUTDEV
+    fin                         = ea.alias
+  , encntr_id                   = e.encntr_id
+  , person_id                   = e.person_id
+
+  , pft_encntr_id               = pe.pft_encntr_id
+  , pft_encntr_alias            = pe.pft_encntr_alias
+  , pft_beg_effective           = pe.beg_effective_dt_tm "@SHORTDATETIME"
+  , pft_end_effective           = pe.end_effective_dt_tm "@SHORTDATETIME"
+
+  , coding_event_id             = pce.event_id
+  , coding_parent_event_id      = pce.parent_event_id
+  , coding_event_dt_tm          = pce.event_end_dt_tm "@SHORTDATETIME"
+  , coding_valid_from           = pce.valid_from_dt_tm "@SHORTDATETIME"
+  , coding_valid_until          = pce.valid_until_dt_tm "@SHORTDATETIME"
+  , coding_status               = cv_pce_status.display
+
+  , pft_month                   = format(pe.beg_effective_dt_tm, "YYYYMM;;D")
+  , coding_service_month        = format(cnvtlookbehind("1,M", pce.event_end_dt_tm), "YYYYMM;;D")
+
+  , diagnosis_id                = d.diagnosis_id
+  , diag_priority               = d.diag_priority
+  , diag_type                   = cv_d_type.display
+  , diagnosis_display           = d.diagnosis_display
+
+  , diagnosis_hist_id           = dh.diagnosis_hist_id
+  , hist_diag_priority          = dh.diag_priority
+  , hist_diag_type              = cv_dh_type.display
+  , hist_nomenclature_id        = dh.nomenclature_id
+
+  , diag_code                   = n.source_identifier
+  , diag_description            = n.source_string
+  , nomen_source_vocab          = cv_vocab.display
+
+from
+    encntr_alias ea
+  , encounter e
+  , clinical_event pce
+  , code_value cv_pce_status
+  , pft_encntr pe
+  , diagnosis d
+  , code_value cv_d_type
+  , diagnosis_hist dh
+  , code_value cv_dh_type
+  , nomenclature n
+  , code_value cv_vocab
+
+plan ea
+  where ea.alias = "205065103"
+    and ea.active_ind = 1
+    and ea.end_effective_dt_tm > cnvtdatetime(curdate, curtime3)
+
+join e
+  where e.encntr_id = ea.encntr_id
+    and e.active_ind = 1
+
+join pce
+  where pce.encntr_id = e.encntr_id
+    and pce.event_cd = 3722442.00
+    and pce.event_id = pce.parent_event_id
+    and pce.result_status_cd = 25
+
+join cv_pce_status
+  where cv_pce_status.code_value = pce.result_status_cd
+    and cv_pce_status.active_ind = 1
+
+join pe
+  where pe.encntr_id = e.encntr_id
+    and pe.active_ind = 1
+    and format(pe.beg_effective_dt_tm, "YYYYMM;;D")
+        = format(cnvtlookbehind("1,M", pce.event_end_dt_tm), "YYYYMM;;D")
+
+join d
+  where d.encntr_id = e.encntr_id
+    and d.active_ind = 1
+
+join cv_d_type
+  where cv_d_type.code_value = d.diag_type_cd
+    and cv_d_type.active_ind = 1
+    and cv_d_type.display = "Final"
+
+join dh
+  where dh.diagnosis_id = d.diagnosis_id
+
+join cv_dh_type
+  where cv_dh_type.code_value = dh.diag_type_cd
+    and cv_dh_type.active_ind = 1
+    and cv_dh_type.display = "Final"
+
+join n
+  where n.nomenclature_id = dh.nomenclature_id
+
+join cv_vocab
+  where cv_vocab.code_value = n.source_vocabulary_cd
+    and cv_vocab.active_ind = 1
+
+order by
+    pe.beg_effective_dt_tm
+  , pce.event_end_dt_tm
+  , dh.diag_priority
+  , n.source_identifier
+
+with nocounter, format, separator = " ", time = 300
+end
+go

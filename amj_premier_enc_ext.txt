@@ -1,0 +1,4491 @@
+drop program amj_premier_enc_ext:DBA go
+create program amj_premier_enc_ext:DBA
+
+prompt
+	"Output (MINE to have results go to screen, TEMP for astream output):" = "MINE"
+	, "Begin Discharge Date:" = "CURDATE"
+	, "End Discharge Date:" = "CURDATE"
+	, "Select File:" = ""
+	, "Fix FIN" = ""
+	, "List of FINS" = ""
+ 
+with OUTDEV, BDATE, EDATE, EFILE, FIN, finlist
+ 
+ 
+/*===============================================================================================================
+TIMER LOGIC ALL AT ONCE WRITING AND LOGGING IN ONE SUBROUTINE
+===============================================================================================================*/
+DECLARE  log_time (( msg = vc )) =  VC  WITH  COPY
+ 
+SUBROUTINE   log_time  ( msg  )
+  set  section_timer->counter = section_timer->counter + 1
+  set  stat = alterlist(section_timer->list, section_timer->counter)
+  set  section_timer->list[section_timer->counter].section = msg
+  set  section_timer->list[section_timer->counter].time = format(cnvtdatetime(curdate,curtime3), "@SHORTDATETIME")
+  ;call echo(msg)
+  ;Attempt to log out the data:
+  if (section_timer->counter > 0)
+   select into "ccluserdir:premier_timer_file.txt"
+   from
+	(dummyt d1 with seq = value(section_timer->counter))
+  plan d1
+   order by d1.seq
+   head report
+	delimit = "|" ,
+	rep_delimit = "~" ,
+	sub_delimit = "^"
+	row + 1
+   detail
+	;Demos
+	section_timer->list[d1.seq].section
+	row + 1
+	section_timer->list[d1.seq].time
+	row + 1
+	;cnvtstring(section_timer->list[d1.seq].qualifiers)
+	row + 1
+	"----------------------------------"
+ 
+	row + 1
+  foot report
+	row + 2
+ 
+  with  nocounter, maxcol = 2000
+  ;with  nocounter , maxcol = 2000
+  endif
+RETURN ( msg ) END ;Subroutine
+ 
+ 
+;TIMER LOGIC
+free record section_timer
+record section_timer (
+  1 counter = i4
+  1 list[*]
+	2 section   	= vc
+	2 time      	= vc
+	2 qualifiers	= i4
+)
+declare log = vc
+set log = log_time("Start Script")
+ 
+ 
+/**************************************************************
+; DVDev DECLARED VARIABLES
+**************************************************************/
+declare cpt_cd                  = f8 with constant(uar_get_code_by("DISPLAYKEY",14002,"CPT")),protect
+declare rev_cd                  = f8 with constant(uar_get_code_by("DISPLAYKEY",14002,"REVENUE")),protect
+declare cdm_cd                  = f8 with constant(uar_get_code_by("DISPLAYKEY",14002,"CDM")),protect
+ 
+declare idx1                       = i4 with public, noconstant(0)
+declare idx2                       = i4 with public, noconstant(0)
+declare idx3                       = i4 with public, noconstant(0)
+declare idx4                       = i4 with public, noconstant(0)
+declare NUM                        = i4 with public, noconstant(0)
+ 
+declare newborn_var             = f8 with constant(uar_get_code_by("MEANING",3,"NEWBORN")),protect
+declare mrn_var                 = f8 with constant(uar_get_code_by("MEANING",4,"MRN")),protect
+declare inerror_var             = f8 with constant(uar_get_code_by("MEANING",8,"IN ERROR")),protect
+declare admit_var               = f8 with constant(uar_get_code_by("MEANING",17,"ADMIT")),protect
+declare final_var               = f8 with constant(uar_get_code_by("MEANING",17,"FINAL")),protect
+
+;begin 028
+;declare hispanicorlatino_var    = f8 with constant(uar_get_code_by("DISPLAYKEY",27,"HISPANICORLATINO")),protect
+;declare nothispanicorlatino_var = f8 with constant(uar_get_code_by("DISPLAYKEY",27,"NOTHISPANICORLATINO")),protect
+declare hispanicorlatino_var    = f8 with constant(uar_get_code_by("DISPLAYKEY",27,"HISPANICLATINOORSPANISHORIGIN")),protect
+declare nothispanicorlatino_var = f8 with constant(uar_get_code_by("DISPLAYKEY",27,"NOTHISPANICLATINOORSPANISHORIGIN")),protect
+; end 028
+
+declare donor_var               = f8 with constant(uar_get_code_by("DISPLAYKEY",34,"DONOR")),protect
+declare hospiceprogram_var      = f8 with constant(uar_get_code_by("DISPLAYKEY",34,"HOSPICEPROGRAM")),protect
+declare longtermcare_var        = f8 with constant(uar_get_code_by("DISPLAYKEY",34,"LONGTERMCARE")),protect
+declare birthweight_var         = f8 with constant(uar_get_code_by("DISPLAYKEY",72,"BIRTHWEIGHTNB")),protect
+declare premier_var             = f8 with constant(uar_get_code_by("DISPLAYKEY",73,"PREMIER")),protect
+declare 3m_var             = f8 with constant(uar_get_code_by("MEANING",89,"3M")),protect
+declare obs_var                 = f8 with constant(uar_get_code_by("DISPLAYKEY",200,"PLACEINOBSERVATION")),protect
+declare admittoinpatient_var    = f8 with constant(uar_get_code_by("DISPLAYKEY",200,"ADMITTOINPATIENT")),protect
+declare home_var                = f8 with constant(uar_get_code_by("MEANING",212,"HOME")),protect
+declare business_var            = f8 with constant(uar_get_code_by("MEANING",212,"BUSINESS")),protect
+declare facility_var            = f8 with constant(uar_get_code_by("MEANING",222,"FACILITY")),protect
+declare nurseunit_var           = f8 with constant(uar_get_code_by("MEANING",222,"NURSEUNIT")),protect
+declare finnbr_var              = f8 with constant(uar_get_code_by("MEANING",319,"FIN NBR")),protect
+declare ea_mrn_var              = f8 with constant(uar_get_code_by("MEANING",319,"MRN")),protect
+declare prsnlid_var             = f8 with constant(uar_get_code_by("MEANING",320,"PRSNLID")),protect
+declare externalid_var          = f8 with constant(uar_get_code_by("MEANING",320,"EXTERNALID")),protect
+declare licensenbr_var          = f8 with constant(uar_get_code_by("MEANING",320,"LICENSENBR")),protect
+declare npi_var                 = f8 with constant(uar_get_code_by("MEANING",320,"NPI")),protect
+declare upin_var                = f8 with constant(uar_get_code_by("MEANING",320,"DOCUPIN")),protect
+declare service_var             = f8 with constant(uar_get_code_by("MEANING",19189,"SERVICE")),protect
+declare primary_var             = f8 with constant(uar_get_code_by("DISPLAYKEY",19189,"SERVICE")),protect
+declare attenddoc_var           = f8 with constant(uar_get_code_by("MEANING",333,"ATTENDDOC")),protect
+declare admitdoc_var            = f8 with constant(uar_get_code_by("MEANING",333,"ADMITDOC")),protect
+declare edphysician_var         = f8 with constant(uar_get_code_by("DISPLAYKEY",333,"EDPHYSICIAN")),protect
+declare consultdoc_var          = f8 with constant(uar_get_code_by("MEANING",333,"CONSULTDOC")),protect
+declare plan_medicare_var       = f8 with constant(uar_get_code_by("MEANING",354,"MEDICARE")),protect
+declare medicare_var            = f8 with constant(uar_get_code_by("MEANING",367,"MEDICARE")),protect
+declare surgeon_var             = f8 with constant(uar_get_code_by("MEANING",388,"SURGEON")),protect
+declare anes_var                = f8 with constant(uar_get_code_by("MEANING",388,"ANES")),protect
+declare procedure_var           = f8 with constant(uar_get_code_by("MEANING",401,"PROCEDURE")),protect
+declare diag_var                = f8 with constant(uar_get_code_by("MEANING",401,"DIAG")),protect
+declare billcode_var            = f8 with constant(uar_get_code_by("MEANING",13019,"BILL CODE")),protect
+declare cr_var                  = f8 with constant(uar_get_code_by("MEANING",13028,"CR")),protect
+declare dr_var                  = f8 with constant(uar_get_code_by("MEANING",13028,"DR")),protect
+declare cm_cdm_cd               = f8 with constant(uar_get_code_by("DISPLAYKEY",14002,"CDM")),protect
+declare cdm_pharm_cd            = f8 with constant(uar_get_code_by("DISPLAYKEY",14002,"CDMSCHEDPHARM")),protect
+declare complete_var            = f8 with constant(uar_get_code_by("MEANING",16369,"COMPLETE")),protect
+declare medical_plan_cd         = f8 with constant(uar_get_code_by("MEANING",27137,"MEDICAL")),protect
+declare lwbs_cd                 = f8 with constant(uar_get_code_by("DISPLAYKEY",19,"LEFTWITHOUTBEINGSEEN")),protect
+declare revenue_cd              = f8 with constant(uar_get_code_by("DISPLAYKEY",18736,"REVENUE")),protect
+declare icd10cm_cd              = f8 with constant(uar_get_code_by("MEANING",400,"ICD10-CM")),protect
+declare icd9400_cd              = f8 with constant(uar_get_code_by("MEANING",400,"ICD9")),protect
+declare pharm_cat_cd            = f8 with constant(uar_get_code_by("MEANING",6000,"PHARMACY")),protect
+declare pharm_act_cd            = f8 with constant(uar_get_code_by("MEANING",106,"PHARMACY")),protect
+declare order_action_cd         = f8 with constant(uar_get_code_by("MEANING",6003,"ORDER")),protect
+ 
+declare outp = vc
+declare report_row = vc
+declare dept_num = vc
+declare dept_name = vc
+declare begin_date = dq8
+declare end_date = dq8
+declare e_file = vc
+declare ofile = c1
+declare data_row = vc
+declare fix_ind = i2
+declare start_month = dq8
+set start_month = cnvtlookbehind("1,M")
+declare ops_start_date = dq8
+declare ops_end_date = dq8
+set ops_start_date = datetimefind(start_month,"M","B","B")
+set ops_end_Date = datetimefind(start_month,"M","E","E")
+ 
+declare p                          = i4 with public, noconstant(0)
+ 
+set _separator                     = "|"
+ 
+	set outp       = value($outdev)
+	if($bdate = "OPS")
+	;SET begin_date = DATETIMEFIND(cnvtlookbehind("1,M"),"M","B","B")
+	;set begin_date = datetimefind(cnvtlookbehind("1,D", datetimefind(cnvtdatetime(curdate, curtime3), "M", "B", "B")), "M", "B", "B")
+    ;set begin_date = datetimefind(cnvtdatetime(cnvtlookbehind("1, m",cnvtdatetime(curdate,0))),"m","b","b"),"DD-MMM-YYYY;;d")
+	set begin_date = cnvtdatetime(ops_start_date)
+	else
+	set begin_date = cnvtdatetime(cnvtdate2($bdate,"DD-MMM-YYYY"),000000)
+	endif
+	if($bdate = "OPS")
+	set end_date = cnvtdatetime(ops_end_date)
+	;set end_date = datetimefind(cnvtdatetime(cnvtlookbehind("1, m",cnvtdatetime(curdate,0))),"m","e","e"),"DD-MMM-YYYY;;d")
+	else
+	set end_date   = cnvtdatetime(cnvtdate2($edate,"DD-MMM-YYYY"),235959)
+	endif
+ 
+ 
+ 
+	set e_file     = $efile
+	set fix_ind    = 0
+ 
+;Check to see if output prompt is OUTDEV from the frontend
+if(outp = "/cerner/*")
+	set ofile = "N"
+else
+	set ofile = "Y"
+endif
+ 
+set maxsecs = 60
+;Record and subroutine to collet code value alias data
+free record code_val
+record code_val
+(
+  1 count = i4
+  1 size = i4
+  1 qual[*]
+    2 cd = f8
+    2 disp = vc
+    2 alias = vc
+)
+free record encounters
+record encounters(
+	1 qual_cnt = i4
+	1 qual[*]
+		2 encntr_id = f8
+)
+ 
+free record paymaster
+record paymaster(
+	1 qual_cnt = i4
+	1 qual[*]
+		2 health_plan_id       = f8
+		2 1_facility_id        = vc
+		2 2_payor_id           = vc
+		2 3_payor_desc         = vc
+		2 4_effective_date     = vc
+		2 5_std_payor_type     = vc
+)
+ 
+free record pha ;bw1
+record pha
+(
+	 1 qual_cnt = i4
+	 1 qual[*]
+		2 1_facility_id = vc ;15
+		2 2_pat_acct_no = vc ;15
+		2 3_resource_id = vc ;30
+		2 4_filler_order_no = vc ;30
+		2 5_service_date = d18
+		2 6_dispense_qty = vc ;5
+		2 7_dispense_amt = vc ;15
+		2 8_dispense_uom_code  = vc;15
+		2 9_total_res_costs = vc;10
+		2 10_ndc_code = vc;15
+		2 11_label_code = vc;5
+		2 12_prod_code = vc;4
+		2 13_pkg_code = vc;2
+		2 14_admin_route_code = vc;15
+		2 15_pharmacy_order_no = vc;30
+		2 chg_order_id = f8
+ 		2 order_id = f8
+ 		2 charge_item_id = f8
+ 		2 charge_event_id = f8
+ 		2 chg_post_dt_tm = dq8
+ 		2 exclude_ind = i2
+)
+ 
+free record rxadmin ;bw2
+record rxadmin
+(
+	 1 qual_cnt = i4
+	 1 qual[*]
+		2 1_facility_id = vc
+		2 2_pat_acct_no = vc
+		2 3_resource_id = vc
+		2 4_filler_order_no = vc
+		2 5_order_date = d18
+		2 6_admin_route = vc
+		2 7_order_dose = vc
+		2 8_order_dose_uom_code  = vc
+		2 9_order_duration = vc
+		2 10_order_duration_uom_code = vc
+		2 11_order_freq = vc
+		2 12_order_freq_desc = vc
+		2 13_ordering_resident = vc
+		2 14_ordering_physician = vc
+		2 frequency_cd = f8
+		2 order_id = f8
+		2 chg_order_id = f8
+		2 charge_item_id = f8
+		2 charge_event_id = f8
+ 		2 chg_post_dt_tm = dq8
+ 		2 exclude_ind = i2
+)
+ 
+;
+;select od.encntr_id, dh.dispense_dt_tm, dh.bill_qty, uar_get_code_display(dh.disp_qty_unit_cd),
+;dh.doses,od.order_cost_value, uar_get_code_display(dh.disp_event_type_cd);,mi.value
+; from order_dispense od,;, order_product op, med_identifier mi,
+; dispense_hx dh
+;plan od where od.updt_dt_tm > cnvtdatetime(curdate,000000)
+;join dh where dh.order_id = od.order_id
+;join op where od.order_id = op.order_id
+;join mi where op.item_id = mi.item_id
+;and mi.med_identifier_type_cd =        3104.00
+;;
+;;
+free record staffmaster
+record staffmaster
+(
+	1 qual_cnt = i4
+	1 qual[*]
+		2 prsnl_id               = f8
+		2 1_staff_id             = vc
+		2 2_staff_type           = vc
+		2 3_staff_last_name      = vc
+		2 4_staff_first_name     = vc
+		2 5_staff_middle_initial = vc
+		2 6_staff_addr_1         = vc
+		2 7_staff_addr_2         = vc
+		2 8_staff_city           = vc
+		2 9_staff_state          = vc
+		2 10_staff_zipcode       = vc
+		2 11_staff_tel_no        = vc
+		2 12_staff_dob           = vc
+		2 13_start_date          = vc
+		2 14_end_date            = vc
+		2 15_post_grad_year      = vc
+		2 16_group_id            = vc
+		2 17_group_desc          = vc
+		2 18_clin_dept_id        = vc
+		2 19_clin_dept_desc      = vc
+		2 20_clinserv_code       = vc
+		2 21_clinserv_desc       = vc
+		2 22_license_no          = vc
+		2 23_upin                = vc
+		2 24_dea_number          = vc
+		2 25_npi                 = vc
+		2 phys_specialty_code    = vc
+)
+ 
+ 
+free record surgmaster
+record surgmaster
+(
+	1 qual_cnt = i4
+	1 qual[*]
+		2 1_Facility_ID = vc
+		2 2_Pat_Acct_No = vc
+		2 3_OR_Proc_Code = vc
+		2 4_OR_Proc_Desc = vc
+		2 5_Service_Date = vc
+		2 6_Table_Time_Start = vc
+		2 7_Table_Time_End = vc
+		2 8_Anesthesia_Type_Code = vc
+		2 9_Anesthesia_Time_Start = vc
+		2 10_Anesthesia_Time_End = vc
+		2 11_Anesthetist_Phys_ID = vc
+		2 12_Proc_Time_Start = vc
+		2 13_Proc_Time_End = vc
+		2 14_Oper_Phys_ID = vc
+		2 15_Recovery_Time_Start = vc
+		2 16_Recovery_Time_End = vc
+		2 17_Proc_Cost = vc
+		2 18_OR_Room_Nuimber = vc
+ 
+)
+ 
+free record resmaster
+record resmaster(
+	1 qual_cnt = i4
+	1 qual[*]
+		2 bill_item_id      = f8
+		2 price_sched_id    = f8
+		2 1_resource_id     = vc
+		2 2_resource_desc   = vc
+		2 3_effective_date  = vc
+		2 4_rev_code        = vc
+		2 5_res_dept_id     = vc
+		2 6_res_dept_desc   = vc
+		2 7_charge_amt      = vc
+		2 8_total_cost      = vc
+		2 9_capital_alloc   = vc
+		2 10_expense_cost   = vc
+		2 11_labor_cost     = vc
+		2 12_overhead_alloc = vc
+		2 13_long_res_desc  = vc
+		2 14_facility_id    = vc
+		2 15_cpt_code       = vc
+)
+ 
+free record encounter
+record encounter(
+    1 data[*]
+		2 encntrid               = f8
+		2 recur_ind              = i2
+		2 pft_encntr_id          = f8
+		2 personid               = f8
+		2 etype                  = f8
+		2 admitcd                = f8
+		2 dischcd                = f8
+		2 exclude_ind            = i2
+		2 attend_id              = f8
+		2 inpatient_admit_dt_tm  = vc
+		;encounter segment
+		2 1_facility             = vc
+		2 2_pat_acct_no          = vc
+		2 3_adm_date             = vc
+		2 4_disch_serv_date      = vc
+		2 5_site_of_care_id      = c15
+		2 5_site_of_care_cd      = c15
+		2 6_patient_class        = c15
+		2 7_adm_type_code        = c15
+		2 8_point_of_origin_cd   = c15
+		2 9_disch_disp_cd        = c15
+		2 10_total_charges       = vc
+		2 11_total_costs         = vc
+		2 12_amt_paid            = vc
+		2 13_adm_diag_code       = vc
+		2 14_drg_code            = vc
+		2 15_apdrg_code          = vc
+		2 16_apdrg_state         = vc
+		2 17_adm_phys_id         = vc
+		2 18_disch_phys_id       = vc
+		2 19_primcare_phys_id    = vc
+		2 20_responisble_phys_id = vc
+		2 21_case_mgr_id         = vc
+		2 22_med_rec_no          = vc
+		2 23_master_patient_id   = vc
+		2 24_social_security_no  = vc
+		2 25_pat_last_name       = vc
+		2 26_pat_first_name      = vc
+		2 27_pat_middle_initial  = c1
+		2 28_pat_dob             = vc
+		2 29_pat_addr_1          = vc
+		2 30_pat_addr_2          = vc
+		2 31_pat_city            = vc
+		2 32_pat_state           = vc
+		2 33_pat_zipcode         = vc
+		2 34_sex_code            = c15
+		2 35_marital_code        = c15
+		2 36_race_cd             = c15
+		2 37_pat_relation_code   = vc
+		2 38_employer_id         = vc
+		2 39_pat_tel_no          = vc
+		2 40_hisp_ethnicity      = vc
+		2 41_apr_drg_code        = vc
+		2 42_apr_rom             = vc
+		2 43_apr_soi             = vc
+		2 44_hic                 = vc
+		2 45_ms_drg_code         = vc
+		2 46_pat_type            = c15
+		2 47_pat_county          = vc
+		2 48_pat_country         = vc
+		2 49_disch_var_cost      = vc
+		2 50_disch_fix_cost      = vc
+		/* future use  */
+		2 51_vent_days           = vc
+		2 52_smoker_flag         = vc
+		2 53_pat_weight          = vc
+		2 54_birth_weight        = vc
+		2 55_baby_pat_no         = vc
+		2 56_Ethnicty            = vc
+		2 57_ED_Visit            = vc
+		2 58_CNC_Care_Setting    = vc
+		2 59_TIN                 = vc
+		2 testcharge             = f8
+		2 last_proc_rank         = i4
+	   ;diagnosis segment
+		2 diag[*]
+			3 3_icd_diagnosis_code = vc
+			3 4_icd_diag_rank      = vc
+			3 5_diag_date          = vc
+			3 6_poa_code           = c15
+			3 7_diag_type          = c15
+			3 8_icd_type           = vc
+		;payor segment
+		2 payor[*]
+			3 3_payor_id           = vc
+			3 4_payor_description  = c30
+			3 5_plan_id            = vc
+			3 6_plan_desc          = c30
+			3 7_payor_plan_rank    = i4
+			3 8_plan_type          = c15
+			3 8_plan_type_cd       = vc
+			3 9_plan_amt_paid      = vc
+		;practitioner segment
+		2 prac[*]
+			3 prsnl_id             = f8
+			3 3_staff_id           = vc
+			3 4_staff_type         = c1
+			3 5_service_start_date = vc
+			3 6_service_end_date   = vc
+			3 7_staff_role         = c15
+		;procedure segment
+		2 proc[*]
+			3 3_proc_code           = vc
+			3 4_proc_rank           = vc
+			3 5_proc_type           = vc
+			3 6_cpt4_mod_code       = vc
+			3 7_proc_order_date     = vc
+			3 8_proc_date           = vc
+			3 9_proc_phys_id        = vc
+			3 10_billed_charges     = vc
+			3 11_proc_amt_paid      = vc
+			3 12_proc_cost          = vc
+			3 13_anestheist_phys_id = vc
+			3 14_site_of_care_id    = vc
+			3 15_cpt4_mod_code2    = vc
+			3 16_cpt4_mod_code3    = vc
+			3 17_cpt4_mod_code4    = vc
+		;resource segment
+		2 resource[*]
+			3 bill_item_id          = f8
+			3 price_sched_id        = f8
+			3 charge_item_id        = f8
+			3 3_resource_id         = vc
+			3 4_order_no            = vc
+			3 5_service_date        = vc
+			3 6_resource_qty        = f8
+			3 qcf_qty               = f8
+			3 J_code                = i2
+			3 7_ord_date            = vc
+			3 8_ord_phys_id         = vc
+			3 9_ord_res_id          = vc
+			3 10_total_res_cost     = vc
+			3 11_specimen_type_code = vc
+			3 12_specimen_id        = vc
+			3 13_rate_cd            = vc
+			3 14_non_covered_charge = vc
+			3 15_tot_charge         = f8
+			3 16_tot_var_cost       = vc
+			3 17_tot_fix_cost       = vc
+			3 18_cpt_code           = vc
+			3 19_rev_code           = vc
+			3 rev_code              = vc
+			3 cpt_code              = vc
+    ; event segment
+    2 event[*]
+        3 1_facility_id         = vc
+        3 2_pat_acct_number     = vc
+        3 3_event_type_code     = vc
+        3 4_event_date          = vc
+        3 5_event_reason_code   = vc
+        3 6_unit_loc_id         = vc
+        3 6_unit_loc_cd         = f8
+        3 prev_unit_loc_id      = f8
+        3 7_unit_loc_desc       = vc
+        3 8_Prev_Unit_Loc_ID    = vc
+        3 9_Site_of_Care_ID     = vc
+        3 10_Event_Minutes      = vc
+        3 hide_row              = i2
+    ; Test Result segment
+    2 tr_cnt = i4
+    2 test_result[*]
+        3 1_order_no            = vc
+        3 2_facility_id         = vc
+        3 3_pat_acct_number     = vc
+        3 4_service_date        = vc
+        3 5_test_id             = vc
+        3 6_test_desc           = c20
+        3 7_test_result         = vc
+        3 8_upper_ctrl_limit    = vc
+        3 9_lower_ctrl_limit    = vc
+        3 10_result_units       = vc
+        3 11_abnormal_flag_code = vc
+        3 12_interpret_res_id   = vc
+        3 13_interpret_phys_id  = vc
+        3 14_test_result_status_code = vc
+        3 15_qual_interpret     = vc
+        3 hide_row              = i2
+		;mde segments
+		2 newborn                  = c1
+		2 arrival_date             = vc
+		2 arrival_time             = vc
+		2 birth_weight             = vc
+		2 observation_services     = vc
+		2 decision_to_admit_date   = vc
+		2 decision_to_admit_time   = vc
+		2 ed_departure_date        = vc
+		2 ed_departure_time        = vc
+		2 ed_patient               = vc
+		2 provider_contact_date    = vc
+		2 provider_contact_time    = vc
+		2 discharge_disposition    = vc
+		2 psychiatric_care_setting = vc
+)
+ 
+;**************************************************************
+set log = log_time("Get Base Encounter Population")
+ 
+declare CLINIC_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"CLINIC")),protect
+call echo(build("CLINIC_71_cv:::::22282402:::::",CLINIC_71_cv))
+declare EMERGENCY_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"EMERGENCY")),protect
+call echo(build("EMERGENCY_71_cv:::::309310:::::",EMERGENCY_71_cv))
+declare INPATIENT_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"INPATIENT")),protect
+call echo(build("INPATIENT_71_cv:::::309308:::::",INPATIENT_71_cv))
+declare MULTIDAYOUTPATIENT_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"MULTIDAYOUTPATIENT")),protect
+call echo(build("MULTIDAYOUTPATIENT_71_cv:::::2564975813:::::",MULTIDAYOUTPATIENT_71_cv))
+declare OBSERVATION_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"OBSERVATION")),protect
+call echo(build("OBSERVATION_71_cv:::::309312:::::",OBSERVATION_71_cv))
+declare OUTPATIENTINABED_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"OUTPATIENTINABED")),protect
+call echo(build("OUTPATIENTINABED_71_cv:::::19962820:::::",OUTPATIENTINABED_71_cv))
+declare OUTPATIENT_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"OUTPATIENT")),protect
+call echo(build("OUTPATIENT_71_cv:::::309309:::::",OUTPATIENT_71_cv))
+declare RECURRING_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"RECURRING")),protect
+ 
+call echo(build("RECURRING_71_cv:::::309314:::::",RECURRING_71_cv))
+declare SAMEDAYSURGERY_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"SAMEDAYSURGERY")),protect
+call echo(build("SAMEDAYSURGERY_71_cv:::::309311:::::",SAMEDAYSURGERY_71_cv))
+declare SWINGBED_71_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",71,"SWINGBED")),protect
+call echo(build("SWINGBED_71_cv:::::24083578:::::",SWINGBED_71_cv))
+DECLARE CONT_CD_VAL = F8 WITH CONSTANT(UAR_GET_CODE_BY("DISPLAYKEY",73,"HL7STDSRC"))
+DECLARE GET_CODE_VALUE_ALIAS(_CODE_VALUE = vc) = VC
+declare HL7STDSRC_73_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",73,"HL7STDSRC")),protect
+call echo(build("HL7STDSRC_73_cv:::::2553656657:::::",HL7STDSRC_73_cv))
+declare NATIONAL_27121_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",27121,"NATIONALHPIDENTIFIER")),protect
+declare PERSONNEL_213_cv=f8 with constant(UAR_GET_CODE_BY("DISPLAYKEY",213,"PERSONNEL")),protect
+ 
+ 
+ 
+select into "nl:"
+from encounter e, person p, coding c, pft_encntr pe
+plan e where ; e.encntr_id =     100242516.00 and
+  e.disch_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date) ;  e.encntr_id = 100634082
+  and
+  e.encntr_type_cd
+    in (EMERGENCY_71_cv
+      ,INPATIENT_71_cv
+ 
+      ,OBSERVATION_71_cv
+      ,OUTPATIENTINABED_71_cv
+      ,OUTPATIENT_71_cv
+     ; ,RECURRING_71_cv
+      ,SAMEDAYSURGERY_71_cv
+ 
+    ) and
+  e.active_ind                 = 1 and
+  e.end_effective_dt_tm        > cnvtdatetime(curdate,curtime3)
+  and e.med_service_cd !=    33536529.00 ;excludes organ donation cadavers
+  and e.loc_facility_cd  in (
+21250403,
+ 
+2553742717
+)
+join pe where pe.encntr_id = e.encntr_id
+		and pe.billing_entity_id =        1641838.00
+		and pe.active_ind = 1
+join c where c.encntr_id = e.encntr_id
+			and c.completed_dt_tm is not null
+			;and c.active_ind = 1
+			;and c.event_id > 0 ;should get all final coded charts
+			;and c.CODING_DT_TM between cnvtdatetime(begin_date) and cnvtdatetime(end_date)
+join p where p.person_id = e.person_id
+and p.name_last_key not in ( "ZZ*","XXXZZ*","XXXCERNER*","ZXZX*")
+order e.encntr_id
+head e.encntr_id
+  encounters->qual_cnt = encounters->qual_cnt + 1
+  if(mod(encounters->qual_cnt,100) = 1)
+    stat = alterlist(encounters->qual,encounters->qual_cnt + 99)
+  endif
+ 
+  encounters->qual[encounters->qual_cnt].encntr_id = e.encntr_id
+foot report
+  ;bw3 stat = alterlist(encounters->qual,encounters->qual_cnt + 99)
+  stat = alterlist(encounters->qual,encounters->qual_cnt);bw3
+with nocounter
+ 
+select into "nl:"
+from encounter e, person p, coding c, pft_encntr pe
+plan pe where pe.recur_ind = 1
+			and pe.beg_effective_dt_tm  between cnvtdatetime(begin_date) and cnvtdatetime(end_date)
+			and pe.active_ind = 1
+			and pe.billing_entity_id =        1641838.00
+join e where  e.encntr_id =  pe.encntr_id and
+				; e.encntr_id =   100242516.00 and
+ ; e.disch_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date) and
+  ;e.encntr_type_cd
+   ; in (
+    ;  RECURRING_71_cv
+ 
+ 
+    ;) and
+  e.active_ind                 = 1 and
+  e.end_effective_dt_tm        > cnvtdatetime(curdate,curtime3)
+   and e.med_service_cd !=    33536529.00 ;excludes organ donation cadavers
+  and e.loc_facility_cd  in (
+21250403,
+ 
+2553742717
+)
+ 
+join c where c.encntr_id = e.encntr_id
+			;and c.active_ind = 1
+			and c.completed_dt_tm is not null
+			;and c.event_id > 0 ;should get all final coded charts
+			;and c.CODING_DT_TM between cnvtdatetime(begin_date) and cnvtdatetime(end_date)
+join p where p.person_id = e.person_id
+and p.name_last_key not in ( "ZZ*","XXXZZ*","XXXCERNER*","ZXZX*")
+order e.encntr_id
+head e.encntr_id
+ 
+  encounters->qual_cnt = encounters->qual_cnt + 1
+ 
+    stat = alterlist(encounters->qual,encounters->qual_cnt)
+ 
+ 
+  encounters->qual[encounters->qual_cnt].encntr_id = e.encntr_id
+foot report
+ null
+with nocounter
+;call echorecord(encounters)
+;**************************************************************
+set log = log_time("get patients discharged in specified timeframe with demographic data")
+select into "nl:"
+	e_loc_facility_disp      = uar_get_code_display(e.loc_facility_cd),
+	e_encntr_type_disp       = uar_get_code_display(e.encntr_type_cd),
+	e_encntr_type_dk         = uar_get_displaykey(e.encntr_type_cd),
+	e_admit_type_disp        = uar_get_code_display(e.admit_type_cd),
+	e_admit_src_disp         = uar_get_code_display(e.admit_src_cd),
+	e_admit_src_dk           = uar_get_displaykey(e.admit_src_cd),
+	e_disch_disposition_disp = uar_get_code_display(e.disch_disposition_cd),
+	e_disch_disposition_dk   = uar_get_displaykey(e.disch_disposition_cd),
+	e_encntr_type_class_disp = uar_get_code_display(e.encntr_type_class_cd),
+	p_marital_type_disp      = uar_get_code_display(p.marital_type_cd),
+	p_sex_cdf                = uar_get_code_meaning(p.sex_cd),
+	a_city_disp              = uar_get_code_display(a.city_cd),
+	a_state_disp             = uar_get_code_display(a.state_cd),
+	p_race_disp              = uar_get_code_display(p.race_cd),
+	p_ethnic_grp_disp        = uar_get_code_display(p.ethnic_grp_cd),
+	ea.alias
+from
+	encounter e,
+	pft_encntr pe,
+	person p,
+	encntr_alias ea,
+	encntr_alias ea2,
+	address a
+plan e where
+	expand(idx1,1,encounters->qual_cnt,e.encntr_id,encounters->qual[idx1].encntr_id)
+join pe where e.encntr_id = pe.encntr_id
+			and pe.active_ind = 1
+			and ((pe.beg_effective_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date)
+				  and pe.recur_ind = 1) ;bw3
+				 or pe.recur_ind = 0)   ;bw3
+		   and pe.billing_entity_id =        1641838.00
+ 
+join p where
+	p.person_id        = e.person_id and
+	p.name_last_key   not in ("XXXZZ*", "ZZZ*","XXXCER*","ZZCER*","ZXZX*") and
+	p.name_first_key  != "EXPOSURE"
+join ea where
+	ea.encntr_id            = outerjoin(e.encntr_id) and
+	ea.encntr_alias_type_cd = outerjoin(finnbr_var) and
+	ea.active_ind           = outerjoin(1) and
+	ea.end_effective_dt_tm >= outerjoin(cnvtdatetime(cnvtdate( 12312100 ), 0))
+join ea2 where
+	ea2.encntr_id            = outerjoin(e.encntr_id) and
+	ea2.encntr_alias_type_cd = outerjoin(ea_mrn_var) and
+	ea2.active_ind           = outerjoin(1) and
+	ea2.end_effective_dt_tm >= outerjoin(cnvtdatetime(cnvtdate( 12312100 ), 0))
+join a where
+	a.parent_entity_id      = outerjoin(p.person_id) and
+	a.address_type_cd       = outerjoin(home_var) and
+	a.active_ind            = outerjoin(1) and
+	a.end_effective_dt_tm  >= outerjoin(cnvtdatetime(cnvtdate(12312100),0))
+order by
+	ea.alias, e.encntr_id, a.beg_effective_dt_tm
+head report
+	x = 0
+head e.encntr_id
+	x = x + 1
+	stat = alterlist(encounter->data, x )
+	encounter->data[x].encntrid   = e.encntr_id
+	encounter->data[x].personid   = e.person_id
+	encounter->data[x].etype      = e.encntr_type_cd
+ 	encounter->data[x].pft_encntr_id = pe.pft_encntr_id
+;	encounter->data[x].1_facility = uar_get_code_display(e.loc_facility_cd)
+	encounter->data[x].1_facility = "H";use this per project manager for Maury
+	encounter->data[x].2_pat_acct_no = ea.alias
+ 
+	encounter->data[x].3_adm_date = format(e.reg_dt_tm, "YYYYMMDDHHMM;;D" )
+	encounter->data[x].4_disch_serv_date = format(e.disch_dt_tm, "YYYYMMDDHHMM;;D" )
+  if(pe.recur_ind = 1)
+		encounter->data[x].2_pat_acct_no = build(encounter->data[x].2_pat_acct_no,"-",pe.recur_seq)
+		encounter->data[x].3_adm_date = format(pe.beg_effective_dt_tm, "YYYYMMDDHHMM;;D" )
+	encounter->data[x].4_disch_serv_date = format(cnvtdatetime(end_date), "YYYYMMDDHHMM;;D" )
+	encounter->data[x].recur_ind = 1
+	endif
+	if(e.inpatient_admit_dt_tm > 0 and e.inpatient_admit_dt_tm < e.disch_dt_tm)
+		encounter->data[x].inpatient_admit_dt_tm = format(e.inpatient_admit_dt_tm, "YYYYMMDDHHMM;;D" )
+	endif
+ 
+	if(trim(uar_get_displaykey(e.encntr_type_cd)) = "OUTPATIENTINABED")
+		encounter->data[x].5_site_of_care_id  = "OP in a Bed"
+	else
+		encounter->data[x].5_site_of_care_id  = trim(uar_get_code_display(e.encntr_type_cd))
+	endif
+ 
+	;Excluding Recurring encounters that are not Behav Hlth
+;	if(e.encntr_type_cd = RECURRING_71_cv and
+;	   trim(encounter->data[x].5_site_of_care_id) not in ("Behav Hlth IP","Behav Hlth OP"))
+;		encounter->data[x].exclude_ind = 1
+;	endif
+ 
+	if(trim(cnvtupper(encounter->data[x].5_site_of_care_id)) in ("INPATIENT","BEHAV HLTH IP") and
+	   e.inpatient_admit_dt_tm > 0 and e.inpatient_admit_dt_tm < e.disch_dt_tm)
+		encounter->data[x].3_adm_date        = format(e.inpatient_admit_dt_tm, "YYYYMMDDHHMM;;D" )
+	endif
+ 
+ 
+ 
+	encounter->data[x].5_site_of_care_cd = cnvtstring(e.encntr_type_cd)
+	encounter->data[x].6_patient_class = cnvtstring(e.encntr_type_cd)
+	encounter->data[x].46_pat_type     = cnvtstring(e.encntr_type_cd)
+	if(e.med_service_cd =    22516442.00)
+	encounter->data[x].46_pat_type     = "F";cnvtstring(e.encntr_type_cd)
+	endif
+	if(e.admit_type_cd is not null)
+	encounter->data[x].7_adm_type_code = cnvtstring(e.admit_type_cd)
+	endif
+ 	if(e.admit_src_cd > 0)
+	encounter->data[x].8_point_of_origin_cd = cnvtstring(e.admit_src_cd)
+	endif
+	if(e.disch_disposition_cd > 0)
+	encounter->data[x].9_disch_disp_cd = cnvtstring(e.disch_disposition_cd)
+	else
+	encounter->data[x].9_disch_disp_cd = ""
+	endif
+ 
+	;If this is a Left Without Being Seen encounter, mark it as excluded for now. In below selects, check the charges on
+	;the encounter and if they are greater than zero the set exclude_ind to zero
+	if(e.disch_disposition_cd = lwbs_cd)
+		encounter->data[x].dischcd     = e.disch_disposition_cd
+		call echo("setting this to excluded")
+		encounter->data[x].exclude_ind = 1
+	endif
+ 
+ 
+	;remove any "/" or "-" from codes
+	encounter->data[x].discharge_disposition = replace(encounter->data[x].discharge_disposition, "/", " " )
+	encounter->data[x].9_disch_disp_cd       = replace(encounter->data[x].9_disch_disp_cd, "/", " " )
+	encounter->data[x].discharge_disposition = replace(encounter->data[x].discharge_disposition, "-", " " )
+	encounter->data[x].9_disch_disp_cd       = replace(encounter->data[x].9_disch_disp_cd, "-", " " )
+ 
+	encounter->data[x].22_med_rec_no           = format(trim(ea2.alias),"#######;P0")
+	encounter->data[x].23_master_patient_id    = format(trim(ea2.alias),"#######;P0")
+;	encounter->data[x].22_med_rec_no           = trim(ea2.alias)
+;	encounter->data[x].23_master_patient_id    = trim(ea2.alias)
+ 
+	if(textlen(trim(p.name_last)) > 30)
+		encounter->data[x].25_pat_last_name        = substring(1,30,trim(p.name_last))
+	else
+		encounter->data[x].25_pat_last_name        = trim(p.name_last)
+	endif
+	if(textlen(trim(p.name_first)) > 30)
+		encounter->data[x].26_pat_first_name       = substring(1,30,trim(p.name_first))
+	else
+		encounter->data[x].26_pat_first_name       = trim(p.name_first)
+	endif
+	encounter->data[x].27_pat_middle_initial   = substring(1, 1, p.name_middle)
+	encounter->data[x].28_pat_dob              = format(p.birth_dt_tm, "YYYYMMDD0000;;D" )
+ 
+	if(a.city_cd > 0)
+		encounter->data[x].31_pat_city = cnvtupper(trim(uar_get_code_display(a.city_cd)))
+	else
+		encounter->data[x].31_pat_city = cnvtupper(trim(a.city))	;free text
+	endif
+ 
+	if(a.state_cd > 0)
+		encounter->data[x].32_pat_state = substring(1,2,trim(uar_get_code_display(a.state_cd)))
+	else
+		encounter->data[x].32_pat_state = substring(1,2,a.state)
+	endif
+ 
+	;if patient"s zip is not valid use hospital zip
+	if(textlen(trim(a.zipcode)) < 5 or a.zipcode in ("00000", "99999") or isnumeric(a.zipcode) = 0)
+		encounter->data[x].33_pat_zipcode = "38401"
+	;convert 9 digit zip to 5
+	elseif(size(a.zipcode) > 5)
+		encounter->data[x].33_pat_zipcode = substring(1, 5, a.zipcode )
+	else
+		encounter->data[x].33_pat_zipcode = trim(a.zipcode)
+	endif
+ 
+	/* codeset 57  SEX_CD   */
+	case(trim(uar_get_code_meaning(p.sex_cd)))
+		of "FEMALE"		:encounter->data[x].34_sex_code = "F"
+		of "MALE"		:encounter->data[x].34_sex_code = "M"
+		else			encounter->data[x].34_sex_code = "U"
+	endcase
+ 
+	if(p.marital_type_cd = 0)
+		encounter->data[x].35_marital_code = "U"
+	else
+		encounter->data[x].35_marital_code = cnvtstring(p.marital_type_cd)
+	endif
+ 
+	if(p.race_cd = 0)
+		encounter->data[x].36_race_cd = "UNKNOWN9"
+	else
+		encounter->data[x].36_race_cd = cnvtstring(p.race_cd)
+	endif
+ 
+	if(p.ethnic_grp_cd = hispanicorlatino_var)
+		encounter->data[x].40_hisp_ethnicity = "1"
+		encounter->data[x].56_ethnicty       = "E1"
+    elseif(p.ethnic_grp_cd = nothispanicorlatino_var)
+		encounter->data[x].40_hisp_ethnicity = "0"
+		encounter->data[x].56_ethnicty       = "E2"
+    else
+		encounter->data[x].40_hisp_ethnicity = "0"
+		encounter->data[x].56_ethnicty       = "E99"
+	endif
+ 
+	;get mde fields that are from the person or encounter
+	encounter->data[x].arrival_date = format(e.arrive_dt_tm,"MMDDYYYY;;D")
+	encounter->data[x].arrival_time = format(e.arrive_dt_tm,"HHMM;;D")
+ 
+	;patient is ED patient or was admitted from ED
+	if(e.encntr_type_cd = EMERGENCY_71_cv)
+		encounter->data[x].ed_patient  = "Y"
+		encounter->data[x].57_ed_visit = "Y"
+	else
+		encounter->data[x].ed_patient = "N"
+		encounter->data[x].57_ed_visit = "N"
+	endif
+ 
+	if(e.admit_type_cd = newborn_var)
+		encounter->data[x].newborn = "Y"
+	endif
+ 
+	;set 1 row for each of the recurring segments in case there is no data for them
+	stat = alterlist(encounter->data[x].diag,1)
+	stat = alterlist(encounter->data[x].payor,1)
+	stat = alterlist(encounter->data[x].prac,1)
+	stat = alterlist(encounter->data[x].proc,1)
+	stat = alterlist(encounter->data[x].resource,1)
+with nocounter, expand = 1
+ 
+set sz = size(encounter->data,5)
+ 
+if(sz = 0)
+   go to NOREC
+endif
+ 
+ ;gather birth weight
+ call echo("get birth weight")
+select into "nl:"
+from (dummyt d1 with seq = value(size(encounter->data,5))),
+clinical_event ce
+plan d1 where encounter->data[d1.seq].8_point_of_origin_cd = "4326380"
+join ce where ce.encntr_id = encounter->data[d1.seq].encntrid
+		and ce.event_cd = birthweight_var
+		and ce.result_status_cd in (25, 34, 35)
+		and ce.valid_until_dt_tm > cnvtdatetime(curdate,curtime2); added by Donna Hall
+		;so that when a newborn weight is corrected it will pick up the valid weight
+head report
+;call echo("made it into birth weight")
+null
+temp = 0.0000
+detail
+;call echo(encounter->data[d1.seq].8_point_of_origin_cd)
+temp = 0.0000
+temp = cnvtreal(ce.result_val)
+temp = temp * 1000
+;call echo(temp)
+ 
+encounter->data[d1.seq].54_birth_weight = cnvtstring(cnvtint(temp))
+; call echo("saved off the data")
+with nocounter
+ ;call echorecord(encounter)
+;**************************************************************
+set log = log_time("check ENCNTR_LOC_HIST for inpatients to determine if this was an ED visit")
+select into "nl:"
+	elh.encntr_id,
+	e_encntr_type_disp = uar_get_code_display(elh.encntr_type_cd)
+from encntr_loc_hist elh
+plan elh where
+	expand(idx1,1,sz,elh.encntr_id,encounter->data[idx1].encntrid) and
+	elh.encntr_type_cd      = EMERGENCY_71_cv and
+	elh.active_ind          = 1 ;and
+	;elh.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+detail
+	idx1 = 0
+	idx2 = 0
+	idx1 = locateval(idx2,1,sz,elh.encntr_id,encounter->data[idx2].encntrid)
+ 
+	if(idx1 > 0)
+			encounter->data[idx1].ed_patient  = "Y"
+			encounter->data[idx1].57_ed_visit = "Y"
+	endif
+with nocounter, expand = 1
+ 
+;**************************************************************
+set log = log_time("get DRG for inpatients only")
+select  into "nl:"
+	n_principle_type_disp = uar_get_code_display(n.principle_type_cd)
+from drg drg,
+	 nomenclature n
+plan drg where
+	expand(idx1,1,sz,drg.encntr_id,encounter->data[idx1].encntrid) and
+	drg.contributor_system_cd = 3m_var and
+	drg.active_ind            = 1 and
+	drg.end_effective_dt_tm   > cnvtdatetime(curdate,curtime3)
+join n where
+	n.nomenclature_id = drg.nomenclature_id
+detail
+	idx1 = 0
+	idx2 = 0
+	idx1 = locateval(idx2,1,sz,drg.encntr_id,encounter->data[idx2].encntrid)
+ 
+	if(idx1 > 0)
+		if(encounter->data[idx1].etype = INPATIENT_71_cv)
+			;if(textlen(trim(n.source_identifier)) >= 4)
+				encounter->data[idx1].45_ms_drg_code = substring(1,3,n.source_identifier)
+			;endif
+		endif
+	endif
+with nocounter, expand = 1
+ 
+;**************************************************************
+set log = log_time("get diagnosis data")
+if(e_file in ("DIA","ENC","ALL"))
+;  call echo(build("icd10cm_cd:::",icd10cm_cd))
+;  call echo(build("admit_var:::",admit_var))
+;  call echo(build("final_var:::",final_var))
+ 
+	select into "nl:"
+		di_diag_type_disp = uar_get_code_display(di.diag_type_cd),
+		di_present_on_admit_disp = uar_get_code_display(di.present_on_admit_cd),
+		n_source_vocabulary_disp = uar_get_code_display(n.source_vocabulary_cd),
+		n_source_vocabulary_cdf = uar_get_code_meaning(n.source_vocabulary_cd)
+	from
+		coding c,
+		diagnosis di,
+		nomenclature n
+	plan c where
+		expand(idx1,1,sz,c.encntr_id,encounter->data[idx1].encntrid) and
+		c.completed_dt_tm    != null
+		;c.active_ind          = 1 and
+		;c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+	join di where
+		di.encntr_id           = c.encntr_id and
+		di.diag_type_cd       in (admit_var, final_var) and
+		di.diag_priority       > 0 and
+		di.active_ind          = 1 and
+		di.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+	join n where
+		n.nomenclature_id   = di.nomenclature_id and
+		n.principle_type_cd = diag_var
+		and n.source_vocabulary_cd != (icd9400_cd)
+	order by di.encntr_id, di.diag_type_cd, di.diag_priority, di.diagnosis_id
+	head di.encntr_id
+		y     = 0
+		p     = 0
+		dtype = "     "
+		;call echo(build("di.encntr_id:::",di.encntr_id))
+	head di.diagnosis_id
+		idx1 = 0
+		idx2 = 0
+		idx1 = locateval(idx2,1,sz,di.encntr_id,encounter->data[idx2].encntrid)
+ 
+		if(idx1 > 0)
+			/*  codeset 400 N.SOURCE_VOCABULARY_CD  */
+			if(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "ICD9" )
+				dtype = "I"
+			elseif(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "ICD10" )
+				dtype = "ICD10"
+			elseif(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "ICD10-CM" )
+				dtype = "ICD10"
+			else
+				dtype = " "
+			endif
+ 
+		;  call echo(build("uar_get_code_meaning(n.source_vocabulary_cd)::"
+		   ; ,uar_get_code_meaning(n.source_vocabulary_cd)
+		  ;  ," - "
+		 ;   ,n.source_vocabulary_cd
+		  ;  ))
+ 
+			; codeset 17 DIAG_TYPE_CD  
+			if(di.diag_type_cd = admit_var)
+				if(encounter->data[idx1].etype = INPATIENT_71_cv and di.diag_priority = 1)
+		 ;   call echo(build("admit_var qual enc:::",di.encntr_id))
+		  ;  call echo(build("dtype qual enc:::",dtype))
+					y = y + 1
+					stat = alterlist(encounter->data[idx1].diag , y )
+					encounter->data[idx1].diag[y].3_icd_diagnosis_code = replace(n.source_identifier, ".", "" )
+					encounter->data[idx1].diag[y].4_icd_diag_rank      = "1"
+					encounter->data[idx1].diag[y].7_diag_type          = "A"
+					encounter->data[idx1].diag[y].8_icd_type           = dtype
+ 
+;					;diagnosis for encounter seg
+;					if(trim(encounter->data[idx1].13_adm_diag_code) <= " ")
+;						encounter->data[idx1].13_adm_diag_code             = replace(n.source_identifier, ".", "" )
+;						;If admit diagnosis is in the "V3" series, mark encounter as Newborn
+;						if(trim(cnvtupper(n.source_identifier)) = "V3*")
+;							encounter->data[idx1].7_adm_type_code      = "Newborn"
+;							encounter->data[idx1].8_point_of_origin_cd = "Born In Hosp"
+;							encounter->data[idx1].newborn              = "Y"
+;						endif
+;					endif
+				endif
+			else
+		  ;  call echo(build("final_var qual enc:::",di.encntr_id))
+		  ;  call echo(build("dtype qual enc:::",dtype))
+				y = y + 1
+				stat = alterlist(encounter->data[idx1].diag,y)
+                		p = p + 1
+				;report poa for inpatient final only only
+				; Codeset 4002009  PRESENT_ON_ADMIT_CD  
+				if(encounter->data[idx1].etype = INPATIENT_71_cv)
+					encounter->data[idx1].diag[y].6_poa_code = trim(uar_get_code_display(di.present_on_admit_cd))
+				endif
+ 
+				encounter->data[idx1].diag[y].7_diag_type          = "F"
+				encounter->data[idx1].diag[y].3_icd_diagnosis_code = replace(n.source_identifier, ".", "" )
+				encounter->data[idx1].diag[y].4_icd_diag_rank      = cnvtstring(p)
+				encounter->data[idx1].diag[y].8_icd_type           = dtype
+			endif
+		endif
+	with nocounter, expand = 1
+endif
+ 
+;**************************************************************
+set log = log_time("get insurance plan data / payor segment")
+if(e_file in ("PAY", "ENC", "PAYMASTER", "ALL"))
+	select into "nl:"
+		epr_plan_type_disp     = uar_get_code_display(epr.plan_type_cd),
+		h_financial_class_disp = uar_get_code_display(h.financial_class_cd),
+		h_financial_class_dk   = uar_get_displaykey(h.financial_class_cd)
+	from
+		encntr_plan_reltn epr,
+		health_plan h,
+		HEALTH_PLAN_ALIAS HPA
+	plan epr where
+		expand(idx1,1,sz,epr.encntr_id,encounter->data[idx1].encntrid) and
+		epr.end_effective_dt_tm >= cnvtdatetime(curdate,curtime3) and
+		epr.active_ind           = 1
+	join h where
+		h.health_plan_id = epr.health_plan_id and
+		h.service_type_cd = medical_plan_cd
+	JOIN HPA WHERE HPA.health_plan_ID = H.health_plan_id
+ 
+					and hpa.active_ind = 1
+					and hpa.end_effective_dt_tm > cnvtdatetime(curdate,curtime2)
+					and hpa.plan_alias_type_cd =          666883.00;NATIONAL_27121_cv
+	order by epr.encntr_id, epr.priority_seq
+	head epr.encntr_id
+		z = 0
+	detail
+		idx1 = 0
+		idx2 = 0
+		idx1 = locateval(idx2,1,sz,epr.encntr_id,encounter->data[idx2].encntrid)
+ 
+		if(idx1 > 0)
+ 
+			;for Medicare payors use member number (= policy number in app)
+			if(h.financial_class_cd = plan_medicare_var)
+				;populate if there is at least 1 alpha character and 1 numeric and the length is between 7-12
+				if(size(trim(epr.member_nbr)) between 7 and 12)
+					;this will replace everything less than A with spaces
+					ck = check(epr.member_nbr, "A" )	;check alpha char
+					;if no char replaced then it's all alpha and ck will = member nbr
+					;if ck = all spaces then member number is all numbers
+;					if(ck != epr.member_nbr and ck > " "); Please leave field 44 (HIC) empty.  This field is no longer required by CMS
+;						encounter->data[idx1].44_hic = cnvtupper(epr.member_nbr)
+;					endif
+				endif
+			 endif
+ 
+			z = z + 1
+			stat = alterlist(encounter->data[idx1].payor,z)
+			encounter->data[idx1].payor[z].3_payor_id          = hpa.alias
+			encounter->data[idx1].payor[z].4_payor_description = trim(h.plan_name)
+			if(hpa.alias in ("CAR","HOSH","MH"))
+				encounter->data[idx1].46_pat_type = "25"
+			endif
+			encounter->data[idx1].payor[z].5_plan_id           = hpa.alias
+			encounter->data[idx1].payor[z].6_plan_desc         = trim(h.plan_name)
+			encounter->data[idx1].payor[z].7_payor_plan_rank   = epr.priority_seq
+			encounter->data[idx1].payor[z].8_plan_type         = "UNKNOWN"	;default to unknown - 900
+ 
+			if(h.financial_class_cd > 0.0)
+				encounter->data[idx1].payor[z].8_plan_type = substring(1,15,trim(uar_get_code_display(h.financial_class_cd)))
+				encounter->data[idx1].payor[z].8_plan_type_cd = cnvtstring(h.financial_class_cd)
+ 
+			endif
+ 
+			;IF inpatient and payor = hospice, default pat_type to 25
+			;9-24-2018 - removed this logic for now, no hospice setup
+;			if(encounter->data[idx1].46_pat_type = "309308" and epr.priority_seq = 1 and
+;			   cnvtupper(h.plan_name)in("HOSPICE*","*HOSPICE*","*HOSPICE","HOSPICE"))
+;				encounter->data[idx1].5_site_of_care_id = "34"
+;				encounter->data[idx1].46_pat_type       = "25"
+;				if(trim(encounter->data[idx1].inpatient_admit_dt_tm) > " ")
+;					encounter->data[idx1].3_adm_date        = encounter->data[idx1].inpatient_admit_dt_tm
+;				endif
+;			endif
+ 
+			idx3 = 0
+			idx4 = 0
+			idx3 = locateval(idx4,1,paymaster->qual_cnt,h.health_plan_id,paymaster->qual[idx4].health_plan_id)
+ 
+			if(idx3 <= 0)
+				paymaster->qual_cnt = paymaster->qual_cnt + 1
+				if(size(paymaster->qual,5) < paymaster->qual_cnt)
+					stat = alterlist(paymaster->qual, paymaster->qual_cnt + 99)
+				endif
+ 
+ 				paymaster->qual[paymaster->qual_cnt].health_plan_id   = h.health_plan_id
+				paymaster->qual[paymaster->qual_cnt].1_facility_id    = "H"
+				paymaster->qual[paymaster->qual_cnt].2_payor_id       = hpa.alias
+				paymaster->qual[paymaster->qual_cnt].3_payor_desc     = trim(h.plan_name)
+				paymaster->qual[paymaster->qual_cnt].4_effective_date = "201301010000"
+				paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "900"
+ 
+				case(trim(uar_get_displaykey(h.financial_class_cd)))
+					of "MEDICAIDMANAGEDCARE"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "320"
+					of "MEDICAREREPLACEMENT"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "320"
+					of "MEDICAID"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "330"
+					of "MEDICARE"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "300"
+					of "BCBS"		  			:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "360"
+					of "COMMERCIALCONTRACT"		:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "360"
+					of "OTHER"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "900"
+					of "WORKERSCOMPENSATION"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "420"
+					of "TRICARE"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "440"
+					of "FEDERAL"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "440"
+					of "COMMERCIAL"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "PRISON"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "INTERNATIONALPATIENT"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "410"
+					of "SELFPAY"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "410"
+					of "CLIENT"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "900"
+					of "MEDICAREMANAGEDCARE"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "320"
+					of "HEALTHEXCHANGE"			:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "COMMERCIALNONCONTRACT"	:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "BLUECROSS"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "AUTOTPL"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "MEDICAIDPENDING"		:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "330"
+					of "AETNA"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "HMO"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "HMOPPO"					:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "360"
+					of "GOVERNMENT"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "440"
+					of "CHARITY"				:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "390"
+					of "CHARITYPENDING"			:paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "390"
+					of "DOMESTICCLAIMS"         :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "430"
+					of "LIABILITY"              :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "380"
+					of "PAYMENTARRANGEMENTS"    :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "900"
+					of "ALLERGYANDIMM"    :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "4004"
+					of "DERMATOLOGY"    :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "4025"
+					of "PEDIATRICDERMA"    :paymaster->qual[paymaster->qual_cnt].5_std_payor_type = "4025"
+ 
+ 
+ 
+				endcase
+			endif
+		endif
+	foot report
+		stat = alterlist(paymaster->qual, paymaster->qual_cnt)
+	with nocounter, expand = 1
+endif
+ 
+;**************************************************************
+set log = log_time("get practitioner data")
+if(e_file in ("PRA","STAFF","ALL"))
+ 
+	select into "nl:"
+		epr_encntr_prsnl_r_disp = uar_get_code_display(epr.encntr_prsnl_r_cd),
+		epr_encntr_type_disp    = uar_get_code_display(epr.encntr_type_cd),
+		sort_order              = if(epr.encntr_prsnl_r_cd = admitdoc_var)
+									0
+								  elseif(epr.encntr_prsnl_r_cd = attenddoc_var)
+								  	1
+								  elseif(epr.encntr_prsnl_r_cd = edphysician_var)
+								  	2
+								  elseif(epr.encntr_prsnl_r_cd = consultdoc_var)
+								  	3
+								  endif
+	from encntr_prsnl_reltn epr,
+		 prsnl_alias pa,
+		 prsnl_alias pa2
+	plan epr where
+		expand(idx1,1,sz,epr.encntr_id,encounter->data[idx1].encntrid) and
+		epr.encntr_prsnl_r_cd in (attenddoc_var,admitdoc_var,consultdoc_var,edphysician_var) and
+		epr.end_effective_dt_tm > cnvtdatetime(curdate,curtime3) and ;bw4
+		epr.active_ind          = 1
+	join pa where
+		pa.person_id           = outerjoin(epr.prsnl_person_id) and
+		pa.prsnl_alias_type_cd = outerjoin(licensenbr_var) and
+		pa.active_ind          = outerjoin(1) and
+		pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa2 where
+		pa2.person_id           = outerjoin(epr.prsnl_person_id) and
+		pa2.prsnl_alias_type_cd = outerjoin(externalid_var) and
+		pa2.active_ind          = outerjoin(1) and
+		pa2.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	order by epr.encntr_id, sort_order, epr.encntr_prsnl_r_cd, epr.beg_effective_dt_tm desc
+	head epr.encntr_id
+		attend_ind = 0
+		w          = 0
+		idx1       = 0
+		idx2       = 0
+		idx1       = locateval(idx2,1,sz,epr.encntr_id,encounter->data[idx2].encntrid)
+ 	head epr.encntr_prsnl_r_cd
+ 		if(idx1 > 0 and epr.prsnl_person_id > 0.0)
+	 		case(epr.encntr_prsnl_r_cd)
+	 			of attenddoc_var:
+	 				w    = w + 1
+					stat = alterlist(encounter->data[idx1].prac , w )
+ 
+ 					attend_ind = 1
+		 			encounter->data[idx1].attend_id                    = epr.prsnl_person_id
+		 			encounter->data[idx1].prac[w].prsnl_id             = epr.prsnl_person_id
+ 
+		 			;default "C" + person_id as staff_id to identify physicians with missing license nbr
+		 			;encounter->data[idx1].prac[w].3_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+		 			encounter->data[idx1].prac[w].3_staff_id = cnvtstring(epr.prsnl_person_id)
+					;if(trim(pa.alias) > " ")
+					;	encounter->data[idx1].prac[w].3_staff_id = concat("03",trim(pa.alias))
+					;elseif(trim(pa2.alias) > " ")
+					;	encounter->data[idx1].prac[w].3_staff_id = concat("03SV",trim(pa2.alias))
+					;endif
+					encounter->data[idx1].prac[w].4_staff_type         = "P"  ;only getting physicians
+					encounter->data[idx1].prac[w].5_service_start_date = encounter->data[idx1].3_adm_date
+					encounter->data[idx1].prac[w].6_service_end_date   = encounter->data[idx1].4_disch_serv_date
+					encounter->data[idx1].prac[w].7_staff_role         = "A"
+ 
+					;Add prsnl_id to staffmaster record if it doesn't already exist
+					idx3 = 0
+					idx4 = 0
+					idx3 = locateval(idx4,1,staffmaster->qual_cnt,epr.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+					if(idx3 <= 0)
+						staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+						if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+							stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+						endif
+ 
+						staffmaster->qual[staffmaster->qual_cnt].prsnl_id = epr.prsnl_person_id
+						;defaulting to "C"+person_id
+						;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+						staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(epr.prsnl_person_id)
+					endif
+	 			of admitdoc_var:
+	 				w    = w + 1
+					stat = alterlist(encounter->data[idx1].prac , w )
+ 
+		 			encounter->data[idx1].prac[w].prsnl_id             = epr.prsnl_person_id
+		 			;default "C" + person_id as staff_id to identify physicians with missing license nbr
+		 			;encounter->data[idx1].prac[w].3_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+		 			encounter->data[idx1].prac[w].3_staff_id = cnvtstring(epr.prsnl_person_id)
+;					if(trim(pa.alias) > " ")
+;						encounter->data[idx1].prac[w].3_staff_id = concat("03",trim(pa.alias))
+;					elseif(trim(pa2.alias) > " ")
+;						encounter->data[idx1].prac[w].3_staff_id = concat("03SV",trim(pa2.alias))
+;					endif
+					encounter->data[idx1].prac[w].4_staff_type         = "P"  ;only getting physicians
+					encounter->data[idx1].prac[w].5_service_start_date = encounter->data[idx1].3_adm_date
+					encounter->data[idx1].prac[w].6_service_end_date   = encounter->data[idx1].4_disch_serv_date
+					encounter->data[idx1].prac[w].7_staff_role         = "M"
+ 
+					;Add prsnl_id to staffmaster record if it doesn't already exist
+					idx3 = 0
+					idx4 = 0
+					idx3 = locateval(idx4,1,staffmaster->qual_cnt,epr.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+					if(idx3 <= 0)
+						staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+						if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+							stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+						endif
+ 
+						staffmaster->qual[staffmaster->qual_cnt].prsnl_id = epr.prsnl_person_id
+						;defaulting to "C"+person_id
+						;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+						staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(epr.prsnl_person_id)
+					endif
+	 			of edphysician_var:
+	 				if(trim(cnvtupper(encounter->data[idx1].5_site_of_care_id)) = "EMERGENCY" and attend_ind = 0)
+						w    = w + 1
+						stat = alterlist(encounter->data[idx1].prac , w )
+ 
+			 			encounter->data[idx1].prac[w].prsnl_id             = epr.prsnl_person_id
+			 			;default "C" + person_id as staff_id to identify physicians with missing license nbr
+			 			;encounter->data[idx1].prac[w].3_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+			 			encounter->data[idx1].prac[w].3_staff_id = cnvtstring(epr.prsnl_person_id)
+;						if(trim(pa.alias) > " ")
+;							encounter->data[idx1].prac[w].3_staff_id = concat("03",trim(pa.alias))
+;						elseif(trim(pa2.alias) > " ")
+;							encounter->data[idx1].prac[w].3_staff_id = concat("03SV",trim(pa2.alias))
+;						endif
+						encounter->data[idx1].prac[w].4_staff_type         = "P"  ;only getting physicians
+						encounter->data[idx1].prac[w].5_service_start_date = encounter->data[idx1].3_adm_date
+						encounter->data[idx1].prac[w].6_service_end_date   = encounter->data[idx1].4_disch_serv_date
+						encounter->data[idx1].prac[w].7_staff_role         = "A"
+					endif
+ 
+	 				w    = w + 1
+					stat = alterlist(encounter->data[idx1].prac , w )
+ 
+		 			encounter->data[idx1].prac[w].prsnl_id             = epr.prsnl_person_id
+		 			;default "C" + person_id as staff_id to identify physicians with missing license nbr
+		 			;encounter->data[idx1].prac[w].3_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+		 			encounter->data[idx1].prac[w].3_staff_id = cnvtstring(epr.prsnl_person_id)
+;					if(trim(pa.alias) > " ")
+;						encounter->data[idx1].prac[w].3_staff_id = concat("03",trim(pa.alias))
+;					elseif(trim(pa2.alias) > " ")
+;						encounter->data[idx1].prac[w].3_staff_id = concat("03SV",trim(pa2.alias))
+;					endif
+					encounter->data[idx1].prac[w].4_staff_type         = "P"  ;only getting physicians
+					encounter->data[idx1].prac[w].5_service_start_date = encounter->data[idx1].3_adm_date
+					encounter->data[idx1].prac[w].6_service_end_date   = encounter->data[idx1].4_disch_serv_date
+					encounter->data[idx1].prac[w].7_staff_role         = "E"
+ 
+					;Add prsnl_id to staffmaster record if it doesn't already exist
+					idx3 = 0
+					idx4 = 0
+					idx3 = locateval(idx4,1,staffmaster->qual_cnt,epr.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+					if(idx3 <= 0)
+						staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+						if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+							stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+						endif
+ 
+						staffmaster->qual[staffmaster->qual_cnt].prsnl_id = epr.prsnl_person_id
+						;defaulting to "C"+person_id
+						;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+						staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(epr.prsnl_person_id)
+					endif
+	 		endcase
+	 	endif
+	detail
+		if(idx1 > 0 and epr.prsnl_person_id > 0.0)
+			if(epr.encntr_prsnl_r_cd = consultdoc_var and
+			   epr.prsnl_person_id  != encounter->data[idx1].attend_id)
+				;consulting physician can have more than one row
+				w    = w + 1
+				stat = alterlist(encounter->data[idx1].prac , w )
+ 
+ 				encounter->data[idx1].prac[w].prsnl_id             = epr.prsnl_person_id
+ 				;default "C" + person_id as staff_id to identify physicians with missing license nbr
+		 		;encounter->data[idx1].prac[w].3_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+		 		encounter->data[idx1].prac[w].3_staff_id = cnvtstring(epr.prsnl_person_id)
+;				if(trim(pa.alias) > " ")
+;					encounter->data[idx1].prac[w].3_staff_id = concat("03",trim(pa.alias))
+;				elseif(trim(pa2.alias) > " ")
+;					encounter->data[idx1].prac[w].3_staff_id = concat("03SV",trim(pa2.alias))
+;				endif
+				encounter->data[idx1].prac[w].4_staff_type         = "P"  ;only getting physicians
+				encounter->data[idx1].prac[w].5_service_start_date = encounter->data[idx1].3_adm_date
+				encounter->data[idx1].prac[w].6_service_end_date   = encounter->data[idx1].4_disch_serv_date
+ 				encounter->data[idx1].prac[w].7_staff_role         = "C"
+ 
+ 				;Add prsnl_id to staffmaster record if it doesn't already exist
+				idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,epr.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = epr.prsnl_person_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(epr.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(epr.prsnl_person_id)
+				endif
+			endif
+		endif
+	foot report
+		stat = alterlist(staffmaster->qual,staffmaster->qual_cnt)
+	with nocounter, expand = 1
+endif
+ 
+;change out the alias for the encounter
+FOR (I = 1 TO sz)
+  ;Get alias values for codes
+	SET encounter->data[I].5_site_of_care_cd	= GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].5_site_of_care_cd))
+	SET encounter->data[I].5_site_of_care_cd = CNVTUPPER(encounter->data[I].5_site_of_care_cd)
+endfor
+ 
+set log = log_time("surgery master")
+ 
+ 
+;**************************************************************
+set log = log_time("procedure segment")
+if(e_file in ("PRO","STAFF","ALL","PDA","PO"))
+	select into "nl:"
+		p.encntr_id,
+		n_source_vocabulary_disp = uar_get_code_display(n.source_vocabulary_cd),
+		n_source_vocabulary_cdf = uar_get_code_meaning(n.source_vocabulary_cd)
+	from
+		coding c,
+		procedure p,
+		nomenclature n,
+		proc_modifier pm,
+		nomenclature no,
+		proc_prsnl_reltn pp,
+		prsnl_alias pa,
+		proc_prsnl_reltn pp2,
+		prsnl_alias pa2,
+		prsnl_alias pa3,
+		prsnl_alias pa4
+	plan c where
+		expand(idx1,1,sz,c.encntr_id,encounter->data[idx1].encntrid) and
+		c.completed_dt_tm    != null
+		;c.active_ind          = 1 and
+		;c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+	join p where
+		p.encntr_id    = c.encntr_id and
+		p.proc_priority > 0 and
+		p.active_ind = 1 and
+		p.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+	join n where
+		n.nomenclature_id = p.nomenclature_id ;and
+		;n.source_vocabulary_cd not in (icd10cm_cd)
+	;get the cpt4 modifier if it exists
+	join pm where
+		pm.parent_entity_id = outerjoin(p.procedure_id)
+	join no where
+		no.nomenclature_id = outerjoin(pm.nomenclature_id)
+	;get surgeon for the procedure
+	join pp where
+		pp.procedure_id        = outerjoin(p.procedure_id) and
+		pp.proc_prsnl_reltn_cd = outerjoin(surgeon_var) and
+		pp.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime2))
+ 
+	join pa where
+		pa.person_id           = outerjoin(pp.prsnl_person_id) and
+		pa.prsnl_alias_type_cd = outerjoin(licensenbr_var)  and
+		pa.active_ind          = outerjoin(1) and
+		pa.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa3 where
+		pa3.person_id           = outerjoin(pp.prsnl_person_id) and
+		pa3.prsnl_alias_type_cd = outerjoin(externalid_var) and
+		pa3.active_ind          = outerjoin(1) and
+		pa3.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	;get anesthesiologist for the procedure
+	join pp2 where
+		pp2.procedure_id        = outerjoin(p.procedure_id) and
+		pp2.proc_prsnl_reltn_cd = outerjoin(anes_var)
+	join pa2 where
+		pa2.person_id           = outerjoin(pp2.prsnl_person_id) and
+		pa2.prsnl_alias_type_cd = outerjoin(licensenbr_var)  and
+		pa2.active_ind          = outerjoin(1) and
+		pa2.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa4 where
+		pa4.person_id           = outerjoin(pp2.prsnl_person_id) and
+		pa4.prsnl_alias_type_cd = outerjoin(externalid_var) and
+		pa4.active_ind          = outerjoin(1) and
+		pa4.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	order by p.encntr_id,
+			 n_source_vocabulary_cdf,
+			 p.proc_priority,
+			 p.procedure_id
+	head p.encntr_id
+		v = 0
+        	p = 0
+       		icd = 0
+        	h = 0
+		idx1 = 0
+		idx2 = 0
+		idx1 = locateval(idx2,1,sz,p.encntr_id,encounter->data[idx2].encntrid)
+	head p.procedure_id
+		if(idx1 > 0)
+		if ((encounter->data[idx2].recur_ind = 0) or
+			(encounter->data[idx2].recur_ind  = 1 and p.proc_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date)))
+			v    = v + 1
+			stat = alterlist(encounter->data[idx1].proc,v)
+ 
+ 
+			; Codeset 400  SOURCE_VOCABULARY_CD  
+			if(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "CPT4")
+			    	p = p + 1
+				;do not report cpt4 for inpatients
+				if(encounter->data[idx1].5_site_of_care_id in ("*Inpatient*","Behav Hlth IP","IP Rehab"))
+					encounter->data[idx1].proc[v].5_proc_type = " "
+					encounter->data[idx1].proc[v].3_proc_code = " "
+					encounter->data[idx1].proc[v].4_proc_rank = " "
+				else
+					encounter->data[idx1].proc[v].3_proc_code    = cnvtupper(replace(n.source_identifier, ".", "" ))
+					encounter->data[idx1].proc[v].4_proc_rank    = cnvtstring(p);cnvtstring(p.proc_priority) ;p_ranking_disp
+					encounter->data[idx1].proc[v].5_proc_type     = "P"
+					encounter->data[idx1].proc[v].6_cpt4_mod_code = no.source_identifier
+					encounter->data[idx1].last_proc_rank          = cnvtint(encounter->data[idx1].proc[v].4_proc_rank)
+				endif
+			elseif(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "ICD9")
+			    	icd = icd + 1
+				encounter->data[idx1].proc[v].5_proc_type = "I"
+				encounter->data[idx1].proc[v].3_proc_code    = replace(n.source_identifier, ".", "" )
+				encounter->data[idx1].proc[v].4_proc_rank    = cnvtstring(icd);cnvtstring(p.proc_priority) ;p_ranking_disp
+			elseif(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "ICD10*")
+			    	icd = icd + 1
+				encounter->data[idx1].proc[v].5_proc_type = "ICD10"
+				encounter->data[idx1].proc[v].3_proc_code    = replace(n.source_identifier, ".", "" )
+				encounter->data[idx1].proc[v].4_proc_rank    = cnvtstring(icd);cnvtstring(p.proc_priority) ;p_ranking_disp
+			elseif(trim(uar_get_code_meaning(n.source_vocabulary_cd)) = "HCPCS")
+			if(encounter->data[idx1].5_site_of_care_id NOT in ("*Inpatient*","Behav Hlth IP","IP Rehab"))
+			            p = p + 1
+				    encounter->data[idx1].proc[v].5_proc_type = "P"
+				    encounter->data[idx1].proc[v].3_proc_code    = cnvtupper(replace(n.source_identifier, ".", "" ))
+				    encounter->data[idx1].proc[v].4_proc_rank    = cnvtstring(p);cnvtstring(p.proc_priority) ;p_ranking_disp
+				    encounter->data[idx1].last_proc_rank          = cnvtint(encounter->data[idx1].proc[v].4_proc_rank)
+			endif
+			;if not one of the above source_vocabulary then omit
+			else
+				encounter->data[idx1].proc[v].5_proc_type = " "
+				encounter->data[idx1].proc[v].3_proc_code = " "
+				encounter->data[idx1].proc[v].4_proc_rank = " "
+			endif
+ 
+			if(P.proc_dt_tm > 0)
+				encounter->data[idx1].proc[v].8_proc_date = build(format(p.proc_dt_tm, "YYYYMMDD;;D" ), "0000" )
+			endif
+ 
+ 			if(pp.prsnl_person_id > 0.0)
+	 			;default "C" + person_id as staff_id to identify physicians with missing license nbr
+			 	;encounter->data[idx1].proc[v].9_proc_phys_id = concat("03C",trim(cnvtstring(pp.prsnl_person_id)))
+			 	;Premier asked for just the person_id Luke Albertson
+			 	encounter->data[idx1].proc[v].9_proc_phys_id = (cnvtstring(pp.prsnl_person_id))
+				;if(trim(pa.alias) > " ")
+				;	encounter->data[idx1].proc[v].9_proc_phys_id = concat("03",trim(pa.alias))
+				;elseif(trim(pa3.alias) > " ")
+				;	encounter->data[idx1].proc[v].9_proc_phys_id = concat("03SV",trim(pa3.alias))
+				;endif
+ 
+				;Add prsnl_id to staffmaster record if it doesn't already exist
+				idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,pp.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = pp.prsnl_person_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(pp.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(pp.prsnl_person_id)
+				endif
+			endif
+ 
+			if(pp2.prsnl_person_id > 0.0)
+				;default "C" + person_id as staff_id to identify physicians with missing license nbr
+		 		;encounter->data[idx1].proc[v].13_anestheist_phys_id = concat("03C",trim(cnvtstring(pp2.prsnl_person_id)))
+		 		encounter->data[idx1].proc[v].13_anestheist_phys_id = cnvtstring(pp2.prsnl_person_id)
+;				if(trim(pa2.alias) > " ")
+;					encounter->data[idx1].proc[v].13_anestheist_phys_id = concat("03",trim(pa2.alias))
+;				elseif(trim(pa4.alias) > " ")
+;					encounter->data[idx1].proc[v].13_anestheist_phys_id = concat("03SV",trim(pa4.alias))
+;				endif
+ 
+				;Add prsnl_id to staffmaster record if it doesn't already exist
+				idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,pp2.prsnl_person_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = pp2.prsnl_person_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(pp2.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(pp2.prsnl_person_id)
+				endif
+			endif
+ 
+ 
+			encounter->data[idx1].proc[v].14_site_of_care_id    = encounter->data[idx1].5_site_of_care_cd
+		endif
+		endif
+	foot report
+		stat = alterlist(staffmaster->qual,staffmaster->qual_cnt)
+	with nocounter, expand = 1
+ 
+    ;**************************************************************
+set log = log_time("get procedure codes from charges for E/M codes for outpatients only")
+	select into "nl:"
+		c.encntr_id
+	from
+		pft_charge pc,
+		charge c,
+		 charge_mod cm,
+		 charge_mod cmh
+	plan pc where expand(idx1,1,sz,pc.pft_encntr_id,encounter->data[idx1].pft_encntr_id)
+		and pc.active_ind = 1
+	join c where
+		pc.charge_item_id = c.charge_item_id and
+		;expand(idx1,1,sz,c.encntr_id,encounter->data[idx1].encntrid) and
+		c.active_ind          = 1 and
+		c.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+		and c.offset_charge_item_id = 0 ;throw out offset charges
+		and c.price_sched_id not in (
+		   71794788.00,
+   71794789.00,
+   71794790.00
+)
+	and c.tier_group_cd !=     3536623.00
+	join cm where
+		cm.charge_item_id      = c.charge_item_id and
+		cm.charge_mod_type_cd  = billcode_var and
+		cm.field1_id           in (     615215.00, 615214.00) and	;cpt code
+		;cm.field6             in ("99281", "99282", "99283", "99284", "99285", "99291") and
+		cm.active_ind          = 1 and
+		cm.end_effective_dt_tm > cnvtdatetime(curdate,curtime3); and
+		;cm.field2_id = (1)
+	join cmh where
+		cmh.charge_item_id      = outerjoin(cm.charge_item_id) and
+		cmh.charge_mod_type_cd  = outerjoin(billcode_var) and
+		cmh.field1_id           = outerjoin(3692.00 ) and ;cpt modifier
+		cmh.active_ind          = outerjoin(1) and
+		cmh.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3))
+	order by pc.pft_encntr_id;.encntr_id
+	head pc.pft_encntr_id
+		idx1 = 0
+		idx2 = 0
+		idx1 = locateval(idx2,1,sz,pc.pft_encntr_id,encounter->data[idx2].pft_encntr_id)
+ 
+		if(idx1 > 0)
+			;if(encounter->data[idx1].etype != INPATIENT_71_cv) ;Luke Albertson to uncomment
+				;Need to add these procedure codes to amy existing ones
+				v = size(encounter->data[idx1].proc, 5 )
+ 
+				; a blank row was created for each table.  If it's still blank populate it as needed
+				if(v = 1 and encounter->data[idx1].proc[v].3_proc_code <= "")
+					v = 0
+				endif
+			;endif
+		endif
+	detail
+		if(idx1 > 0)
+			if ((c.service_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date)
+				  and encounter->data[idx1].recur_ind = 1) ;bw3
+				 or encounter->data[idx1].recur_ind = 0)   ;bw3
+			if(encounter->data[idx1].etype != INPATIENT_71_cv and
+			   encounter->data[idx1].5_site_of_care_id not in ("*Inpatient*","Behav Hlth IP","IP Rehab"))
+			   if(cm.field6 not in ("99999","69999", "CCDRUGS","ED100", "ED200", "ED300"))
+				v = v + 1
+				stat = alterlist(encounter->data[idx1].proc , v )
+				;luke to fix here
+				encounter->data[idx1].proc[v].3_proc_code = cnvtupper(cm.field6)
+ 
+				;procedure rank will be the next rank after any that were previously found
+				;if v= 1 there are no previous procedure codes
+				encounter->data[idx1].last_proc_rank      = encounter->data[idx1].last_proc_rank + 1
+				encounter->data[idx1].proc[v].4_proc_rank = cnvtstring(encounter->data[idx1].last_proc_rank)
+				encounter->data[idx1].proc[v].5_proc_type        = "P"
+				encounter->data[idx1].proc[v].6_cpt4_mod_code    = cmh.field6
+ 
+				if(c.service_dt_tm > 0)
+					encounter->data[idx1].proc[v].8_proc_date = build(format(c.service_dt_tm,"YYYYMMDD;;D"),"0000")
+				endif
+ 
+				encounter->data[idx1].proc[v].14_site_of_care_id     = encounter->data[idx1].5_site_of_care_cd
+				endif
+			endif
+		endif
+		endif
+	foot report
+		stat = alterlist(staffmaster->qual,staffmaster->qual_cnt)
+	with nocounter, expand = 1
+endif
+ 
+;**************************************************************
+set log = log_time("resource segment")
+;Always run this to get charges in order to exclude records with zero charges
+declare tchg = f8
+ 
+ 
+select into "nl:"
+	c.encntr_id
+from charge c,
+	 charge_mod cm,
+	 bill_item bi,
+	 pft_charge pc,
+	  pft_trans_reltn ptr,
+	 gl_trans_log gtl,
+	 gl_alias ga
+plan pc where
+		expand(idx1,1,sz,pc.pft_encntr_id,encounter->data[idx1].pft_encntr_id) and
+		pc.active_ind = 1
+join c where
+	;c.encntr_id = 100226414 and
+	c.charge_item_id = pc.charge_item_id and
+	;expand(idx1,1,sz,c.encntr_id,encounter->data[idx1].encntrid) and
+	c.charge_type_cd in (dr_var,cr_var) and
+	c.process_flg          in (100,999) and
+	c.active_ind            = 1 and
+	c.end_effective_dt_tm   > cnvtdatetime(curdate,curtime3)
+	and c.offset_charge_item_id  = 0
+	and c.tier_group_cd !=     3536623.00
+	and c.price_sched_id not in(
+	   71794788.00,
+   71794789.00,
+   71794790.00
+)
+join bi where
+	bi.bill_item_id        = outerjoin(c.bill_item_id)
+join cm where
+	cm.charge_item_id      = outerjoin(c.charge_item_id) and
+	cm.charge_mod_type_cd  = outerjoin(billcode_var) and
+	cm.active_ind          = outerjoin(1) and
+	cm.end_effective_dt_tm > outerjoin(cnvtdatetime(curdate,curtime3)); and
+	;cm.field2_id = outerjoin(1)
+ 
+join ptr where ptr.activity_id = pc.activity_id
+			and ptr.active_ind = 1
+	;and pc.pft_encntr_id  = (encounter->data[idx1].pft_encntr_id)
+join gtl where
+	gtl.activity_id        = (pc.activity_id) and
+	gtl.acct_type_cd       = (revenue_cd) and
+	gtl.active_ind         = (1) and
+	gtl.reclassified_ind = 0
+join ga where
+	ga.gl_alias_name       = (gtl.gl_company_unit_alias_nbr) and
+	ga.active_ind          = (1) and
+	ga.gl_group_name_txt = "MRMC"
+ 
+	;and ga.gl_alias_name != ("9999")
+	;ga.gl_alias_id != outerjoin(  102085943.00)
+order by pc.pft_encntr_id, c.charge_item_id, cm.charge_mod_id, ga.gl_alias_name,ga.description_txt
+head report
+pha_cnt = 0
+rx_cnt = 0
+head pc.pft_encntr_id
+	t    = 0
+	tchg = 0.00
+ 
+	idx1 = 0
+	idx2 = 0
+	idx1 = locateval(idx2,1,sz,pc.pft_encntr_id,encounter->data[idx2].pft_encntr_id)
+	;call echo(build("Encounter and IDX:",c.encntr_id, " - ", idx1))
+head c.charge_item_id
+dept_num = " "
+ 
+	;call echo(build("charge_item_id and IDX:",c.charge_item_id, " - ", idx1))
+	if(idx1 > 0)
+	if((encounter->data[idx1].recur_ind = 1 and c.service_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date))
+	or encounter->data[idx1].recur_ind = 0)
+	;if(cm.field6 != "9999" and cm.field6 != "99999" and cm.field6 != "CCDRUGS")
+		t = t + 1
+		stat = alterlist(encounter->data[idx1].resource,t)
+ 
+		encounter->data[idx1].resource[t].bill_item_id            = c.bill_item_id
+		encounter->data[idx1].resource[t].price_sched_id          = c.price_sched_id
+		encounter->data[idx1].resource[t].charge_item_id          = c.charge_item_id
+		;order number is sequential number starting at 1 for each encounter
+		encounter->data[idx1].resource[t].4_order_no             = cnvtstring(t)
+		encounter->data[idx1].resource[t].5_service_date         = format(c.service_dt_tm, "YYYYMMDDHHMM;;D")
+		encounter->data[idx1].resource[t].19_rev_code =  encounter->data[idx1].resource[t].rev_code
+		;encounter->data[idx1].resource[t].6_resource_qty         = cm.cm1_nbr
+					if(c.charge_type_cd = cr_var)	;credit
+ 
+ 
+				encounter->data[idx1].resource[t].6_resource_qty = c.item_quantity * -1
+ 
+ 						encounter->data[idx1].resource[t].15_tot_charge  = c.item_extended_price
+				tchg                                              = tchg + c.item_extended_price
+ 
+			else  ;debit
+			encounter->data[idx1].resource[t].19_rev_code =  encounter->data[idx1].resource[t].rev_code
+ 
+				encounter->data[idx1].resource[t].6_resource_qty = c.item_quantity
+							encounter->data[idx1].resource[t].15_tot_charge  = c.item_extended_price
+				tchg    = tchg + c.item_extended_price
+			endif
+	;endif
+	endif;end recuring
+	endif
+detail
+ 
+	if(idx1 > 0)
+ if((encounter->data[idx1].recur_ind = 1 and c.service_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date))
+	or encounter->data[idx1].recur_ind = 0)
+	;luke to put back
+;	if(dept_num > " ")
+;	null
+;	else
+;		if(trim(ga.gl_alias_name) > " ")
+; 				dept_num  =trim(cnvtalphanum(ga.gl_alias_name),3)
+;				dept_name = trim(ga.description_txt)
+;			else
+;				dept_num  = "UNK"
+;				dept_name = "UNKNOWN"
+;			endif
+;	endif
+	;if(cm.field6 != "9999" and cm.field6 != "99999" and cm.field6 != "CCDRUGS")
+		if(uar_get_code_meaning(cm.field1_id) = "CDM_SCHED"
+			and cm.field2_id = 1)
+			encounter->data[idx1].resource[t].3_resource_id = trim(cnvtupper(cnvtalphanum(cm.field6)))
+		endif
+ 
+		if(uar_get_code_meaning(cm.field1_id) = "REVENUE")
+			encounter->data[idx1].resource[t].rev_code = substring(textlen(cm.field6)-2,3,cm.field6)
+			encounter->data[idx1].resource[t].19_rev_code = encounter->data[idx1].resource[t].rev_code
+		endif
+ 
+		if(uar_get_code_meaning(cm.field1_id) = "CPT4"); and cm.field6 != "99999" and cm.field6 != "CCDRUGS")
+ 
+			IF(TEXTLEN(CM.field6) != TEXTLEN(TRIM(CNVTALPHANUM(CM.FIELD6,6))))
+ 
+			encounter->data[idx1].resource[t].cpt_code = cnvtupper(trim(cm.field6))
+			ENDIF
+		endif
+		if(uar_get_code_meaning(cm.field1_id) = "CDM_SCHED"
+			and cm.field2_id = 2)
+			IF(TEXTLEN(CM.field6) != TEXTLEN(TRIM(CNVTALPHANUM(CM.FIELD6,6))))
+ 
+			encounter->data[idx1].resource[t].cpt_code = cnvtupper(trim(cm.field6))
+			ENDIF
+		endif
+ 
+ 
+		if(textlen(trim(encounter->data[idx1].resource[t].cpt_code)) = 0)
+			if(uar_get_code_meaning(cm.field1_id) = "HCPCS"); and cm.field6 != "99999")
+				IF(TEXTLEN(CM.field6) != TEXTLEN(TRIM(CNVTALPHANUM(CM.FIELD6,6))))
+					encounter->data[idx1].resource[t].cpt_code = cnvtupper(trim(cm.field6))
+					if(cnvtupper(substring(1,1,cm.field6)) = "J")
+						encounter->data[idx1].resource[t].J_code = 1
+					endif
+					encounter->data[idx1].resource[t].qcf_qty = cm.cm1_nbr
+					if(c.charge_type_cd = cr_var)	;credit
+							encounter->data[idx1].resource[t].6_resource_qty = c.item_quantity * -1
+		;				encounter->data[idx1].resource[t].15_tot_charge  = c.item_extended_price
+		;				tchg = tchg + c.item_extended_price
+					else  ;debit
+ 
+						encounter->data[idx1].resource[t].6_resource_qty =  c.item_quantity
+ 
+					endif
+		;				encounter->data[idx1].resource[t].15_tot_charge  = c.item_extended_price
+		;				tchg                                              = tchg + c.item_extended_price
+					endif
+ 
+				ENDIf
+			endif
+		endif
+ 		endif
+foot c.charge_item_id
+;shawn look here
+dept_num  = "UNK"
+dept_name = "UNKNOWN"
+if(trim(ga.gl_alias_name) > " ")
+ 				dept_num  =trim(cnvtalphanum(ga.gl_alias_name),3)
+				dept_name = trim(ga.description_txt)
+			else
+				dept_num  = "UNK"
+				dept_name = "UNKNOWN"
+			endif
+	if(idx1 > 0)
+	if((encounter->data[idx1].recur_ind = 1 and c.service_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date))
+	or encounter->data[idx1].recur_ind = 0)
+	;if(cm.field6 != "9999" and cm.field6 != "99999" and cm.field6 != "CCDRUGS")
+		;Check to see if this has a HCPC style CDM number, if so, remove it from the record
+;		if(textlen(encounter->data[idx1].resource[t].3_resource_id) = 5)
+;			t = t - 1
+;			stat = alterlist(encounter->data[idx1].resource,t)
+;		else
+			;Add charges if this is a valid charge (non HCPC)
+			if(encounter->data[idx1].resource[t].19_rev_code = "636")
+				if(encounter->data[idx1].resource[t].J_code = 1 and encounter->data[idx1].resource[t].qcf_qty > 0)
+ 
+					encounter->data[idx1].resource[t].6_resource_qty = encounter->data[idx1].resource[t].6_resource_qty
+					 * encounter->data[idx1].resource[t].qcf_qty
+				endif
+			endif
+ 			if(encounter->data[idx1].resource[t].6_resource_qty > 0 and encounter->data[idx1].resource[t].6_resource_qty < 1)
+ 			encounter->data[idx1].resource[t].6_resource_qty = 1
+ 			endif
+			if(textlen(trim(encounter->data[idx1].resource[t].cpt_code)) = 5)
+				encounter->data[idx1].resource[t].18_cpt_code = encounter->data[idx1].resource[t].cpt_code
+				encounter->data[idx1].resource[t].19_rev_code =  encounter->data[idx1].resource[t].rev_code
+			endif
+ 
+ 
+ 
+ 			if(encounter->data[idx1].resource[t].19_rev_code not in ("636","250","258","637"))
+				report_row = concat(trim(cnvtalphanum(cnvtstring(c.bill_item_id)),3),
+								"-",
+								trim(cnvtalphanum(encounter->data[idx1].resource[t].3_resource_id),3),
+								"-","01",
+								trim(dept_num))
+			else
+				report_row = concat(trim(cnvtalphanum(cnvtstring(c.bill_item_id)),3),
+								"-",
+								trim(cnvtalphanum(encounter->data[idx1].resource[t].3_resource_id),3),
+								"-","01",
+								trim(dept_num),"-",encounter->data[idx1].resource[t].19_rev_code)
+				encounter->data[idx1].resource[t].3_resource_id = trim(report_row)
+				if(c.order_id > 0.0)
+					pha_cnt = pha_cnt + 1 ;bw1
+					stat = alterlist(pha->qual,pha_cnt)
+					pha->qual[pha_cnt].1_facility_id = encounter->data[idx1].1_facility
+		 			pha->qual[pha_cnt].2_pat_acct_no = encounter->data[idx1].2_pat_acct_no
+		 			pha->qual[pha_cnt].3_resource_id = trim(report_row)
+					pha->qual[pha_cnt].4_filler_order_no = build(cnvtstring(c.order_id,20,0),"-",cnvtstring(c.charge_item_id,20,0))
+		 			pha->qual[pha_cnt].5_service_date = encounter->data[idx1].4_disch_serv_date
+		 			pha->qual[pha_cnt].15_pharmacy_order_no = trim(cnvtstring(c.order_id,20,0))
+		 			pha->qual[pha_cnt].chg_order_id = c.order_id
+		 			pha->qual[pha_cnt].charge_item_id = c.charge_item_id
+		 			pha->qual[pha_cnt].charge_event_id = c.charge_event_id
+		 			pha->qual[pha_cnt].chg_post_dt_tm = c.posted_dt_tm
+ 					pha->qual[pha_cnt].exclude_ind = 1
+ 
+					rx_cnt = rx_cnt + 1 ;bw2
+					stat = alterlist(rxadmin->qual,rx_cnt)
+					rxadmin->qual[rx_cnt].1_facility_id = encounter->data[idx1].1_facility
+		 			rxadmin->qual[rx_cnt].2_pat_acct_no = encounter->data[idx1].2_pat_acct_no
+		 			rxadmin->qual[rx_cnt].3_resource_id = trim(report_row)
+					rxadmin->qual[rx_cnt].4_filler_order_no = trim(cnvtstring(c.order_id,20,0))
+					rxadmin->qual[rx_cnt].chg_order_id = c.order_id
+		 			rxadmin->qual[rx_cnt].charge_item_id = c.charge_item_id
+		 			rxadmin->qual[rx_cnt].charge_event_id = c.charge_event_id
+		 			rxadmin->qual[rx_cnt].chg_post_dt_tm = c.posted_dt_tm
+		 			rxadmin->qual[rx_cnt].exclude_ind = 1
+	 			endif;c.oder_id > 0.0
+			endif
+ 
+			encounter->data[idx1].resource[t].3_resource_id = trim(report_row)
+ 
+			idx2 = 0
+			idx3 = 0
+			idx2 = locateval(idx3,1,resmaster->qual_cnt,encounter->data[idx1].resource[t].3_resource_id,
+														resmaster->qual[idx3].1_resource_id)
+			if(idx2 <= 0)
+				resmaster->qual_cnt = resmaster->qual_cnt + 1
+				if(mod(resmaster->qual_cnt,100) = 1)
+					stat = alterlist(resmaster->qual,resmaster->qual_cnt + 99)
+				endif
+ 
+				resmaster->qual[resmaster->qual_cnt].bill_item_id     = c.bill_item_id
+				resmaster->qual[resmaster->qual_cnt].price_sched_id   = c.price_sched_id
+				resmaster->qual[resmaster->qual_cnt].1_resource_id    = encounter->data[idx1].resource[t].3_resource_id
+ 
+				resmaster->qual[resmaster->qual_cnt].2_resource_desc  = substring(1,60,bi.ext_description)
+				resmaster->qual[resmaster->qual_cnt].3_effective_date = "201301010000"
+				resmaster->qual[resmaster->qual_cnt].4_rev_code       = trim(cnvtupper(encounter->data[idx1].resource[t].rev_code)
+				)
+				resmaster->qual[resmaster->qual_cnt].5_res_dept_id    = trim(dept_num)
+				resmaster->qual[resmaster->qual_cnt].5_res_dept_id    = build2("01",trim(dept_num),"-",substring(2,7,cnvtstring(ga.gl_alias_id
+				)
+				))
+ 
+ 
+				resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = (trim(dept_name))
+				case(trim(dept_num))
+					of "64950":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Conversion Charges"
+					of "10156":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Labor and Delivery"
+					of "10157":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Nursery Unit 001"
+					of "10802":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Nursing Unit 003"
+					of "10803":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "10 South"
+					of "12902":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Adlt Psychiatry Nrsng Unit 003"
+					of "13900":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Diagnostic Cardiology"
+					of "14100":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Cardiac Cath Lab"
+					of "16290":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Rad Onc"
+					of "18353":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Infusion Services 004"
+					of "18970":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Hemodialysis"
+					of "27177":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Rehab Services General OP 001"
+					of "27350":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Anesthesiology"
+					of "27400":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Surgical"
+					of "27481":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Short Stay Center"
+					of "35700":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Blood Bank Product"
+					of "35950":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Cytology"
+					of "36050":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Histology"
+					of "70850":
+						resmaster->qual[resmaster->qual_cnt].6_res_dept_desc  = "Nutritional Counseling"
+				endcase
+				resmaster->qual[resmaster->qual_cnt].7_charge_amt     = ""
+				resmaster->qual[resmaster->qual_cnt].13_long_res_desc = trim(bi.ext_description)
+				resmaster->qual[resmaster->qual_cnt].14_facility_id   = "H"
+ 			if(textlen(trim(encounter->data[idx1].resource[t].cpt_code)) = 5)
+				resmaster->qual[resmaster->qual_cnt].15_cpt_code      = trim(encounter->data[idx1].resource[t].cpt_code)
+			endif
+ 
+			endif
+		;endif
+	endif
+	endif
+foot pc.pft_encntr_id
+	if(idx1 > 0)
+	;if((encounter->data[idx1].recur_ind = 1 and c.service_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date))
+	;or encounter->data[idx1].recur_ind = 0)
+		encounter->data[idx1].10_total_charges = trim(format(round(tchg, 2 ), "#######.##" ), 4 )
+ 
+		if(tchg > 0.00)
+			;Reinclude LWBS dispositions if they have a charge amount as long as they are not recurring encounters
+			if(encounter->data[idx1].dischcd = lwbs_cd and tchg > 0.00 and
+			   encounter->data[idx1].etype != RECURRING_71_cv)
+				encounter->data[idx1].exclude_ind = 0
+			endif
+		else ;charge = 0.00
+		call echo("setting exclude 2")
+			encounter->data[idx1].exclude_ind = 1
+		endif
+ 
+	;endif
+	endif
+foot report
+	stat = alterlist(resmaster->qual,resmaster->qual_cnt)
+with nocounter, expand = 1
+;optional surgical file
+if(e_file in ("SURG","ALL"))
+	select into "nl:" scp.surg_proc_cd,
+	sc.surg_start_dt_tm,
+	 sc.surg_start_dt_Tm,
+	 sc.surg_stop_dt_tm,
+	 scp.anesth_type_cd,
+	 sc.anesth_prsnl_id,
+	 scp.proc_start_dt_tm,
+	 scp.proc_end_dt_tm,
+	 sc.surgeon_prsnl_id,
+	 uar_get_code_display(sc.surg_op_loc_cd),
+	 uar_get_code_display(ct.task_assay_cd),
+	 ct.case_time_dt_tm
+ 
+from (dummyt d1 with seq = value(size(encounter->data,5))),
+	surgical_case sc,
+	surg_case_procedure scp,
+	case_times ct
+	plan d1
+	join sc where sc.encntr_id = encounter->data[d1.seq].encntrid
+		and sc.surg_complete_qty > 0
+	join scp where scp.surg_case_id = sc.surg_case_id
+			and scp.active_ind = 1
+	join ct where sc.surg_case_id = ct.surg_case_id
+			and ct.active_ind = 1
+			order by sc.surg_case_id,
+					scp.surg_case_proc_id,
+					ct.case_time_dt_tm
+head report
+v = 0
+idx3 = 0
+idx4 = 0
+head scp.surg_case_proc_id
+ 
+ 
+ 
+		v = v + 1
+		stat = alterlist(surgmaster->qual,v)
+ 
+		surgmaster->qual[v].1_Facility_ID = "H"
+		surgmaster->qual[v].2_Pat_Acct_No = encounter->data[d1.seq].2_pat_acct_no
+		surgmaster->qual[v].3_OR_Proc_Code = cnvtstring(scp.surg_proc_cd)
+		surgmaster->qual[v].4_OR_Proc_Desc = uar_Get_code_description(scp.surg_proc_cd)
+		surgmaster->qual[v].5_Service_Date = format(sc.surg_start_dt_tm,"YYYYMMDDHHMM;;Q")
+		surgmaster->qual[v].6_Table_Time_Start  = format(sc.surg_start_dt_tm,"YYYYMMDDHHMM;;Q")
+		surgmaster->qual[v].7_Table_Time_End = format(sc.surg_stop_dt_tm,"YYYYMMDDHHMM;;Q")
+		surgmaster->qual[v].8_Anesthesia_Type_Code = substring(1,15,uar_get_code_display(scp.anesth_type_cd))
+ 
+		surgmaster->qual[v].11_Anesthetist_Phys_ID = cnvtstring(sc.anesth_prsnl_id)
+		if(surgmaster->qual[v].11_Anesthetist_Phys_ID = "0")
+			surgmaster->qual[v].11_Anesthetist_Phys_ID = ""
+		else
+				idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,sc.anesth_prsnl_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = sc.anesth_prsnl_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(pp2.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(sc.anesth_prsnl_id)
+				endif
+		endif
+ 
+ 
+		surgmaster->qual[v].12_Proc_Time_Start = format(scp.proc_start_dt_tm,"YYYYMMDDHHMM;;Q")
+		surgmaster->qual[v].13_Proc_Time_End = format(scp.proc_end_dt_tm,"YYYYMMDDHHMM;;Q")
+		surgmaster->qual[v].14_Oper_Phys_ID = cnvtstring(scp.primary_surgeon_id)
+		idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,scp.primary_surgeon_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = scp.primary_surgeon_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(pp2.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(scp.primary_surgeon_id)
+				endif
+ 
+ 
+		surgmaster->qual[v].17_Proc_Cost = ""
+		surgmaster->qual[v].18_OR_Room_Nuimber = substring(1,10,uar_get_code_display(sc.surg_op_loc_cd))
+ 
+ 
+detail
+ 
+		case(uar_get_code_display(ct.task_assay_cd))
+			of "SN - CTm - Anesthesia - Stop Time": surgmaster->qual[v].10_Anesthesia_Time_End
+								 = format(ct.case_time_dt_tm,"YYYYMMDDHHMM;;Q")
+			of "SN - CTm - Anesthesia - Start Time" :  surgmaster->qual[v].9_Anesthesia_Time_Start
+									 = format(ct.case_time_dt_tm,"YYYYMMDDHHMM;;Q")
+			of "*PACU*In*" :  surgmaster->qual[v].15_Recovery_Time_Start
+									 = format(ct.case_time_dt_tm,"YYYYMMDDHHMM;;Q")
+			of "*PACU*Discharge*" : surgmaster->qual[v].16_Recovery_Time_End
+									 = format(ct.case_time_dt_tm,"YYYYMMDDHHMM;;Q")
+		endcase
+ foot report
+ stat = alterlist(staffmaster->qual,staffmaster->qual_cnt)
+with nocounter
+		;call echorecord(surgmaster)
+;load the surglist proc codes and descriptions into the resource master for system issues
+select into "nl:"
+code = surgmaster->qual[d1.seq].3_OR_Proc_Code
+,description = surgmaster->qual[d1.seq].4_OR_Proc_Desc
+from (dummyt d1 with seq = value(size(surgmaster->qual,5)))
+order by code, description
+head report
+cnt = 0
+cnt = size(resmaster->qual,5)
+head code
+cnt = cnt + 1
+stat = alterlist(resmaster->qual,cnt)
+resmaster->qual[cnt].1_resource_id = surgmaster->qual[d1.seq].3_OR_Proc_Code
+resmaster->qual[cnt].2_resource_desc = surgmaster->qual[d1.seq].4_OR_Proc_Desc
+resmaster->qual[cnt].3_effective_date = "201301010000"
+ 
+foot code
+null
+foot report
+resmaster->qual_cnt = cnt
+with nocounter
+ 
+ 
+ 
+endif
+ 
+ 
+;**************************************************************
+;set log = log_time("Get charge amount")
+;select into "nl:"
+;from price_sched_items psi,
+;	 (dummyt d with seq = value(resmaster->qual_cnt))
+;plan d
+;join psi where
+;	psi.bill_item_id        = resmaster->qual[d.seq].bill_item_id and
+;	psi.price_sched_id      = resmaster->qual[d.seq].price_sched_id and
+;	psi.active_ind          = 1 and
+;	psi.beg_effective_dt_tm < cnvtdatetime(curdate,curtime3) and
+;	psi.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;order d.seq
+;head d.seq
+;	resmaster->qual[d.seq].7_charge_amt   = trim(format(psi.price, "##########.##" ), 4 )
+;with nocounter
+ 
+;**************************************************************
+ 
+ 
+ 
+    ;**************************************************************
+    ; Pull location and encounter history for events file
+    ;**************************************************************
+ 
+if(e_file in ("EVT","ALL"))
+select into "nl:"
+ 
+from
+    encounter e
+    , encntr_loc_hist elh
+    ,person p
+ 
+plan e
+    where expand(idx1,1, sz, e.encntr_id, encounter->data[idx1].encntrid)
+    	and e.encntr_type_cd =      309308.00 ;inpatient only luke to change to coded value
+    	and encounter->data[idx1].exclude_ind != 1;luke to remove is this doesn't fix orphans
+join p where e.person_id = p.person_id
+			and p.name_last_key   not in ("XXXZZCERNER", "ZZZ*","ZXZX*","ZZCERNER")
+join elh
+    where elh.encntr_id         =  e.encntr_id
+    and elh.encntr_type_cd      =  e.encntr_type_cd
+    and elh.beg_effective_dt_tm <= cnvtdatetime(curdate, curtime3)
+    and elh.beg_effective_dt_tm >= e.reg_dt_tm
+    and elh.active_ind          =  1
+ 
+order elh.encntr_id, elh.beg_effective_dt_tm
+ 
+head report
+    idx1             = 0
+    idx2             = 0
+    evt_cnt          = 0
+    prev_unit_loc_id = 0
+    admit_row        = 0
+ 
+head elh.encntr_id
+    idx2    = locateval(idx1, 1, sz, elh.encntr_id, encounter->data[idx1].encntrid)
+    evt_cnt = 0
+ 
+    if (idx2 > 0)
+        evt_cnt = evt_cnt + 1
+        stat    = alterlist(encounter->data[idx2].event, evt_cnt)
+ 
+        encounter->data[idx2].event[evt_cnt].1_facility_id      = "H"
+        encounter->data[idx2].event[evt_cnt].2_pat_acct_number  = encounter->data[idx2].2_pat_acct_no
+ 
+        if (e.encntr_type_class_cd not in (OBSERVATION_71_cv
+                                          ,OUTPATIENTINABED_71_cv
+                                          ,OUTPATIENT_71_cv
+                                          ,RECURRING_71_cv
+                                          ,SAMEDAYSURGERY_71_cv))
+            encounter->data[idx2].event[evt_cnt].3_event_type_code  = "A01"
+        else
+            encounter->data[idx2].event[evt_cnt].3_event_type_code  = "A06"
+        endif
+ 
+        encounter->data[idx2].event[evt_cnt].4_event_date           = encounter->data[idx2].3_adm_date
+        encounter->data[idx2].event[evt_cnt].5_event_reason_code    = ""
+        encounter->data[idx2].event[evt_cnt].prev_unit_loc_id       = 0
+        encounter->data[idx2].event[evt_cnt].hide_row               = false
+ 
+        encounter->data[idx2].event[evt_cnt].6_unit_loc_cd          = elh.loc_nurse_unit_cd
+        encounter->data[idx2].event[evt_cnt].6_unit_loc_id
+                = substring(1, 15, trim(uar_get_code_display(elh.loc_nurse_unit_cd), 3))
+        encounter->data[idx2].event[evt_cnt].7_unit_loc_desc
+                = trim(uar_get_code_description(elh.loc_nurse_unit_cd), 3)
+ 
+        encounter->data[idx2].event[evt_cnt].9_Site_of_Care_ID      = "IN";encounter->data[idx2].5_site_of_care_id
+        encounter->data[idx2].event[evt_cnt].10_Event_Minutes       = ""
+        admit_row                                                   = TRUE
+    endif
+ 
+head elh.beg_effective_dt_tm
+    if (idx2 > 0 and admit_row = FALSE)
+        evt_cnt = evt_cnt + 1
+        stat    = alterlist(encounter->data[idx2].event, evt_cnt)
+ 
+        encounter->data[idx2].event[evt_cnt].1_facility_id      = "H"
+        encounter->data[idx2].event[evt_cnt].2_pat_acct_number  = encounter->data[idx2].2_pat_acct_no
+ 
+        if (evt_cnt = 1)
+            if (e.encntr_type_class_cd not in (OBSERVATION_71_cv
+                                          ,OUTPATIENTINABED_71_cv
+                                          ,OUTPATIENT_71_cv
+                                          ,RECURRING_71_cv
+                                          ,SAMEDAYSURGERY_71_cv))
+                encounter->data[idx2].event[evt_cnt].3_event_type_code  = "A01"
+            else
+                encounter->data[idx2].event[evt_cnt].3_event_type_code  = "A06"
+            endif
+        else
+            encounter->data[idx2].event[evt_cnt].3_event_type_code      = "A02"
+        endif
+ 
+        if (encounter->data[idx2].event[evt_cnt].3_event_type_code in ("A01", "A06"))
+            encounter->data[idx2].event[evt_cnt].4_event_date
+                = encounter->data[idx2].3_adm_date
+        elseif (encounter->data[idx2].event[evt_cnt].3_event_type_code = "A02")
+            encounter->data[idx2].event[evt_cnt].4_event_date
+                = format(cnvtdatetime(elh.beg_effective_dt_tm), "YYYYMMDDHHMM;;d")
+        else
+            encounter->data[idx2].event[evt_cnt].4_event_date
+                = format(cnvtdatetime(e.disch_dt_tm), "YYYYMMDDHHMM;;d")
+        endif
+ 
+        encounter->data[idx2].event[evt_cnt].5_event_reason_code        = ""
+ 
+        if (evt_cnt > 1)
+            encounter->data[idx2].event[evt_cnt].prev_unit_loc_id       = encounter->data[idx2].event[evt_cnt-1].6_unit_loc_cd
+        else
+            encounter->data[idx2].event[evt_cnt].prev_unit_loc_id       = 0
+        endif
+ 
+        if (elh.loc_nurse_unit_cd != encounter->data[idx2].event[evt_cnt-1].6_unit_loc_cd)
+            encounter->data[idx2].event[evt_cnt].hide_row               = false
+        else
+            encounter->data[idx2].event[evt_cnt].hide_row               = true
+        endif
+ 
+        ;call echo (build2("encounter->data[idx2].event[evt_cnt].hide_row = ", encounter->data[idx2].event[evt_cnt].hide_row))
+        encounter->data[idx2].event[evt_cnt].6_unit_loc_cd              = elh.loc_nurse_unit_cd
+        encounter->data[idx2].event[evt_cnt].6_unit_loc_id
+                = substring(1, 15, trim(uar_get_code_display(elh.loc_nurse_unit_cd), 3))
+        encounter->data[idx2].event[evt_cnt].7_unit_loc_desc
+                = trim(uar_get_code_description(elh.loc_nurse_unit_cd), 3)
+ 
+        if (encounter->data[idx2].event[evt_cnt].prev_unit_loc_id > 0)
+            encounter->data[idx2].event[evt_cnt].8_Prev_Unit_Loc_ID
+                = substring(1, 15, trim(uar_get_code_display(encounter->data[idx2].event[evt_cnt].prev_unit_loc_id), 3))
+        endif
+ 
+        encounter->data[idx2].event[evt_cnt].9_Site_of_Care_ID          = "IN";encounter->data[idx2].5_site_of_care_id
+        encounter->data[idx2].event[evt_cnt].10_Event_Minutes           = ""
+ 
+    endif
+ 
+    if (admit_row = TRUE)
+        admit_row = FALSE
+    endif
+ 
+foot elh.beg_effective_dt_tm
+    NULL
+ 
+foot elh.encntr_id
+    if (idx2 > 0)
+        if (evt_cnt = 1)
+            evt_cnt = evt_cnt + 1
+            stat    = alterlist(encounter->data[idx2].event, evt_cnt)
+        endif
+ 
+            encounter->data[idx2].event[evt_cnt].1_facility_id               = "H"
+            encounter->data[idx2].event[evt_cnt].2_pat_acct_number           = encounter->data[idx2].2_pat_acct_no
+ 
+            if (abs(datetimediff(cnvtdatetime(elh.end_effective_dt_tm), cnvtdatetime(e.disch_dt_tm))) = 0
+                or cnvtdatetime(elh.end_effective_dt_tm) = cnvtdatetime("31-DEC-2100 00:00:00.00")
+                )
+                encounter->data[idx2].event[evt_cnt].3_event_type_code      = "A03"
+                encounter->data[idx2].event[evt_cnt].4_event_date
+                    = format(cnvtdatetime(e.disch_dt_tm), "YYYYMMDDHHMM;;d")
+            else
+                encounter->data[idx2].event[evt_cnt].3_event_type_code      = "A03"
+                encounter->data[idx2].event[evt_cnt].4_event_date
+                    = format(cnvtdatetime(e.disch_dt_tm), "YYYYMMDDHHMM;;d")
+            endif
+ 
+            encounter->data[idx2].event[evt_cnt].5_event_reason_code         = ""
+            encounter->data[idx2].event[evt_cnt].prev_unit_loc_id            = 0
+            encounter->data[idx2].event[evt_cnt].6_unit_loc_cd
+                = elh.loc_nurse_unit_cd
+            encounter->data[idx2].event[evt_cnt].6_unit_loc_id
+                = substring(1, 15, trim(uar_get_code_display(elh.loc_nurse_unit_cd), 3))
+            encounter->data[idx2].event[evt_cnt].7_unit_loc_desc
+                = trim(uar_get_code_description(elh.loc_nurse_unit_cd), 3)
+ 
+            if (encounter->data[idx2].event[evt_cnt].prev_unit_loc_id > 0)
+                encounter->data[idx2].event[evt_cnt].8_Prev_Unit_Loc_ID
+                    = substring
+                        (1, 15, trim(uar_get_code_display(encounter->data[idx2].event[evt_cnt].prev_unit_loc_id), 3))
+            endif
+ 
+            encounter->data[idx2].event[evt_cnt].9_Site_of_Care_ID = "IN"
+               ; = encounter->data[idx2].5_site_of_care_id
+            encounter->data[idx2].event[evt_cnt].10_Event_Minutes           = ""
+            encounter->data[idx2].event[evt_cnt].hide_row                   = false
+    endif
+ 
+    evt_cnt = 0
+ 
+foot report
+    NULL
+ 
+with nocounter, expand = 1
+endif
+ 
+ 
+;call echorecord(encounter)
+ 
+;**************************************************************
+; Pull Test Result data
+;**************************************************************
+ 
+if(e_file in ("TR","ALL"))
+ 
+set log = log_time("Get Events")
+free record event_cds
+record event_cds
+(
+  1 count = i4
+  1 list[*]
+    2 cd = f8
+    2 disp = vc
+)
+;select
+;vec.event_cd, vec.event_cd_disp
+;,V.EVENT_SET_NAME
+;FROM V500_EVENT_SET_CODE   V
+;,V500_EVENT_SET_EXPLODE   VE
+;,V500_EVENT_CODE   VEC
+;,code_value cv
+;Plan V where cnvtupper(V.EVENT_SET_NAME) = "*LABORATORY*"
+;Join VE where VE.event_set_cd = V.event_set_cd
+;Join VEC where VEC.EVENT_CD = VE.event_cd
+;join cv where cv.code_value = vec.event_cd
+;and cv.active_ind = 1
+;and cv.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+;order by cv.display_key
+ 
+select into "nl:"
+vec.event_cd, vec.event_cd_disp
+,V.EVENT_SET_NAME
+FROM V500_EVENT_SET_CODE   V
+,V500_EVENT_SET_EXPLODE   VE
+,V500_EVENT_CODE   VEC
+,code_value cv
+Plan V where cnvtupper(V.EVENT_SET_NAME) = "*LABORATORY*"
+Join VE where VE.event_set_cd = V.event_set_cd
+Join VEC where VEC.EVENT_CD = VE.event_cd
+join cv where cv.code_value = vec.event_cd
+and cv.active_ind = 1
+and cv.end_effective_dt_tm > cnvtdatetime(curdate,curtime3)
+order by cv.code_value
+head report
+  total_cnt = 0
+head cv.code_value
+event_cds->count = event_cds->count + 1
+if(total_cnt<event_cds->count)
+  total_cnt = total_cnt + 1000
+  stat = alterlist(event_cds->list,total_cnt)
+endif
+event_cds->list[event_cds->count].cd = cv.code_value
+event_cds->list[event_cds->count].disp = cv.display
+foot report
+  stat = alterlist(event_cds->list,event_cds->count)
+with nocounter
+ 
+select into "/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/labevents.txt"
+event = substring(1,222,event_cds->list[d1.seq].disp)
+,cd = event_cds->list[d1.seq].cd
+from (dummyt d1 with seq = value(event_cds->count))
+plan d1
+with nocounter, pcformat("", "|" ,1,1) ,format = STREAM, format
+ 
+ 
+set log = log_time("Complete event load")
+;call echorecord(event_cds)
+;/***********************************************************************************************************************
+;/******************************************** Get data for lab data ************************************
+/***********************************************************************************************************************/
+set log = log_time("Get Lab Data")
+ 
+select into "nl:"
+from
+   clinical_event ce
+   ,person p
+   ,encounter e
+   ,orders o
+   ,prsnl pr2
+plan e
+    where expand(idx1,1, sz, e.encntr_id, encounter->data[idx1].encntrid)
+join ce where ce.encntr_id = e.encntr_id
+    and ce.person_id = e.person_id
+    and expand(NUM, 1, SIZE(event_cds->list,5), ce.event_cd, event_cds->list[NUM].cd)
+    and ce.valid_until_dt_tm = cnvtdatetime("31-dec-2100")
+    and ce.event_tag != "In Error"
+    and ce.view_level = 1
+    and ce.result_status_cd  in (34,25)
+join p where p.person_id = ce.person_id
+join o where o.order_id = ce.order_id
+join pr2 where pr2.person_id = ce.verified_prsnl_id
+order e.person_id,e.encntr_id,ce.event_id
+head ce.event_id
+    idx2 = locateval(idx1, 1, sz, e.encntr_id, encounter->data[idx1].encntrid)
+ 
+    if(idx2>0)
+    if((encounter->data[idx2].recur_ind = 1 and ce.event_end_dt_tm between cnvtdatetime(begin_date) and cnvtdatetime(end_date))
+	or encounter->data[idx2].recur_ind = 0)
+    	if(cnvtstring(ce.event_cd,11,0) != "2556213319")
+      encounter->data[idx2].tr_cnt = encounter->data[idx2].tr_cnt + 1
+      stat = alterlist(encounter->data[idx2].test_result,encounter->data[idx2].tr_cnt)
+ 
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].1_order_no = cnvtstring(o.order_id,11,0)
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].2_facility_id = "H"
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].3_pat_acct_number = encounter->data[idx2].2_pat_acct_no
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].4_service_date = format(ce.event_end_dt_tm, "YYYYMMDDHHMM;;D")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].5_test_id = cnvtstring(ce.event_cd,11,0)
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].6_test_desc =
+      	replace(uar_get_code_display(ce.event_cd),"|"," ")
+      if(isnumeric(ce.result_val)>=1)
+        ;call echo(build("ISNUMERIC: YES :", ce.result_val, " val:::",isnumeric(ce.result_val)))
+        encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].7_test_result = ce.result_val
+      else
+        ;call echo(build("ISNUMERIC: NO :", ce.result_val, " val:::",isnumeric(ce.result_val)))
+        encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].15_qual_interpret = substring(1,200,ce.result_val)
+      endif
+ 
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit = ce.normal_high
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit,">","")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit,"<","")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit,"=","")
+      if(isnumeric(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit))
+      null
+      else
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].8_upper_ctrl_limit = ""
+      endif
+ 
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit = ce.normal_low
+       encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit,">","")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit,"<","")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit =
+      replace(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit,"=","")
+      if(isnumeric(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit))
+      null
+      else
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].9_lower_ctrl_limit = ""
+      endif
+ 
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].10_result_units =
+      substring(1,10,uar_get_code_display(ce.result_units_cd))
+ 
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = uar_get_code_display(ce.normalcy_cd)
+      if(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = "<LLOW")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = "LLOW"
+      elseif(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = "*Unknown*")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = ""
+      elseif(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code =
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].15_qual_interpret)
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = ""
+      elseif(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code in( "NEG","See Result"))
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].15_qual_interpret =
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].11_abnormal_flag_code = ""
+ 
+      endif
+      if(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].15_qual_interpret = ""
+      and encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].7_test_result ="")
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].hide_row = 1
+      endif
+;      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].12_interpret_res_id = cnvtstring(o.order_id,11,0)
+;      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].13_interpret_phys_id = cnvtstring(o.order_id,11,0)
+      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].14_test_result_status_code
+        = uar_get_code_display(ce.result_status_cd)
+        if(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].14_test_result_status_code = "Auth (Verified)")
+        encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].14_test_result_status_code = "F"
+        elseif(encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].14_test_result_status_code = "Modified")
+        encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].14_test_result_status_code = "C"
+        endif
+        ;= cnvtstring(ce.result_status_cd,11,0)
+;      encounter->data[idx2].test_result[encounter->data[idx2].tr_cnt].15_qual_interpret = cnvtstring(o.order_id,11,0)
+ 		endif
+ 		endif
+    endif
+with nocounter, expand = 1, time = 7200
+ 
+set log = log_time("Complete get labs")
+ 
+endif ;if(e_file in ("TR","ALL"))
+ 
+ 
+ 
+;**************************************************************
+;Pull pharmacy dispense info
+;**************************************************************
+;bw1 begin
+if(e_file in ("PDA","ALL"))
+set log = log_time("Get Pharmacy Dispense Info")
+ 
+select into "nl:"
+ 
+from charge c
+	,dispense_hx dh
+	,prod_dispense_hx pdh
+	,med_identifier mi
+	,order_product op
+	,(dummyt d with seq = size(pha->qual,5))
+ 
+plan d
+ 
+join c
+	where c.charge_item_id = pha->qual[d.seq].charge_item_id
+	and c.charge_event_id =   pha->qual[d.seq].charge_event_id
+ 
+join dh
+ 	where dh.order_id = c.order_id
+	and dh.dispense_dt_tm = c.posted_dt_tm
+	and dh.charge_ind = 1
+	and dh.order_id > 0.0
+ 
+join pdh
+	where pdh.dispense_hx_id= dh.dispense_hx_id
+ 
+join mi
+	where mi.med_product_id = pdh.med_product_id
+	and mi.active_ind = 1
+	and mi.med_identifier_type_cd = value(uar_get_code_by ("MEANING", 11000, "NDC"))
+ 
+join op
+	where op.order_id = c.order_id
+		and op.action_sequence = (select max(op1.action_sequence)
+							  from order_product op1
+							  where op1.order_id = op.order_id)
+order d.seq
+	 ,c.charge_event_id
+ 
+head report
+    idx2 = 0
+ 
+detail
+	pha->qual[d.seq].order_id = dh.order_id
+	pha->qual[d.seq].5_service_date = format(dh.dispense_dt_tm, "YYYYMMDDHHMM;;D")
+	pha->qual[d.seq].7_dispense_amt = cnvtstring(op.dose_quantity,20,2)
+	pha->qual[d.seq].8_dispense_uom_code = uar_get_code_display(op.dose_quantity_unit_cd)
+	pha->qual[d.seq].6_dispense_qty = cnvtstring(dh.doses,20,0)
+	pha->qual[d.seq].15_pharmacy_order_no = cnvtstring(dh.order_id,20,0)
+	pha->qual[d.seq].10_ndc_code = replace(mi.value,"-","")
+	pha->qual[d.seq].11_label_code = substring(1,5,pha->qual[d.seq].10_ndc_code)
+	pha->qual[d.seq].12_prod_code = substring(6,4,pha->qual[d.seq].10_ndc_code)
+	pha->qual[d.seq].13_pkg_code = substring(10,2,pha->qual[d.seq].10_ndc_code)
+ 	pha->qual[d.seq].exclude_ind = 0
+with nocounter,ORAHINTCBO("INDEX(DH XFK1DISPENSE_HX)"),time = 7200
+ 
+;retreive the most recent route order detail
+set log = log_time("Get PDA Route")
+select into "nl:"
+from order_detail od
+	,(dummyt d with seq = size(pha->qual,5))
+plan d
+join od
+	;where expand(idx1,1,size(pha->qual,5),od.order_id,pha->qual[idx1].order_id)
+	where od.order_id = pha->qual[d.seq].order_id
+	and od.oe_field_meaning_id = 2050.0 ;RXROUTE
+	and od.action_sequence = (select max(od1.action_sequence)
+							  from order_detail od1
+							  where od1.order_id = od.order_id
+							  and od1.oe_field_meaning_id = od.oe_field_meaning_id)
+order by d.seq
+		,od.order_id
+head d.seq
+	idx2 = 0
+detail
+	if(od.oe_field_meaning_id = 2050.0)
+		pha->qual[d.seq].14_admin_route_code = substring(1,15,od.oe_field_display_value)
+	endif
+with nocounter
+ 
+ 
+;CALL ECHORECORD(PHA)
+endif
+;bw1 end
+ 
+ 
+;**************************************************************
+;Pull pharmacy administrations info
+;**************************************************************
+;bw2 begin
+if(e_file in ("PO","ALL"))
+set log = log_time("Get Pharmacy Admin Info")
+select into "nl:"
+from
+    clinical_event ce
+    ,ce_med_result cmr
+    ,orders o
+    ,(dummyt d with seq = size(rxadmin->qual,5))
+ 
+plan d
+ ;bbb check dispense_hx dispense type ?
+join o
+	where ((o.order_id = rxadmin->qual[d.seq].chg_order_id
+		   and o.template_order_id = 0.0)
+		or (o.template_order_id = rxadmin->qual[d.seq].chg_order_id))
+join ce
+    ;where expand(idx1,1,size(rxadmin->qual,5),ce.order_id,rxadmin->qual[idx1].order_id)
+  	where ce.order_id = o.order_id
+  	and ce.event_end_dt_tm = cnvtdatetime(rxadmin->qual[d.seq].chg_post_dt_tm)
+  	and ce.valid_until_dt_tm > sysdate
+    and ce.event_tag != "In Error"
+    and ce.view_level = 1
+    and ce.result_status_cd  in (34,25)
+ 
+join cmr
+	where cmr.event_id = ce.event_id
+ 	and cmr.synonym_id > 0.0
+ 
+order d.seq
+	 ,ce.event_id
+ 
+head report
+    stat = 0
+ 
+detail
+	rxadmin->qual[d.seq].order_id = ce.order_id
+	rxadmin->qual[d.seq].exclude_ind = 0
+	rxadmin->qual[d.seq].5_order_date = format(ce.event_end_dt_tm, "YYYYMMDDHHMM;;D")
+	rxadmin->qual[d.seq].5_order_date = format(ce.event_end_dt_tm, "YYYYMMDDHHMM;;D")
+	if(cmr.admin_dosage = 0.0)
+		rxadmin->qual[d.seq].7_order_dose = cnvtstring(cmr.initial_dosage,10,2)
+	else
+		rxadmin->qual[d.seq].7_order_dose = cnvtstring(cmr.admin_dosage,10,2)
+	endif
+	rxadmin->qual[d.seq].8_order_dose_uom_code = substring(1,15,uar_get_code_display(cmr.dosage_unit_cd))
+ 
+with nocounter,ORAHINTCBO("INDEX(CE XIE20CLINICAL_EVENT)"),TIME = 6600
+ 
+;retreive the most recent route order detail
+set log = log_time("Get PO Order Details")
+select into "nl:"
+from order_detail od
+	,code_value cv
+	,(dummyt d with seq = size(rxadmin->qual,5))
+plan d
+join od
+	;where expand(idx1,1,size(rxadmin->qual,5),od.order_id,rxadmin->qual[idx1].order_id)
+	where od.order_id = rxadmin->qual[d.seq].order_id
+	and od.oe_field_meaning_id in (2050.0,2011.0);RXROUTE, FREQ
+	and od.action_sequence = (select max(od1.action_sequence)
+							  from order_detail od1
+							  where od1.order_id = od.order_id
+							  and od1.oe_field_meaning_id = od.oe_field_meaning_id)
+join cv
+	where cv.code_value =  outerjoin(od.oe_field_value)
+ 
+order by d.seq
+		,od.order_id
+head od.order_id
+	idx2 = 0
+detail
+	;idx2 = locateval(idx1,1,size(rxadmin->qual,5),od.order_id,rxadmin->qual[idx1].order_id)
+	;if (idx2 > 0)
+	if(od.oe_field_meaning_id = 2050.0)
+		rxadmin->qual[d.seq].6_admin_route = substring(1,15,od.oe_field_display_value)
+	elseif(od.oe_field_meaning_id = 2011.0)
+		rxadmin->qual[d.seq].11_order_freq = substring(1,15,od.oe_field_display_value)
+		rxadmin->qual[d.seq].12_order_freq_desc = substring(1,50,cv.DESCRIPTION)
+	endif
+	;endif
+with nocounter;, expand = 1
+ 
+;retreive the most recent route order detail
+set log = log_time("Get PO Ordering provider")
+select into "nl:"
+from order_action oa
+	,prsnl pr
+	,(dummyt d with seq = size(rxadmin->qual,5))
+plan d
+join oa
+	;where expand(idx1,1,size(rxadmin->qual,5),oa.order_id,rxadmin->qual[idx1].order_id)
+	where oa.order_id = rxadmin->qual[d.seq].chg_order_id
+	and oa.action_type_cd = order_action_cd
+join pr
+	where pr.person_id = oa.order_provider_id
+ 
+order by d.seq
+		,oa.order_id
+head oa.order_id
+	idx2 = 0
+	idx3 = 0
+	idx4 = 0
+detail
+	;idx2 = locateval(idx1,1,size(rxadmin->qual,5),oa.order_id,rxadmin->qual[idx1].order_id)
+	;if (idx2 > 0)
+	if(pr.PERSON_ID > 0.0)
+		rxadmin->qual[d.seq].14_ordering_physician = cnvtstring(pr.person_id,20,0)
+				idx3 = 0
+				idx4 = 0
+				idx3 = locateval(idx4,1,staffmaster->qual_cnt,pr.person_id,staffmaster->qual[idx4].prsnl_id)
+				if(idx3 <= 0)
+					staffmaster->qual_cnt = staffmaster->qual_cnt + 1
+					if(size(staffmaster->qual,5) < staffmaster->qual_cnt)
+						stat = alterlist(staffmaster->qual,staffmaster->qual_cnt + 99)
+					endif
+ 
+					staffmaster->qual[staffmaster->qual_cnt].prsnl_id = pr.person_id
+					;defaulting to "C"+person_id
+					;staffmaster->qual[staffmaster->qual_cnt].1_staff_id = concat("03C",trim(cnvtstring(pp2.prsnl_person_id)))
+					staffmaster->qual[staffmaster->qual_cnt].1_staff_id = cnvtstring(pr.person_id)
+				endif
+	endif
+	;endif
+	foot report
+	stat = alterlist(staffmaster->qual,staffmaster->qual_cnt)
+with nocounter
+ 
+ 
+;CALL ECHORECORD(rxadmin)
+endif
+set log = log_time("staff master segment")
+if(e_file in ("STAFF","ALL"))
+	select into "nl:"
+	from prsnl pr,
+		 prsnl_specialty_reltn pgr,
+		 person_name ph,
+	     prsnl_alias pa,
+	     prsnl_alias pa2,
+	     prsnl_alias pa3,
+	     prsnl_alias pa4,
+	     code_value_outbound cvo
+	plan pr where
+		expand(idx1,1,staffmaster->qual_cnt,pr.person_id,staffmaster->qual[idx1].prsnl_id)
+	join ph where pr.person_id = ph.person_id
+			and ph.name_type_cd = PERSONNEL_213_cv
+			and ph.active_ind = 1
+			and ph.end_effective_dt_tm > cnvtdatetime(curdate,curtime2)
+	join pgr where
+		pgr.prsnl_id            = outerjoin(pr.person_id) and
+		pgr.active_ind           = outerjoin(1) and
+		pgr.primary_ind          = outerjoin(1) and
+		pgr.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+	join cvo where cvo.code_value = outerjoin(pgr.specialty_cd)
+					and cvo.contributor_source_cd = outerjoin(        2553656657.00)
+	join pa where
+		pa.person_id             = outerjoin(pr.person_id) and
+		pa.prsnl_alias_type_cd   = outerjoin(licensenbr_var) and
+		pa.active_ind            = outerjoin(1) and
+		pa.end_effective_dt_tm  >= outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa2 where
+		pa2.person_id            = outerjoin(pr.person_id) and
+		pa2.prsnl_alias_type_cd  = outerjoin(externalid_var) and
+		pa2.active_ind           = outerjoin(1) and
+		pa2.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa3 where
+		pa3.person_id            = outerjoin(pr.person_id) and
+		pa3.prsnl_alias_type_cd  = outerjoin(npi_var) and
+		pa3.active_ind           = outerjoin(1) and
+		pa3.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+	join pa4 where
+		pa4.person_id            = outerjoin(pr.person_id) and
+		pa4.prsnl_alias_type_cd  = outerjoin(upin_var) and
+		pa4.active_ind           = outerjoin(1) and
+		pa4.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+	order pr.person_id, pgr.beg_effective_dt_tm, pa.prsnl_alias_type_cd
+	head pr.person_id
+ 
+		idx1 = 0
+		idx2 = 0
+		idx2 = locateval(idx1,1,staffmaster->qual_cnt,pr.person_id,staffmaster->qual[idx1].prsnl_id)
+ 		if(idx2 > 0)
+ 			;staffmaster->qual[idx2].1_staff_id = concat("03C",trim(cnvtstring(pr.person_id)))
+ 			staffmaster->qual[idx2].1_staff_id = cnvtstring(pr.person_id)
+	 		;if(trim(pa.alias) > " ")
+			;	staffmaster->qual[idx2].1_staff_id = concat("03",trim(pa.alias))
+			;elseif(trim(pa2.alias) > " ")
+			;	staffmaster->qual[idx2].1_staff_id = concat("03SV",trim(pa2.alias))
+			;endif
+			staffmaster->qual[idx2].2_staff_type           = "P"
+			staffmaster->qual[idx2].3_staff_last_name      = trim(cnvtupper((ph.name_last_key)))
+			staffmaster->qual[idx2].4_staff_first_name     = trim(cnvtupper((ph.name_first_key)))
+			staffmaster->qual[idx2].5_staff_middle_initial = trim(cnvtupper(substring(1,1,ph.name_middle_key)))
+			staffmaster->qual[idx2].6_staff_addr_1         = ""
+			staffmaster->qual[idx2].7_staff_addr_2         = ""
+			staffmaster->qual[idx2].8_staff_city           = ""
+			staffmaster->qual[idx2].9_staff_state          = ""
+			staffmaster->qual[idx2].10_staff_zipcode       = ""
+			staffmaster->qual[idx2].11_staff_tel_no        = ""
+			staffmaster->qual[idx2].12_staff_dob           = ""
+			staffmaster->qual[idx2].13_start_date          = ""
+			staffmaster->qual[idx2].14_end_date            = ""
+			staffmaster->qual[idx2].15_post_grad_year      = ""
+			staffmaster->qual[idx2].16_group_id            = ""
+			staffmaster->qual[idx2].17_group_desc          = ""
+			staffmaster->qual[idx2].18_clin_dept_id        = ""
+			staffmaster->qual[idx2].19_clin_dept_desc      = ""
+ 
+			;Default
+			staffmaster->qual[idx2].20_clinserv_code       = "UNKNOWN"
+			staffmaster->qual[idx2].21_clinserv_desc       = "UNKNOWN"
+			staffmaster->qual[idx2].phys_specialty_code    = "4118"
+;			if(uar_get_code_display(pr.position_cd) = "Physician -*")
+;				staffmaster->qual[idx2].20_clinserv_code       =
+;				cnvtupper(substring(findstring("-",uar_Get_code_display(pr.position_cd))+2,15,uar_get_code_display(pr.position_cd)))
+;			staffmaster->qual[idx2].21_clinserv_desc       =
+;			cnvtupper(substring(findstring("-",uar_Get_code_display(pr.position_cd))+2,60,uar_get_code_display(pr.position_cd)))
+;;			staffmaster->qual[idx2].phys_specialty_code    =
+;;			cnvtupper(substring(findstring("-",uar_Get_code_display(pr.position_cd))+2,15,uar_get_code_display(pr.position_cd)))
+;;
+;			endif
+ 
+			if(pgr.specialty_cd > 0)
+				staffmaster->qual[idx2].20_clinserv_code       = cnvtupper(substring(1,15,uar_get_code_display(pgr.specialty_cd)))
+ 
+				staffmaster->qual[idx2].21_clinserv_desc       = cnvtupper(substring(1,60,uar_get_code_display(pgr.specialty_cd)))
+			endif
+			staffmaster->qual[idx2].22_license_no          = "";trim(pa.alias)
+			staffmaster->qual[idx2].25_npi                 = trim(pa3.alias)
+			staffmaster->qual[idx2].23_upin                = "";trim(pa4.alias)
+			if(trim(cvo.alias) > " ")
+            staffmaster->qual[idx2].phys_specialty_code = cvo.alias
+            else
+            staffmaster->qual[idx2].phys_specialty_code = "4118"
+            endif
+ 
+;			case(trim(cnvtupper(cnvtalphanum(substring(1,60,uar_get_code_display(pgr.specialty_cd))))))
+;				of "ANESTHESIOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4008"
+;			of "CARDIOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4011"
+;			of "CARDIOVASCULARTHORACICSURGERY": staffmaster->qual[idx2].phys_specialty_code ="4012"
+;			of "CRITICALCARE": staffmaster->qual[idx2].phys_specialty_code ="4023"
+;			of "EMERGENCYMEDICINE": staffmaster->qual[idx2].phys_specialty_code ="4028"
+;			of "ENDOCRINOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4029"
+;			of "FAMILYPRACTICE": staffmaster->qual[idx2].phys_specialty_code ="4031"
+;			of "GASTROENTEROLOGY": staffmaster->qual[idx2].phys_specialty_code ="4033"
+;			of "GENERALSURGERY": staffmaster->qual[idx2].phys_specialty_code ="4036"
+;			of "GENETICS": staffmaster->qual[idx2].phys_specialty_code ="4053"
+;			of "GYNECOLOGICONCOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4039"
+;			of "GYNECOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4040"
+;			of "HEMATOLOGYANDONCOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4045"
+;			of "INFECTIOUSDISEASE": staffmaster->qual[idx2].phys_specialty_code ="4048"
+;			of "INTERNALMEDICINE": staffmaster->qual[idx2].phys_specialty_code ="4050"
+;			of "MEDICALONCOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4055"
+;			of "NEONATOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4056"
+;			of "NEPHROLOGY": staffmaster->qual[idx2].phys_specialty_code ="4057"
+;			of "NEUROLOGICALSURGERY": staffmaster->qual[idx2].phys_specialty_code ="4058"
+;			of "NEUROLOGY": staffmaster->qual[idx2].phys_specialty_code ="4059"
+;			of "OBSTETRICSANDGYNECOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4067"
+;			of "OPTHALMOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4069"
+;			of "ORTHOPEDICSURGERY": staffmaster->qual[idx2].phys_specialty_code ="4070"
+;			of "OTOLARYNGOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4074"
+;			of "PAINMANAGEMENT": staffmaster->qual[idx2].phys_specialty_code ="4075"
+;			of "PEDIATRICS": staffmaster->qual[idx2].phys_specialty_code ="4095"
+;			of "PLASTICRECONSTRUCTIVESURGERY": staffmaster->qual[idx2].phys_specialty_code ="4098"
+;			of "PODIATRY": staffmaster->qual[idx2].phys_specialty_code ="4099"
+;			of "PSYCHIATRY": staffmaster->qual[idx2].phys_specialty_code ="4100"
+;			of "PULMONARYDISEASE": staffmaster->qual[idx2].phys_specialty_code ="4104"
+;			of "PULMONOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4104"
+;			of "RADIATIONONCOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4105"
+;			of "RADIOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4107"
+;			of "RHEUMATOLOGY": staffmaster->qual[idx2].phys_specialty_code ="4109"
+;			of "SLEEPMEDICINE": staffmaster->qual[idx2].phys_specialty_code ="4133"
+;			of "UROLOGY": staffmaster->qual[idx2].phys_specialty_code ="4119"
+;			of "VASCULARSURGERY": staffmaster->qual[idx2].phys_specialty_code ="4121"
+;			of "UNKNOWN": staffmaster->qual[idx2].phys_specialty_code ="4118"
+;			of "HOSPITALIST": staffmaster->qual[idx2].phys_specialty_code ="4046"
+;			of "NURSEANESTHETIST": staffmaster->qual[idx2].phys_specialty_code ="4014"
+;			of "NURSEPRACTITIONER": staffmaster->qual[idx2].phys_specialty_code ="4064"
+;			of "HOSPITALIST": staffmaster->qual[idx2].phys_specialty_code ="4046"
+;			of "NURSEANESTHETIST": staffmaster->qual[idx2].phys_specialty_code ="4014"
+;			of "NURSEPRACTITIONER": staffmaster->qual[idx2].phys_specialty_code ="4064"
+;			of "PHYSICIANASSISTANT": staffmaster->qual[idx2].phys_specialty_code ="4097"
+;			of "ALLERGYANDIMMUNOLOGY": staffmaster->qual[idx2].phys_specialty_code = "4004"
+;			of "BARIATRICWEIGHTLOSSSURGERY": staffmaster->qual[idx2].phys_specialty_code = "4036"
+;			of "DERMATOLOGY": staffmaster->qual[idx2].phys_specialty_code = "4025"
+;			of "PEDIATRICDERMATOLOGY": staffmaster->qual[idx2].phys_specialty_code = "4025"
+;			of "PEDIATRICGASTROENTEROLOGY": staffmaster->qual[idx2].phys_specialty_code = "4081"
+;
+;
+;			endcase
+			staffmaster->qual[idx2].20_clinserv_code = trim(cnvtalphanum(staffmaster->qual[idx2].20_clinserv_code))
+ 
+			staffmaster->qual[idx2].21_clinserv_desc  = trim(cnvtalphanum(staffmaster->qual[idx2].21_clinserv_desc))
+		endif
+	with nocounter, expand = 1
+ 
+;;if physician_specialty not found in 1st query
+;set log = log_time("if physician_specialty not found in 1st query")
+;	select into "nl:"
+;	from prsnl pr,
+;		 prsnl_group_reltn pgr,
+;		 prsnl_group pg,
+;	     prsnl_alias pa,
+;	     prsnl_alias pa2,
+;	     prsnl_alias pa3,
+;	     prsnl_alias pa4
+;	plan pr where
+;		expand(idx1,1,staffmaster->qual_cnt,pr.person_id,staffmaster->qual[idx1].prsnl_id)
+;	join pgr where
+;		pgr.person_id            = outerjoin(pr.person_id) and
+;		pgr.active_ind           = outerjoin(1) and
+;		pgr.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+;	join pg where
+;		pg.prsnl_group_id        = outerjoin(pgr.prsnl_group_id) and
+;		pg.prsnl_group_class_cd  = outerjoin(service_var)
+;	join pa where
+;		pa.person_id             = outerjoin(pr.person_id) and
+;		pa.prsnl_alias_type_cd   = outerjoin(licensenbr_var) and
+;		pa.active_ind            = outerjoin(1) and
+;		pa.end_effective_dt_tm  >= outerjoin(cnvtdatetime(curdate,curtime3))
+;	join pa2 where
+;		pa2.person_id            = outerjoin(pr.person_id) and
+;		pa2.prsnl_alias_type_cd  = outerjoin(externalid_var) and
+;		pa2.active_ind           = outerjoin(1) and
+;		pa2.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+;	join pa3 where
+;		pa3.person_id            = outerjoin(pr.person_id) and
+;		pa3.prsnl_alias_type_cd  = outerjoin(npi_var) and
+;		pa3.active_ind           = outerjoin(1) and
+;		pa3.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+;	join pa4 where
+;		pa4.person_id            = outerjoin(pr.person_id) and
+;		pa4.prsnl_alias_type_cd  = outerjoin(upin_var) and
+;		pa4.active_ind           = outerjoin(1) and
+;		pa4.end_effective_dt_tm >= outerjoin(cnvtdatetime(curdate,curtime3))
+;	order pr.person_id, pgr.beg_effective_dt_tm, pa.prsnl_alias_type_cd
+;	head pr.person_id
+;
+;		idx1 = 0
+;		idx2 = 0
+;		idx2 = locateval(idx1,1,staffmaster->qual_cnt,pr.person_id,staffmaster->qual[idx1].prsnl_id)
+; 		if(idx2 > 0)
+; 		   if (textlen(staffmaster->qual[idx2].20_clinserv_code) < 1) ;no physician specialty from above select
+; 			;staffmaster->qual[idx2].1_staff_id = concat("03C",trim(cnvtstring(pr.person_id)))
+; 			staffmaster->qual[idx2].1_staff_id = cnvtstring(pr.person_id)
+;;	 		if(trim(pa.alias) > " ")
+;;				staffmaster->qual[idx2].1_staff_id = concat("03",trim(pa.alias))
+;;			elseif(trim(pa2.alias) > " ")
+;;				staffmaster->qual[idx2].1_staff_id = concat("03SV",trim(pa2.alias))
+;;			endif
+;			staffmaster->qual[idx2].2_staff_type           = "P"
+;			staffmaster->qual[idx2].3_staff_last_name      = trim(pr.name_last)
+;			staffmaster->qual[idx2].4_staff_first_name     = trim(pr.name_first)
+;			staffmaster->qual[idx2].5_staff_middle_initial = ""
+;			staffmaster->qual[idx2].6_staff_addr_1         = ""
+;			staffmaster->qual[idx2].7_staff_addr_2         = ""
+;			staffmaster->qual[idx2].8_staff_city           = ""
+;			staffmaster->qual[idx2].9_staff_state          = ""
+;			staffmaster->qual[idx2].10_staff_zipcode       = ""
+;			staffmaster->qual[idx2].11_staff_tel_no        = ""
+;			staffmaster->qual[idx2].12_staff_dob           = ""
+;			staffmaster->qual[idx2].13_start_date          = ""
+;			staffmaster->qual[idx2].14_end_date            = ""
+;			staffmaster->qual[idx2].15_post_grad_year      = ""
+;			staffmaster->qual[idx2].16_group_id            = ""
+;			staffmaster->qual[idx2].17_group_desc          = ""
+;			staffmaster->qual[idx2].18_clin_dept_id        = ""
+;			staffmaster->qual[idx2].19_clin_dept_desc      = ""
+;
+;			;Default
+;			staffmaster->qual[idx2].20_clinserv_code       = "UNKNOWN"
+;			staffmaster->qual[idx2].21_clinserv_desc       = "UNKNOWN"
+;			staffmaster->qual[idx2].phys_specialty_code    = "4118"
+;			if(trim(pg.prsnl_group_name) > " ")
+;				staffmaster->qual[idx2].20_clinserv_code       = substring(1,15,trim(cnvtalphanum(pg.prsnl_group_name),4))
+;				staffmaster->qual[idx2].21_clinserv_desc       = substring(1,15,trim(cnvtalphanum(pg.prsnl_group_name),4))
+;			endif
+;			staffmaster->qual[idx2].22_license_no          = trim(pa.alias)
+;			staffmaster->qual[idx2].25_npi                 = trim(pa3.alias)
+;			staffmaster->qual[idx2].23_upin                = trim(pa4.alias)
+;
+;			case(trim(pg.prsnl_group_name))
+;				of "Allergy & Immunology":				staffmaster->qual[idx2].phys_specialty_code = "4004"
+;				of "Anesthesiology":					staffmaster->qual[idx2].phys_specialty_code = "4008"
+;				of "Bariatric Surgery":					staffmaster->qual[idx2].phys_specialty_code = "4001"
+;				of "Cardiology":						staffmaster->qual[idx2].phys_specialty_code = "4011"
+;				of "Cardiovascular Surgery":			staffmaster->qual[idx2].phys_specialty_code = "4012"
+;				of "Critical Care/Pulmonary":			staffmaster->qual[idx2].phys_specialty_code = "4103"
+;				of "Dentistry & Oral Surgery":			staffmaster->qual[idx2].phys_specialty_code = "4024"
+;				of "Dermatology":						staffmaster->qual[idx2].phys_specialty_code = "4025"
+;				of "Emergency Medicine":				staffmaster->qual[idx2].phys_specialty_code = "4028"
+;				of "Endocrinology":						staffmaster->qual[idx2].phys_specialty_code = "4029"
+;				of "Express Care":						staffmaster->qual[idx2].phys_specialty_code = "4073"
+;				of "Family Practice":					staffmaster->qual[idx2].phys_specialty_code = "4031"
+;				of "Gastroenterology":					staffmaster->qual[idx2].phys_specialty_code = "4033"
+;				of "General Surgery":					staffmaster->qual[idx2].phys_specialty_code = "4036"
+;				of "Geriatrics":						staffmaster->qual[idx2].phys_specialty_code = "4038"
+;				of "Gynecology":						staffmaster->qual[idx2].phys_specialty_code = "4040"
+;				of "Hand Surgery":						staffmaster->qual[idx2].phys_specialty_code = "4041"
+;				of "Hematology / Oncology":				staffmaster->qual[idx2].phys_specialty_code = "4045"
+;				of "Hospitalists":						staffmaster->qual[idx2].phys_specialty_code = "4046"
+;				of "Infectious Diseases":				staffmaster->qual[idx2].phys_specialty_code = "4048"
+;				of "Internal Medicine":					staffmaster->qual[idx2].phys_specialty_code = "4050"
+;				of "Laboratory Medicine":				staffmaster->qual[idx2].phys_specialty_code = "4073"
+;				of "Neonatology":						staffmaster->qual[idx2].phys_specialty_code = "4056"
+;				of "Nephrology":						staffmaster->qual[idx2].phys_specialty_code = "4057"
+;				of "Neurology":							staffmaster->qual[idx2].phys_specialty_code = "4059"
+;				of "Neurosurgery":						staffmaster->qual[idx2].phys_specialty_code = "4058"
+;				of "Obstetrics":						staffmaster->qual[idx2].phys_specialty_code = "4066"
+;				of "Obstetrics/Gynecology":				staffmaster->qual[idx2].phys_specialty_code = "4067"
+;				of "Ophthalmology":						staffmaster->qual[idx2].phys_specialty_code = "4069"
+;				of "Orthopedic Surgery":				staffmaster->qual[idx2].phys_specialty_code = "4070"
+;				of "Otolaryngology":					staffmaster->qual[idx2].phys_specialty_code = "4074"
+;				of "Pain Management":					staffmaster->qual[idx2].phys_specialty_code = "4075"
+;				of "Palliative Care":					staffmaster->qual[idx2].phys_specialty_code = "4050"
+;				of "Pediatrics":						staffmaster->qual[idx2].phys_specialty_code = "4095"
+;				of "Physical Medicine/Rehabilitation":	staffmaster->qual[idx2].phys_specialty_code = "4096"
+;				of "Plastic & Reconstructive Surgery":	staffmaster->qual[idx2].phys_specialty_code = "4098"
+;				of "Podiatry":							staffmaster->qual[idx2].phys_specialty_code = "4099"
+;				of "Psychiatry":						staffmaster->qual[idx2].phys_specialty_code = "4100"
+;				of "Psychology":						staffmaster->qual[idx2].phys_specialty_code = "4101"
+;				of "Pulmonary Diseases/Critical Care":	staffmaster->qual[idx2].phys_specialty_code = "4103"
+;				of "Radiation Oncology":				staffmaster->qual[idx2].phys_specialty_code = "4105"
+;				of "Radiology":							staffmaster->qual[idx2].phys_specialty_code = "4107"
+;				of "Rheumatology":						staffmaster->qual[idx2].phys_specialty_code = "4109"
+;				of "Surgical Oncology":                 staffmaster->qual[idx2].phys_specialty_code = "4114"
+;				of "Thoracic & Vascular Surgery":		staffmaster->qual[idx2].phys_specialty_code = "4115"
+;				of "Trauma":							staffmaster->qual[idx2].phys_specialty_code = "4117"
+;				of "Urgent Care":						staffmaster->qual[idx2].phys_specialty_code = "4073"
+;				of "Urology":							staffmaster->qual[idx2].phys_specialty_code = "4119"
+;				of "Vascular Surgery":					staffmaster->qual[idx2].phys_specialty_code = "4121"
+;				of "Wound Care":						staffmaster->qual[idx2].phys_specialty_code = "4073"
+;			endcase
+;		  endif
+;		endif
+;	with nocounter, expand = 1
+endif
+ 
+set modify filestream
+/***************************************************************************************
+* SUBROUTINES																   *
+***************************************************************************************/
+ 
+SUBROUTINE GET_CODE_VALUE_ALIAS(_CODE_VALUE)
+	DECLARE _CV_ALIAS = VC
+	declare passed_in_cv_numeric = f8
+	declare cv_found = i2
+	set cv_found = 0
+	declare xNUM = i4
+ 
+	if(isnumeric(_code_value)=1)
+	   set passed_in_cv_numeric = cnvtreal(_CODE_VALUE)
+	endif
+ 
+ 	IF (passed_in_cv_numeric > 0.0)
+ 
+ 	  set POS = locateval(xNUM, 1, code_val->count, passed_in_cv_numeric, code_val->qual[xNUM].cd)
+ 	  if(POS>0)
+ 	    ;if pos>0, found in record and return alias from record
+ 	    set _CV_ALIAS = code_val->qual[POS].alias
+ 	  else
+ 	    ;if not found in record, collect from database
+  		SELECT into "nl:" ;029
+  		CVA.ALIAS
+  		FROM CODE_VALUE_OUTBOUND CVA
+  		WHERE CVA.CODE_VALUE = passed_in_cv_numeric
+  			AND CVA.CONTRIBUTOR_SOURCE_CD IN (HL7STDSRC_73_cv)
+  		DETAIL
+  			_CV_ALIAS = CVA.ALIAS
+  			cv_found = 1
+  			code_val->count = code_val->count + 1
+  			if(code_val->size<code_val->count)
+  			  code_val->size = code_val->size + 10
+  			  stat = alterlist(code_val->qual,code_val->size)
+  			endif
+  			code_val->qual[code_val->count].cd = cva.code_value
+  			code_val->qual[code_val->count].alias = cva.ALIAS
+  			code_val->qual[code_val->count].disp = uar_get_code_display(passed_in_cv_numeric)
+  		WITH TIME = 55
+  		if(cv_found = 0);if no alias found, get the display for the value
+  			set code_val->count = code_val->count + 1
+  			if(code_val->size<code_val->count)
+  			  set code_val->size = code_val->size + 10
+  			  set stat = alterlist(code_val->qual,code_val->size)
+  			endif
+  			set code_val->qual[code_val->count].cd = passed_in_cv_numeric
+  			set code_val->qual[code_val->count].alias = build("$$$",uar_get_code_display(passed_in_cv_numeric))
+  			set code_val->qual[code_val->count].disp = build("$$$",uar_get_code_display(passed_in_cv_numeric))
+;  			set code_val->qual[code_val->count].alias =uar_get_code_display(_CODE_VALUE)
+;  			set code_val->qual[code_val->count].disp = uar_get_code_display(_CODE_VALUE)
+  		endif
+		endif
+ 
+		IF (TRIM(_CV_ALIAS) > "")
+			RETURN(_CV_ALIAS)
+		ELSE
+			RETURN(uar_get_code_display(passed_in_cv_numeric))
+		ENDIF
+	ELSE
+		RETURN(_code_value)
+	ENDIF
+END ;SUBROUTINE
+ 
+ 
+;/***********************************************************************************************************************
+;/******************************************** Get Alias Values and format ************************************
+;/***********************************************************************************************************************/
+;call subroutine
+FOR (I = 1 TO sz)
+  ;Get alias values for codes
+;	SET encounter->data[I].5_site_of_care_cd	= GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].5_site_of_care_cd))
+	FOR (Z = 1 to value(size(encounter->data[I].payor,5)))
+		set encounter->data[I].payor[Z].8_plan_type = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].payor[Z].8_plan_type_cd))
+ 
+		set encounter->data[I].payor[Z].8_plan_type = cnvtupper(encounter->data[I].payor[Z].8_plan_type)
+	ENDFOR
+	SET encounter->data[I].6_patient_class	= GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].6_patient_class))
+  SET encounter->data[I].7_adm_type_code = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].7_adm_type_code))
+  SET encounter->data[I].7_adm_type_code = check(encounter->data[I].7_adm_type_code," ")
+  if(encounter->data[I].7_adm_type_code = " ")
+  	set encounter->data[I].7_adm_type_code = ""
+  endif
+  if(encounter->data[I].8_point_of_origin_cd > " ")
+  SET encounter->data[I].8_point_of_origin_cd = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].8_point_of_origin_cd))
+  SET encounter->data[I].8_point_of_origin_cd = check(encounter->data[I].8_point_of_origin_cd," ")
+  SET encounter->data[I].8_point_of_origin_cd = cnvtupper(encounter->data[I].8_point_of_origin_cd)
+  endif
+  if(textlen(trim(encounter->data[I].8_point_of_origin_cd)) = 0)
+  	set encounter->data[I].8_point_of_origin_cd = ""
+  	endif
+  	if(encounter->data[I].9_disch_disp_cd > " ")
+  SET encounter->data[I].9_disch_disp_cd = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].9_disch_disp_cd))
+  endif
+   SET encounter->data[I].9_disch_disp_cd = check(encounter->data[I].9_disch_disp_cd," ")
+  if(textlen(trim(encounter->data[I].9_disch_disp_cd)) = 0)
+  	set encounter->data[I].9_disch_disp_cd = ""
+  endif
+	SET encounter->data[I].35_marital_code = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].35_marital_code))
+	SET encounter->data[I].36_race_cd = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].36_race_cd))
+	if(trim(encounter->data[I].46_pat_type) != "F")
+	SET encounter->data[I].46_pat_type = GET_CODE_VALUE_ALIAS(TRIM(encounter->data[I].46_pat_type))
+ 	endif
+ 
+ ; SET encounter->data[I].5_site_of_care_cd = cnvtupper(encounter->data[I].5_site_of_care_cd)
+  SET encounter->data[I].6_patient_class = cnvtupper(encounter->data[I].6_patient_class)
+  SET encounter->data[I].7_adm_type_code = cnvtupper(encounter->data[I].7_adm_type_code)
+ 
+  		set encounter->data[I].7_adm_type_code = trim(encounter->data[I].7_adm_type_code)
+ 
+ 
+  SET encounter->data[I].9_disch_disp_cd = cnvtupper(encounter->data[I].9_disch_disp_cd)
+  SET encounter->data[I].35_marital_code = cnvtupper(encounter->data[I].35_marital_code)
+  SET encounter->data[I].36_race_cd = cnvtupper(encounter->data[I].36_race_cd)
+  SET encounter->data[I].46_pat_type = cnvtupper(encounter->data[I].46_pat_type)
+ 
+  if(encounter->data[I].36_race_cd = "UNKNOWN9");can't set this to the placeholder for unknown earlier, so set here
+    set encounter->data[I].36_race_cd = "9"
+  endif
+  if(encounter->data[I].7_adm_type_code = "0");remove 0 values for this field
+    set encounter->data[I].7_adm_type_code = ""
+  endif
+;  if(encounter->data[I].8_point_of_origin_cd = "0");remove 0 values for this field
+;    set encounter->data[I].8_point_of_origin_cd = ""
+;  endif
+    if(encounter->data[I].7_adm_type_code = " ");remove 0 values for this field
+    set encounter->data[I].7_adm_type_code = ""
+  endif
+;  if(textlen(trim(encounter->data[I].8_point_of_origin_cd)) = 0);remove 0 values for this field
+;    set encounter->data[I].8_point_of_origin_cd = ""
+;  endif
+  if(encounter->data[I].9_disch_disp_cd = "0");remove 0 values for this field
+    set encounter->data[I].9_disch_disp_cd = ""
+  endif
+ENDFOR
+ 
+;  call echorecord(encounter)
+;**************************************************************
+if(e_file in ("ENC", "ALL"))
+set log = log_time("Output Encounter Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/enctr_fix_",
+		set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_encntr_fix_",
+				 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+ 
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/enctr_",
+		;set outp = build("/cerner/d_p698/temp/amj_premier_enctr1_",
+		;					 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY;;D"),".txt")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_enctr_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(sz))
+	plan d where
+		;Exclude patients with no account number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " "
+  head report
+    o_cnt = 0
+	detail
+	  o_cnt = o_cnt + 1
+		data_row = trim(build(
+						encounter->data[d.seq].1_facility,_separator,
+						encounter->data[d.seq].2_pat_acct_no,_separator,
+						encounter->data[d.seq].3_adm_date,_separator,
+						encounter->data[d.seq].4_disch_serv_date,_separator,
+						encounter->data[d.seq].5_site_of_care_cd,_separator,
+						encounter->data[d.seq].6_patient_class,_separator,
+						encounter->data[d.seq].7_adm_type_code,_separator,
+						encounter->data[d.seq].8_point_of_origin_cd,_separator,
+						encounter->data[d.seq].9_disch_disp_cd,_separator,
+						encounter->data[d.seq].10_total_charges,_separator,
+						encounter->data[d.seq].11_total_costs,_separator,
+						encounter->data[d.seq].12_amt_paid,_separator,
+						encounter->data[d.seq].13_adm_diag_code,_separator,
+						encounter->data[d.seq].14_drg_code,_separator,
+						encounter->data[d.seq].15_apdrg_code,_separator,
+						encounter->data[d.seq].16_apdrg_state,_separator,
+						encounter->data[d.seq].17_adm_phys_id,_separator,
+						encounter->data[d.seq].18_disch_phys_id,_separator,
+						encounter->data[d.seq].19_primcare_phys_id,_separator,
+						encounter->data[d.seq].20_responisble_phys_id,_separator,
+						encounter->data[d.seq].21_case_mgr_id,_separator,
+						encounter->data[d.seq].22_med_rec_no,_separator,
+						encounter->data[d.seq].23_master_patient_id,_separator,
+						encounter->data[d.seq].24_social_security_no,_separator,
+						encounter->data[d.seq].25_pat_last_name,_separator,
+						encounter->data[d.seq].26_pat_first_name,_separator,
+						encounter->data[d.seq].27_pat_middle_initial,_separator,
+						encounter->data[d.seq].28_pat_dob,_separator,
+						encounter->data[d.seq].29_pat_addr_1,_separator,
+						encounter->data[d.seq].30_pat_addr_2,_separator,
+						encounter->data[d.seq].31_pat_city,_separator,
+						encounter->data[d.seq].32_pat_state,_separator,
+						encounter->data[d.seq].33_pat_zipcode,_separator,
+						encounter->data[d.seq].34_sex_code,_separator,
+						encounter->data[d.seq].35_marital_code,_separator,
+						encounter->data[d.seq].36_race_cd,_separator,
+						encounter->data[d.seq].37_pat_relation_code,_separator,
+						encounter->data[d.seq].38_employer_id,_separator,
+						encounter->data[d.seq].39_pat_tel_no,_separator,
+						encounter->data[d.seq].40_hisp_ethnicity,_separator,
+						encounter->data[d.seq].41_apr_drg_code,_separator,
+						encounter->data[d.seq].42_apr_rom,_separator,
+						encounter->data[d.seq].43_apr_soi,_separator,
+						encounter->data[d.seq].44_hic,_separator,
+						encounter->data[d.seq].45_ms_drg_code,_separator,
+						encounter->data[d.seq].46_pat_type,_separator,
+						encounter->data[d.seq].47_pat_county,_separator,
+						encounter->data[d.seq].48_pat_country,_separator,
+						encounter->data[d.seq].49_disch_var_cost,_separator,
+						encounter->data[d.seq].50_disch_fix_cost,_separator,
+						encounter->data[d.seq].51_vent_days,_separator,
+						encounter->data[d.seq].52_smoker_flag,_separator,
+						encounter->data[d.seq].53_pat_weight,_separator,
+						encounter->data[d.seq].54_birth_weight,_separator,
+						encounter->data[d.seq].55_baby_pat_no,_separator,
+						encounter->data[d.seq].56_Ethnicty,_separator,
+						encounter->data[d.seq].57_ED_Visit,_separator,
+						encounter->data[d.seq].58_CNC_Care_Setting,_separator,
+						encounter->data[d.seq].59_TIN,_separator),3)
+ data_row = check(data_row," ")
+ 
+ data_row = replace(data_row,char(0),"")
+ data_row = replace(data_row,"| |","||")
+ data_row = replace(data_row,"| |","||");leave this in here twice, for reasons.
+		if(o_cnt > 1)
+			row +1
+		endif
+    	col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;*************************************************************
+;output surgery master file
+;*************************************************************
+if(e_file in ("SURG", "ALL"))
+set log = log_time("Output Encounter Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/enctr_fix_",
+		set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_surg_fix_",
+				 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/enctr_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_or_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(size(surgmaster->qual,5)))
+	plan d
+	  head report
+    first_row = 1
+	detail
+ 
+		data_row = trim(build(
+					surgmaster->qual[d.seq].1_Facility_ID,_separator,
+					surgmaster->qual[d.seq].2_Pat_Acct_No,_separator,
+					surgmaster->qual[d.seq].3_OR_Proc_Code,_separator,
+					surgmaster->qual[d.seq].4_OR_Proc_Desc,_separator,
+					surgmaster->qual[d.seq].5_Service_Date,_separator,
+					surgmaster->qual[d.seq].6_Table_Time_Start,_separator,
+					surgmaster->qual[d.seq].7_Table_Time_End,_separator,
+					surgmaster->qual[d.seq].8_Anesthesia_Type_Code,_separator,
+					surgmaster->qual[d.seq].9_Anesthesia_Time_Start,_separator,
+					surgmaster->qual[d.seq].10_Anesthesia_Time_End,_separator,
+					surgmaster->qual[d.seq].11_Anesthetist_Phys_ID,_separator,
+					surgmaster->qual[d.seq].12_Proc_Time_Start,_separator,
+					surgmaster->qual[d.seq].13_Proc_Time_End,_separator,
+					surgmaster->qual[d.seq].14_Oper_Phys_ID,_separator,
+					surgmaster->qual[d.seq].15_Recovery_Time_Start,_separator,
+					surgmaster->qual[d.seq].16_Recovery_Time_End,_separator,
+					_separator,
+					surgmaster->qual[d.seq].18_OR_Room_Nuimber,_separator
+ 
+					),3)
+ 
+	       if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif ;end e_file in ALL SURG
+ 
+;**************************************************************
+; Output Diagnosis Data
+;**************************************************************
+if(e_file in ("DIA", "ALL"))
+set log = log_time("Output Diagnosis Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/diag_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_diag_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/diag_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_diag_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp )
+	from (dummyt d with seq = value(sz)),
+		 (dummyt d2 with seq = 1)
+	plan d where
+		maxrec(d2,size(encounter->data[d.seq].diag,5)) and
+		;Exclude patients with no account number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " "
+	join d2 where
+		encounter->data[d.seq].diag[d2.seq].3_icd_diagnosis_code > " "
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							encounter->data[d.seq].1_facility,_separator,
+							encounter->data[d.seq].2_pat_acct_no,_separator,
+							encounter->data[d.seq].diag[d2.seq].3_icd_diagnosis_code,_separator,
+							encounter->data[d.seq].diag[d2.seq].4_icd_diag_rank,_separator,
+							encounter->data[d.seq].diag[d2.seq].5_diag_date,_separator,
+							trim(encounter->data[d.seq].diag[d2.seq].6_poa_code, 4 ),_separator,
+							encounter->data[d.seq].diag[d2.seq].7_diag_type,_separator,
+							encounter->data[d.seq].diag[d2.seq].8_icd_type,_separator)
+							,3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+ 
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Payor Data
+;**************************************************************
+if(e_file in ("PAY", "ALL"))
+set log = log_time("Output Payor Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/payor_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_payor_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/payor_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_payor_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(sz)),
+		 (dummyt d2 with seq = 1)
+	plan d where
+		;Exclude patients with no accoutn number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " " and
+		maxrec(d2,size(encounter->data[d.seq].payor,5))
+	join d2 where
+		encounter->data[d.seq].payor[d2.seq].3_payor_id > " "
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							encounter->data[d.seq].1_facility,_separator,
+							encounter->data[d.seq].2_pat_acct_no,_separator,
+							encounter->data[d.seq].payor[d2.seq].3_payor_id,_separator,
+							encounter->data[d.seq].payor[d2.seq].4_payor_description,_separator,
+							encounter->data[d.seq].payor[d2.seq].5_plan_id,_separator,
+							encounter->data[d.seq].payor[d2.seq].6_plan_desc,_separator,
+							encounter->data[d.seq].payor[d2.seq].7_payor_plan_rank,_separator,
+							encounter->data[d.seq].payor[d2.seq].8_plan_type,_separator,
+							encounter->data[d.seq].payor[d2.seq].9_plan_amt_paid,_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Pay Master Data
+;**************************************************************
+if(e_file in ("PAYMASTER", "ALL"))
+set log = log_time("Output Pay Master Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/paymaster_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_paymaster_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/paymaster_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_paymaster_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(paymaster->qual_cnt))
+	plan d
+	head report
+		first_row = 1
+	detail
+;		data_row = trim(build(
+;							paymaster->qual[d.seq].1_facility_id,_separator,
+;							paymaster->qual[d.seq].2_payor_id,_separator,
+;							paymaster->qual[d.seq].3_payor_desc,_separator,
+;							paymaster->qual[d.seq].4_effective_date,_separator,
+;							paymaster->qual[d.seq].5_std_payor_type,_separator),3)
+;
+		;only increment row if this isn't the first row printing
+;		if(first_row = 0)
+;			row +1
+;		else
+;			first_row = 0
+;		endif
+	;	col 0 data_row
+ 
+		;Add row for MAURY facility
+		data_row = trim(build(
+							"H",_separator,
+							paymaster->qual[d.seq].2_payor_id,_separator,
+							paymaster->qual[d.seq].3_payor_desc,_separator,
+							paymaster->qual[d.seq].4_effective_date,_separator,
+							paymaster->qual[d.seq].5_std_payor_type,_separator),3)
+		if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Practitioner Data
+;**************************************************************
+if(e_file in ("PRA","ALL"))
+set log = log_time("Output Practitioner Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/prac_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_prac_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/prac_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_prac_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp )
+		1_facility    = encounter->data[d.seq].1_facility,
+		2_pat_acct_no = encounter->data[d.seq].2_pat_acct_no,
+		7_staff_role  = encounter->data[d.seq].prac[d2.seq].7_staff_role
+	from (dummyt d with seq = value(sz)),
+		 (DUMMYT D2 WITH SEQ = 1)
+	plan d where
+		;Exclude patients with no accoutn number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " " and
+		maxrec(d2,size(encounter->data[d.seq].prac,5))
+	join d2 where
+		encounter->data[d.seq].prac[d2.seq].3_staff_id > " " and
+		((encounter->data[d.seq].prac[d2.seq].3_staff_id = "03C*" and
+		  encounter->data[d.seq].prac[d2.seq].7_staff_role = "A") or
+		 (encounter->data[d.seq].prac[d2.seq].3_staff_id != "03C*"))
+ 
+	order 1_facility,
+		  2_pat_acct_no,
+		  7_staff_role
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							encounter->data[d.seq].1_facility,_separator,
+							encounter->data[d.seq].2_pat_acct_no,_separator,
+							encounter->data[d.seq].prac[d2.seq].3_staff_id,_separator,
+							encounter->data[d.seq].prac[d2.seq].4_staff_type,_separator,
+							encounter->data[d.seq].prac[d2.seq].5_service_start_date,_separator,
+							encounter->data[d.seq].prac[d2.seq].6_service_end_date,_separator,
+							encounter->data[d.seq].prac[d2.seq].7_staff_role,_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Staff Master Data
+;**************************************************************
+if(e_file in ("STAFF","ALL"))
+set log = log_time("Output Staff Master Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/staff_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_staff_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/staff_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_staff_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+;		if(ofile = "Y")
+;;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/staff_",
+;		  set outp = build("cer_temp:amj_premier_staff_",
+;							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY;;D"),".txt")
+;		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(staffmaster->qual_cnt))
+	plan d
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+								trim(staffmaster->qual[d.seq].1_staff_id),_separator,
+								trim(staffmaster->qual[d.seq].2_staff_type),_separator,
+								trim(staffmaster->qual[d.seq].3_staff_last_name),_separator,
+								trim(staffmaster->qual[d.seq].4_staff_first_name),_separator,
+								trim(staffmaster->qual[d.seq].5_staff_middle_initial),_separator,
+								trim(staffmaster->qual[d.seq].6_staff_addr_1),_separator,
+								trim(staffmaster->qual[d.seq].7_staff_addr_2),_separator,
+								trim(staffmaster->qual[d.seq].8_staff_city),_separator,
+								trim(staffmaster->qual[d.seq].9_staff_state),_separator,
+								trim(staffmaster->qual[d.seq].10_staff_zipcode),_separator,
+								trim(staffmaster->qual[d.seq].11_staff_tel_no),_separator,
+								trim(staffmaster->qual[d.seq].12_staff_dob),_separator,
+								trim(staffmaster->qual[d.seq].13_start_date),_separator,
+								trim(staffmaster->qual[d.seq].14_end_date),_separator,
+								trim(staffmaster->qual[d.seq].15_post_grad_year),_separator,
+								trim(staffmaster->qual[d.seq].16_group_id),_separator,
+								trim(staffmaster->qual[d.seq].17_group_desc),_separator,
+								trim(staffmaster->qual[d.seq].18_clin_dept_id),_separator,
+								trim(staffmaster->qual[d.seq].19_clin_dept_desc),_separator,
+								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator,
+								trim(staffmaster->qual[d.seq].21_clinserv_desc),_separator,
+								trim(staffmaster->qual[d.seq].22_license_no),_separator,
+								trim(staffmaster->qual[d.seq].23_upin),_separator,
+								trim(staffmaster->qual[d.seq].24_dea_number),_separator,
+								trim(staffmaster->qual[d.seq].25_npi),_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+ 	;****** Output SFM Data*****************
+ 	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/sfm_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_sfm_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/sfm_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_sfm_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+;		if(ofile = "Y")
+;;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/sfm_",
+;		  set outp = build("cer_temp:amj_premier_sfm_",
+;							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY;;D"),".txt")
+;		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(staffmaster->qual_cnt))
+	plan d
+	head report
+		first_row = 1
+	detail
+;		data_row = trim(build(
+;								trim("H"),_separator,
+;								trim(staffmaster->qual[d.seq].1_staff_id),_separator,
+;								trim("201301010000"),_separator,
+;								_separator,
+;								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator),3)
+;
+;		;only increment row if this isn't the first row printing
+;		if(first_row = 0)
+;			row +1
+;		else
+;			first_row = 0
+;		endif
+;		col 0 data_row
+ 
+		data_row = trim(build(
+								trim("H"),_separator,
+								trim(staffmaster->qual[d.seq].1_staff_id),_separator,
+								trim("201301010000"),_separator,
+								_separator,
+								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator),3)
+ 
+ 
+ 
+			if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+ 	;****** Output PSM Data*****************
+ 	if(fix_ind = 1)
+; 		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/psm_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_psm_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+ 	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/psm_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_psm_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+;		if(ofile = "Y")
+;;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/psm_",
+;		  set outp = build("cer_temp:amj_premier_psm_",
+;							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY;;D"),".txt")
+;		endif
+	endif
+ 
+	select into value(outp)
+		20_clinserv_code = substring(1,15,staffmaster->qual[d.seq].20_clinserv_code)
+	from (dummyt d with seq = value(staffmaster->qual_cnt))
+	plan d where
+		trim(staffmaster->qual[d.seq].20_clinserv_code) > " "
+	order 20_clinserv_code
+	head report
+		first_row = 1
+	head 20_clinserv_code
+;		data_row = trim(build(
+;								trim("H"),_separator,
+;								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator,
+;								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator,
+;								trim("201301010000"),_separator,
+;								trim(staffmaster->qual[d.seq].phys_specialty_code),_separator),3)
+;
+;		;only increment row if this isn't the first row printing
+;		if(first_row = 0)
+;			row +1
+;		else
+;			first_row = 0
+;		endif
+;		col 0 data_row
+ 
+		data_row = trim(build(
+								trim("H"),_separator,
+								trim(staffmaster->qual[d.seq].20_clinserv_code),_separator,
+								trim(staffmaster->qual[d.seq].21_clinserv_desc),_separator,
+								trim("201301010000"),_separator,
+								trim(staffmaster->qual[d.seq].phys_specialty_code),_separator),3)
+ 
+ 
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Procedure Data
+;**************************************************************
+if (e_file in ("PRO","ALL"))
+set log = log_time("Output Procedure Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/proc_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_proc_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/proc_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_proc_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(sz)),
+		 (dummyt d2 with seq = 1)
+	plan d where
+		;Exclude patients with no account number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " " and
+		maxrec(d2, size(encounter->data[d.seq].proc,5))
+	join d2 where
+		encounter->data[d.seq].proc[d2.seq].3_proc_code > " "
+		and encounter->data[d.seq].proc[d2.seq].3_proc_code != "99999"
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							encounter->data[d.seq].1_facility,_separator,
+							encounter->data[d.seq].2_pat_acct_no,_separator,
+							encounter->data[d.seq].proc[d2.seq].3_proc_code,_separator,
+							encounter->data[d.seq].proc[d2.seq].4_proc_rank,_separator,
+							encounter->data[d.seq].proc[d2.seq].5_proc_type,_separator,
+							encounter->data[d.seq].proc[d2.seq].6_cpt4_mod_code,_separator,
+							encounter->data[d.seq].proc[d2.seq].7_proc_order_date,_separator,
+							encounter->data[d.seq].proc[d2.seq].8_proc_date,_separator,
+							encounter->data[d.seq].proc[d2.seq].9_proc_phys_id,_separator,
+							encounter->data[d.seq].proc[d2.seq].10_billed_charges,_separator,
+							encounter->data[d.seq].proc[d2.seq].11_proc_amt_paid,_separator,
+							encounter->data[d.seq].proc[d2.seq].12_proc_cost,_separator,
+							encounter->data[d.seq].proc[d2.seq].13_anestheist_phys_id,_separator,
+							encounter->data[d.seq].proc[d2.seq].14_site_of_care_id,_separator,
+							encounter->data[d.seq].proc[d2.seq].15_cpt4_mod_code2,_separator,
+							encounter->data[d.seq].proc[d2.seq].16_cpt4_mod_code3,_separator,
+							encounter->data[d.seq].proc[d2.seq].17_cpt4_mod_code4,_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row +1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Resource Data
+;**************************************************************
+if(e_file in ("RES","RESRM","ALL"))
+set log = log_time("Output Resource Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/res_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_res_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/res_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_res_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(sz)),
+		 (dummyt d2 with seq = 1)
+	plan d where
+		;Exclude patients with no account number or no total charges or that have the exclude_ind set
+		trim(encounter->data[d.seq].2_pat_acct_no) > " " and
+		encounter->data[d.seq].exclude_ind = 0 and
+		trim(encounter->data[d.seq].10_total_charges) > " " and
+		maxrec(d2,size(encounter->data[d.seq].resource,5))
+	join d2
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							encounter->data[d.seq].1_facility,_separator,
+							encounter->data[d.seq].2_pat_acct_no,_separator,
+							encounter->data[d.seq].resource[d2.seq].3_resource_id,_separator,
+							encounter->data[d.seq].resource[d2.seq].4_order_no,_separator,
+							encounter->data[d.seq].resource[d2.seq].5_service_date,_separator,
+							trim(format(encounter->data[d.seq].resource[d2.seq].6_resource_qty, "############" ), 4 ),_separator,
+							encounter->data[d.seq].resource[d2.seq].7_ord_date,_separator,
+							encounter->data[d.seq].resource[d2.seq].8_ord_phys_id,_separator,
+							encounter->data[d.seq].resource[d2.seq].9_ord_res_id,_separator,
+							encounter->data[d.seq].resource[d2.seq].10_total_res_cost,_separator,
+							encounter->data[d.seq].resource[d2.seq].11_specimen_type_code,_separator,
+							encounter->data[d.seq].resource[d2.seq].12_specimen_id,_separator,
+							encounter->data[d.seq].resource[d2.seq].13_rate_cd,_separator,
+							encounter->data[d.seq].resource[d2.seq].14_non_covered_charge,_separator,
+							trim(format(round(encounter->data[d.seq].resource[d2.seq].15_tot_charge, 2 ), "############.##" ), 4 ),
+							_separator,
+							encounter->data[d.seq].resource[d2.seq].16_tot_var_cost,_separator,
+							encounter->data[d.seq].resource[d2.seq].17_tot_fix_cost,_separator,
+							encounter->data[d.seq].resource[d2.seq].18_cpt_code,_separator,
+							encounter->data[d.seq].resource[d2.seq].19_rev_code,_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row + 1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Resource Master Data
+;**************************************************************
+if(e_file in ("RM","RESRM","ALL","SURG"))
+set log = log_time("Output Resource Master Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/rm_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_rm_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/rm_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_rm_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select into value(outp)
+	from (dummyt d with seq = value(resmaster->qual_cnt))
+	plan d
+	order resmaster->qual[d.seq].1_resource_id
+	head report
+		first_row = 1
+	detail
+		data_row = trim(build(
+							trim(resmaster->qual[d.seq].1_resource_id),_separator,
+							trim(resmaster->qual[d.seq].2_resource_desc),_separator,
+							trim(resmaster->qual[d.seq].3_effective_date),_separator,
+							trim(resmaster->qual[d.seq].4_rev_code),_separator,
+							trim(resmaster->qual[d.seq].5_res_dept_id),_separator,
+							trim(resmaster->qual[d.seq].6_res_dept_desc),_separator,
+							trim(resmaster->qual[d.seq].7_charge_amt),_separator,
+							trim(resmaster->qual[d.seq].8_total_cost),_separator,
+							trim(resmaster->qual[d.seq].9_capital_alloc),_separator,
+							trim(resmaster->qual[d.seq].10_expense_cost),_separator,
+							trim(resmaster->qual[d.seq].11_labor_cost),_separator,
+							trim(resmaster->qual[d.seq].12_overhead_alloc),_separator,
+							trim(resmaster->qual[d.seq].13_long_res_desc),_separator,
+							trim(resmaster->qual[d.seq].14_facility_id),_separator,
+							trim(resmaster->qual[d.seq].15_cpt_code),_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+		if(first_row = 0)
+			row + 1
+		else
+			first_row = 0
+		endif
+		col 0 data_row
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+;**************************************************************
+; Output Resource Master Data
+;**************************************************************
+if(e_file in ("DM","ALL"))
+set log = log_time("Output Resource Master Data")
+	if(fix_ind = 1)
+;		set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/dm_fix_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_dm_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+;			set outp = build(logical("cust_wh/"),"to_client_site/ctbri/premier/dm_",
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_dm_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ 
+	select distinct into value(outp)
+		resmaster->qual[d.seq].5_res_dept_id,
+		resmaster->qual[d.seq].6_res_dept_desc
+	from (dummyt d with seq = value(resmaster->qual_cnt))
+	plan d where resmaster->qual[d.seq].5_res_dept_id > " "
+	order resmaster->qual[d.seq].5_res_dept_id, resmaster->qual[d.seq].6_res_dept_desc
+	head report
+		first_row = 1
+	detail
+;		data_row = trim(build(
+;							"H",_separator,
+;							trim(resmaster->qual[d.seq].5_res_dept_id),_separator,
+;							trim(resmaster->qual[d.seq].6_res_dept_desc),_separator,
+;							"201301010000",_separator),3)
+;
+;		;only increment row if this isn't the first row printing
+;		if(first_row = 0)
+;			row + 1
+;		else
+;			first_row = 0
+;		endif
+;		col 0 data_row
+;
+		data_row = trim(build(
+							"H",_separator,
+							trim(resmaster->qual[d.seq].5_res_dept_id),_separator,
+							trim(resmaster->qual[d.seq].6_res_dept_desc),_separator,
+							"201301010000",_separator),3)
+ 
+		;only increment row if this isn't the first row printing
+ 
+		col 0 data_row
+		row + 1
+	with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+endif
+ 
+ 
+;**************************************************************
+; Output Event Data
+;**************************************************************
+if(e_file in ("EVT","ALL"))
+set log = log_time("Output Event Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_event_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_event_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output Event Data file:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = value(sz))
+        , (dummyt d2 with seq = 1)
+    plan d
+        where maxrec(d2,size(encounter->data[d.seq].event, 5))
+        and trim(encounter->data[d.seq].2_pat_acct_no)  > " "
+        and encounter->data[d.seq].exclude_ind          = 0
+    join d2
+        where encounter->data[d.seq].event[d2.seq].2_pat_acct_number > " "
+        and encounter->data[d.seq].event[d2.seq].hide_row = FALSE
+ 
+    order encounter->data[d.seq].2_pat_acct_no
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(encounter->data[d.seq].event[d2.seq].1_facility_id),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].2_pat_acct_number),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].3_event_type_code),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].4_event_date),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].5_event_reason_code),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].6_unit_loc_id),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].7_unit_loc_desc),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].8_Prev_Unit_Loc_ID),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].9_Site_of_Care_ID),_separator,
+                            trim(encounter->data[d.seq].event[d2.seq].10_Event_Minutes),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif
+ 
+ 
+;**************************************************************
+; Output Test Result Data
+;**************************************************************
+if(e_file in ("TR","ALL"))
+set log = log_time("Output TR Test Result Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_tr_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_tr_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output TR Data file:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = value(sz))
+        , (dummyt d2 with seq = 1)
+    plan d
+        where maxrec(d2,size(encounter->data[d.seq].test_result, 5))
+        and trim(encounter->data[d.seq].2_pat_acct_no)  > " "
+        and encounter->data[d.seq].exclude_ind          = 0
+    join d2
+        where encounter->data[d.seq].test_result[d2.seq].1_order_no > " "
+        and encounter->data[d.seq].test_result[d2.seq].hide_row = FALSE
+ 
+    order encounter->data[d.seq].2_pat_acct_no
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(encounter->data[d.seq].test_result[d2.seq].1_order_no),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].2_facility_id),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].3_pat_acct_number),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].4_service_date),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].5_test_id),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].6_test_desc),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].7_test_result),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].8_upper_ctrl_limit),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].9_lower_ctrl_limit),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].10_result_units),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].11_abnormal_flag_code),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].12_interpret_res_id),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].13_interpret_phys_id),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].14_test_result_status_code),_separator,
+                            trim(encounter->data[d.seq].test_result[d2.seq].15_qual_interpret),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif
+ 
+;**************************************************************
+; Output Pharmacy Dispense Data
+;**************************************************************
+if(e_file in ("PDA","ALL")) ;bw1
+	set log = log_time("Output Pharmacy Disense Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_pda_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_pda_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output Pharmacy Dispense Data:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = size(pha->qual,5))
+    plan d
+ 		where pha->qual[d.seq].exclude_ind = 0
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(pha->qual[d.seq].1_FACILITY_ID),_separator,
+                            trim(pha->qual[d.seq].2_PAT_ACCT_NO),_separator,
+                            trim(pha->qual[d.seq].3_RESOURCE_ID),_separator,
+                            trim(pha->qual[d.seq].4_FILLER_ORDER_NO),_separator,
+                            trim(pha->qual[d.seq].5_SERVICE_DATE),_separator,
+                            trim(pha->qual[d.seq].6_DISPENSE_QTY),_separator,
+                            trim(pha->qual[d.seq].7_DISPENSE_AMT),_separator,
+                            trim(pha->qual[d.seq].8_DISPENSE_UOM_CODE),_separator,
+                            trim(pha->qual[d.seq].9_TOTAL_RES_COSTS),_separator,
+                            trim(pha->qual[d.seq].10_NDC_CODE),_separator,
+                            trim(pha->qual[d.seq].11_LABEL_CODE),_separator,
+                            trim(pha->qual[d.seq].12_PROD_CODE),_separator,
+                            trim(pha->qual[d.seq].13_PKG_CODE),_separator,
+                            trim(pha->qual[d.seq].14_ADMIN_ROUTE_CODE),_separator
+                           ; trim(pha->qual[d.seq].15_PHARMACY_ORDER_NO),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif ;PDA, ALL
+ 
+;PDA_FUTURE - contains field 15 for future use by Premier; needs to be run and included in ALL
+if(e_file in ("PDA","ALL")) ;bw1
+	set log = log_time("Output Pharmacy Disense Future Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_pda_future_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_pda_future_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output Pharmacy Dispense Future Data:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = size(pha->qual,5))
+    plan d
+ 		where pha->qual[d.seq].exclude_ind = 0
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(pha->qual[d.seq].1_FACILITY_ID),_separator,
+                            trim(pha->qual[d.seq].2_PAT_ACCT_NO),_separator,
+                            trim(pha->qual[d.seq].3_RESOURCE_ID),_separator,
+                            trim(pha->qual[d.seq].4_FILLER_ORDER_NO),_separator,
+                            trim(pha->qual[d.seq].5_SERVICE_DATE),_separator,
+                            trim(pha->qual[d.seq].6_DISPENSE_QTY),_separator,
+                            trim(pha->qual[d.seq].7_DISPENSE_AMT),_separator,
+                            trim(pha->qual[d.seq].8_DISPENSE_UOM_CODE),_separator,
+                            trim(pha->qual[d.seq].9_TOTAL_RES_COSTS),_separator,
+                            trim(pha->qual[d.seq].10_NDC_CODE),_separator,
+                            trim(pha->qual[d.seq].11_LABEL_CODE),_separator,
+                            trim(pha->qual[d.seq].12_PROD_CODE),_separator,
+                            trim(pha->qual[d.seq].13_PKG_CODE),_separator,
+                            trim(pha->qual[d.seq].14_ADMIN_ROUTE_CODE),_separator,
+                            trim(pha->qual[d.seq].15_PHARMACY_ORDER_NO),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif ;PDA_F, ALL
+ 
+ 
+;PODM - contains field 4&15 for future use by Premier; needs to be run and included in ALL
+if(e_file in ("PDA","ALL")) ;bw1
+	set log = log_time("Output Pharmacy pdom Disense Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_podm_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_podm_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output Pharmacy PODM Data:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = size(pha->qual,5))
+    plan d
+ 		where pha->qual[d.seq].exclude_ind = 0
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(pha->qual[d.seq].4_FILLER_ORDER_NO),_separator,
+                            trim(pha->qual[d.seq].15_PHARMACY_ORDER_NO),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif ;PODM, ALL
+ 
+;bw2
+;**************************************************************
+; Output Pharmacy Admin Data
+;**************************************************************
+if(e_file in ("PO","ALL"))
+	set log = log_time("Output Pharmacy Administration Data")
+	if(fix_ind = 1)
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_po_fix_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+	else
+		if(ofile = "Y")
+		  set outp = build("/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier_po_",
+							 format(cnvtdatetime(curdate,curtime3),"MMDDYYYY_HHMMSS;;D"),".txt")
+		endif
+	endif
+ set log = log_time(build("Output Pharmacy Administration Data:::", outp))
+ 
+	select into value(outp)
+ 
+    from
+        (dummyt d with seq = size(rxadmin->qual,5))
+    plan d
+    	where rxadmin->qual[d.seq].exclude_ind = 0
+ 
+    head report
+        first_row = 1
+ 
+    detail
+        data_row = trim(build(
+                            trim(rxadmin->qual[d.seq].1_FACILITY_ID),_separator,
+                            trim(rxadmin->qual[d.seq].2_PAT_ACCT_NO),_separator,
+                            trim(rxadmin->qual[d.seq].3_RESOURCE_ID),_separator,
+                            trim(rxadmin->qual[d.seq].4_FILLER_ORDER_NO),_separator,
+                            trim(rxadmin->qual[d.seq].5_ORDER_DATE),_separator,
+                            trim(rxadmin->qual[d.seq].6_admin_route),_separator,
+                            trim(rxadmin->qual[d.seq].7_order_dose),_separator,
+                            trim(rxadmin->qual[d.seq].8_order_dose_uom_code),_separator,
+                            trim(rxadmin->qual[d.seq].9_order_duration),_separator,
+                            trim(rxadmin->qual[d.seq].10_order_duration_uom_code),_separator,
+                            trim(rxadmin->qual[d.seq].11_order_freq),_separator,
+                            trim(rxadmin->qual[d.seq].12_order_freq_desc),_separator,
+                            trim(rxadmin->qual[d.seq].13_ordering_resident),_separator,
+                            trim(rxadmin->qual[d.seq].14_ordering_physician),_separator
+                            )
+                         ,3)
+ 
+        ;only increment row if this isn't the first row printing
+        if(first_row = 0)
+            row + 1
+        else
+            first_row = 0
+        endif
+        col 0 data_row
+ 
+    foot report
+        NULL
+ 
+    with nocounter, noheading, formfeed = none, format = variable, format = stream, maxcol = 30000, maxrow = 1
+ 
+endif ;PO, ALL
+ 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+ 
+;call echorecord(encounter)
+ 
+#NOREC
+ 
+IF(sz = 0 and fix_ind = 0)
+	select into value(outp)
+	from dummyt d
+	plan d
+	detail
+		"No Records found meeting criteria - please check date range"
+	with nocounter
+endif
+set last_mod = " "
+ 
+;declare dclcom = vc
+;declare dclstat = i4
+;set dclcom = build2("zip ", "/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/premier.zip", " ",
+;"/cerner/d_p698/data/batch_files/ccl_extracts/PremierQuality/amj_premier*.txt" )
+;set dclstat = 0
+;call dcl(dclcom, size(trim(dclcom)), dclstat)
+;call echo(dclcom)
+;call echo(build2("command status: ", dclstat))
+ 
+end
+go
+ 

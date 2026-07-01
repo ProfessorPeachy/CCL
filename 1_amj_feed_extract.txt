@@ -1,0 +1,427 @@
+
+drop program 1_amj_feed_extract go
+create program 1_amj_feed_extract
+
+
+declare num         = i4
+
+declare MRN_CD      = f8 with constant(uar_get_code_by("DISPLAYKEY",319,"MRN")),protect
+declare FIN_CD      = f8 with constant(uar_get_code_by("DISPLAYKEY",319,"FINNBR")),protect
+;run for Ops Scheduler
+if(validate(request->batch_selection,"none") != "none")
+    set bdate = datetimefind(cnvtlookbehind("1,D"),"D","B","B")
+    set edate = datetimefind(cnvtlookbehind("1,D"),"D","E","E")
+else;ad hoc run
+    set bdate = concat($START_DATE,' 00:00:00')
+    set edate = concat($END_DATE,' 23:59:59')
+endif
+
+;set outputfile = 
+;build("/cerner/d_p698/data/batch_files/ccl_extracts/feed/feed_wayne_",format(curdate,"mmddyyyy;;d"),
+;      format(curtime,"hhmmss;;m"),".csv")
+;set outputfile = 
+;build("/cerner/d_p698/data/batch_files/ccl_extracts/feed/testfeed_wayne_",format(curdate,"mmddyyyy;;d"),
+;      format(curtime,"hhmmss;;m"),".csv")
+;build("/cerner/d_p698/ccluserdir/feed_test_",format(curdate,"mmddyyyy;;d"),format(curtime,"hhmmss;;m"),".csv")
+/********************************************************************
+            RECORD STRUCTURE
+********************************************************************/
+free record rec
+record rec
+(1 cnt      =i4
+ 1 qual[*]
+    2 eid                   = f8
+    2 pid                   = f8
+    2 PatientFloor          = vc
+    2 PatientFloorDescription   = vc
+    2 Level1Code            = vc
+    2 Level2Code            = vc
+    2 PatientName           = vc
+    2 PatientGender         = vc
+    2 PatientRace           = vc
+    2 PatientEthnicity      = vc
+    2 PatientLanguage       = vc
+    2 PatientEncntrType     = vc
+    2 PatientMedService     = vc
+    2 AttendingPhysician    = vc
+    2 AttendingPhyscianNPI  = vc
+    2 Level3Description     = vc
+    2 MedRecNbr             = vc
+    2 FinNbr                = vc
+    2 Facility              = vc
+    2 FacilityDesc          = vc
+    2 AdmitDateTime         = vc
+    2 DateOfBirth           = vc
+    2 MobileNbr             = vc
+    2 HomeNbr               = vc
+    2 PatientEmail          = vc
+    2 PatientAddress        = vc
+    2 PatientCity           = vc
+    2 PatientState          = vc
+    2 PatientZipCode        = vc
+    2 PatientPrimaryIns     = vc
+    2 PatientPrimaryInsType = vc
+    2 PatientPrimaryInsID   = vc
+    2 PatientSecondaryIns   = vc
+    2 PatientSecondaryInsType   = vc
+    2 PatientSecondaryInsID     = vc
+    2 PatientTertiaryIns        = vc
+    2 PatientTertiaryInsType    = vc
+    2 PatientTertiaryInsID      = vc
+)
+
+
+declare encntr_type_parser_str = vc 
+
+set encntr_type_parser_str = "1=1"
+;declare encntr_parser_str = vc
+
+
+if ($fac = 21250831.00) ;wayne
+    set encntr_type_parser_str = " e.encntr_type_cd = 309312.00" ;observation
+	set outputfile = 
+	build("/cerner/d_p698/data/batch_files/ccl_extracts/feed/feed_wayne_",format(curdate,"mmddyyyy;;d"),
+	      format(curtime,"hhmmss;;m"),".csv")    
+elseif ($fac =  4398147895.00) ;mauy regional occupational health
+    set encntr_type_parser_str = " e.encntr_type_cd IN (2552817269.00,22282402.00)" ;CLINIC AND CLIENT
+	set outputfile = 
+	build("/cerner/d_p698/data/batch_files/ccl_extracts/feed/feed_occhealth_",format(curdate,"mmddyyyy;;d"),
+	      format(curtime,"hhmmss;;m"),".csv")    
+	;set encntr_type_parser_str = "1=1"
+endif
+
+/********************************************************************
+            DISCHARGED PATIENTS
+********************************************************************/   
+select into $outdev; "NL:"
+e.encntr_id
+,e.person_id
+,uar_get_code_display(e.encntr_type_cd)
+,e.encntr_type_cd
+from
+encounter       e
+,encntr_alias   ea
+,person         p 
+;plan e where e.disch_dt_tm between cnvtdatetime(cnvtdate(01012025),0)
+;         and cnvtdatetime(cnvtdate(01312025),235959)
+plan e where e.disch_dt_tm between cnvtdatetime(bdate) and cnvtdatetime(edate)
+and e.loc_facility_cd =$fac; $FAC;  21250831.00
+and parser(encntr_type_parser_str)
+and e.active_ind = 1
+;and ((e.loc_facility_cd  = 21250831.00 and e.encntr_type_cd = 309312.00) ;wayne
+;or (e.loc_facility_cd  = 4398147895.00 and e.encntr_type_cd in (2552817269.00,22282402.00))) ;occ health       
+;     
+;and e.encntr_type_cd = 309312.00
+join ea where ea.encntr_id = e.encntr_id
+          and ea.active_ind = 1
+          and ea.encntr_alias_type_cd in (MRN_CD
+                                          ,FIN_CD
+                                          )
+join p where p.person_id = e.person_id
+         and p.active_ind = 1
+order by e.encntr_id
+;with nocounter, format, separator = " "    
+
+head report
+    cnt = 0
+    stat = alterlist(rec->qual,10)
+    
+
+head e.encntr_id
+    cnt     = cnt + 1
+    if(mod(cnt,10)=1 and cnt !=1)
+        stat = alterlist(rec->qual,cnt+9)
+    endif
+    
+    rec->qual[cnt].eid          = e.encntr_id
+    rec->qual[cnt].pid          = e.person_id
+    rec->qual[cnt].AdmitDateTime    = format(e.reg_dt_tm,"MM/dd/yyyy HH:mm;;d")
+    rec->qual[cnt].Facility         = uar_get_code_display(e.loc_facility_cd)
+    rec->qual[cnt].FacilityDesc     = uar_get_code_description(e.loc_facility_cd)
+    rec->qual[cnt].PatientFloor     = uar_get_code_display(e.loc_nurse_unit_cd)
+    rec->qual[cnt].PatientEncntrType    = uar_get_code_display(e.encntr_type_cd)
+    rec->qual[cnt].PatientMedService    = uar_get_code_display(e.med_service_cd)
+    rec->qual[cnt].PatientGender        = uar_get_code_display(p.sex_cd)
+    rec->qual[cnt].PatientEthnicity     = uar_get_code_display(p.ethnic_grp_cd)
+    rec->qual[cnt].PatientLanguage      = uar_get_code_display(p.language_cd)
+    rec->qual[cnt].PatientName          = p.name_full_formatted
+    rec->qual[cnt].PatientRace          = uar_get_code_display(p.race_cd)
+    rec->qual[cnt].DateOfBirth          = datebirthformat(p.birth_dt_tm,p.birth_tz,0,"MM/dd/yyyy;;zzz")
+    
+    
+detail
+    if(ea.encntr_alias_type_cd = MRN_CD)
+        rec->qual[cnt].MedRecNbr        = ea.alias
+   elseif(ea.encntr_alias_type_cd = FIN_CD)
+        rec->qual[cnt].FinNbr           = ea.alias
+   endif
+
+    if(rec->qual[cnt].PatientFloor like "2*")
+        rec->qual[cnt].PatientFloorDescription = "Second Floor"
+    elseif(rec->qual[cnt].PatientFloor like "1*")
+        rec->qual[cnt].PatientFloorDescription = "First Floor"
+    elseif(rec->qual[cnt].PatientFloor like "3*")
+        rec->qual[cnt].PatientFloorDescription = "Third Floor"
+    endif   
+foot report
+    if(cnt>0)
+        rec->cnt = cnt
+        stat = alterlist(rec->qual,cnt)
+    endif
+with nocounter,time=90
+/********************************************************************
+           ATTENDING PHYSICIAN
+********************************************************************/ 
+select into "NL:"
+
+from
+encntr_prsnl_reltn epr
+,prsnl              pr
+,prsnl_alias        pa
+plan epr where expand(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+          and epr.encntr_prsnl_r_cd = 1119.00
+          and epr.active_ind = 1
+join pr where epr.prsnl_person_id = pr.person_id
+          and pr.active_ind = 1
+join pa where pa.person_id = pr.person_id
+          and pa.prsnl_alias_type_cd = 4038127.00
+order by epr.encntr_id
+
+head epr.encntr_id
+    pos = locateval(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+    
+    rec->qual[pos].AttendingPhysician = pr.name_full_formatted
+    rec->qual[pos].AttendingPhyscianNPI = pa.alias
+    rec->qual[pos].Level3Description = uar_get_code_display(epr.encntr_prsnl_r_cd)
+    
+with nocounter,expand=2,time=90
+/********************************************************************
+            INSURANCE DETAILS
+********************************************************************/ 
+select into "NL:"
+    health_plan = uar_get_code_display(hp.plan_type_cd)
+from
+    encntr_plan_reltn       epr
+    ,encntr_person_reltn    ep
+    ,health_plan            hp
+plan epr
+    where expand(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+      and epr.active_ind = 1
+      and epr.beg_effective_dt_tm <= cnvtdatetime(curdate,curtime3)
+      and epr.end_effective_dt_tm >= cnvtdate(12302100)
+      and epr.priority_seq in (1,2,3)
+join ep
+    where ep.encntr_id              = epr.encntr_id
+      and ep.related_person_id      = epr.person_id
+      and ep.beg_effective_dt_tm    <= cnvtdatetime(curdate,curtime3)
+join hp
+    where hp.health_plan_id         = epr.health_plan_id
+      and hp.active_ind             = 1
+      and hp.beg_effective_dt_tm    <= cnvtdatetime(curdate,curtime3)
+order by
+    epr.encntr_id
+ 
+head epr.encntr_id
+    pos = locateval(num,1,size(rec->qual,5),epr.encntr_id,rec->qual[num].eid)
+ 
+detail
+    if(epr.priority_seq = 1)
+        rec->qual[pos].PatientPrimaryIns    = hp.plan_name
+        rec->qual[pos].PatientPrimaryInsType = uar_get_code_display(hp.plan_type_cd)
+        rec->qual[pos].PatientPrimaryInsID = uar_get_code_display(hp.financial_class_cd)
+    elseif(epr.priority_seq = 2)
+        rec->qual[pos].PatientSecondaryIns    = hp.plan_name
+        rec->qual[pos].PatientSecondaryInsType  = uar_get_code_display(hp.plan_type_cd)
+        rec->qual[pos].PatientSecondaryInsID = uar_get_code_display(hp.financial_class_cd)
+    elseif(epr.priority_seq = 3)
+        rec->qual[pos].PatientTertiaryIns   = hp.plan_name
+        rec->qual[pos].PatientTertiaryInsType   = uar_get_code_display(hp.plan_type_cd)
+        rec->qual[pos].PatientTertiaryInsID = uar_get_code_display(hp.financial_class_cd)
+    endif
+ 
+ 
+with nocounter,expand=2,time=90
+/********************************************************************
+            ADDRESS DETAILS
+********************************************************************/ 
+select into "NL:"
+    a.parent_entity_id
+from
+    address a
+    ,phone ph
+plan a
+    where expand(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+      and a.address_type_cd = 756.0
+      and a.parent_entity_name = "PERSON"
+      and a.active_ind = 1
+join ph
+    where ph.parent_entity_id = a.parent_entity_id
+      and ph.phone_type_cd in (25803971.00;perferred
+                               ,170.0;home
+                               ,4149712.0;mobile
+                              )
+      and ph.parent_entity_name = "PERSON"
+      and ph.active_ind = 1
+order by
+    a.parent_entity_id
+ 
+head a.parent_entity_id
+    pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+ 
+    rec->qual[pos].PatientAddress = 
+        if(a.street_addr2 != "")
+            build2(trim(a.street_addr)," ",trim(a.street_addr2))
+         else
+            trim(a.street_addr)
+         endif
+    rec->qual[pos].PatientCity = a.city
+    rec->qual[pos].PatientState = uar_get_code_display(a.state_cd)
+    
+    
+    if(size(trim(a.zipcode))<9)
+        rec->qual[pos].PatientZipCode = a.zipcode
+    else
+        rec->qual[pos].PatientZipCode = format(a.zipcode,"#####-####")
+    endif
+
+detail 
+    if(ph.phone_type_cd = 4149712.00)   
+        rec->qual[pos].MobileNbr = format(ph.phone_num,"###-###-####")
+    elseif(ph.phone_type_cd = 170.00)
+        rec->qual[pos].HomeNbr = format(ph.phone_num,"###-###-####")
+     endif
+with nocounter,expand=2,time=90
+/********************************************************************
+            EMAIL DETAILS
+********************************************************************/ 
+select into "NL:"
+    a.parent_entity_id
+from
+    address a
+    ,phone ph
+plan a
+    where expand(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+      and a.address_type_cd = 755.0
+      and a.parent_entity_name = "PERSON"
+      and a.active_ind = 1
+join ph
+    where ph.parent_entity_id = a.parent_entity_id
+;      and ph.phone_type_cd in (25803971.00;perferred
+;                               ,170.0;home
+;                               ,4149712.0;mobile
+;                              )
+      and ph.parent_entity_name = "PERSON"
+      and ph.active_ind = 1
+order by
+    a.parent_entity_id
+ 
+head a.parent_entity_id
+    pos = locateval(num,1,size(rec->qual,5),a.parent_entity_id,rec->qual[num].pid)
+ 
+    rec->qual[pos].PatientEmail = a.street_addr
+    
+with nocounter,expand=2,time=90
+call echorecord(rec)
+/********************************************************************
+            OUTPUT SECTION
+********************************************************************/  
+declare quote = vc with public, noconstant('"')
+declare nullfield = vc with public,noconstant('""')
+if($OUTPUT_LOCATION = "S")
+select into $outdev
+;    location = trim(substring(1,20,rec->qual[d1.seq].PatientFloor))
+    patient_name = trim(substring(1,220,rec->qual[d1.seq].PatientName))
+    ,MRN = trim(substring(1,20,rec->qual[d1.seq].MedRecNbr))
+    ,FIN = trim(substring(1,20,rec->qual[d1.seq].FinNbr))
+    ,EnctrDateTime = trim(substring(1,20,rec->qual[d1.seq].AdmitDateTime))
+    ,DOB = trim(substring(1,20,rec->qual[d1.seq].DateOfBirth))
+    ,CellPhone = trim(substring(1,20,rec->qual[d1.seq].MobileNbr))
+    ,HomePhone = trim(substring(1,20,rec->qual[d1.seq].HomeNbr))
+    ,Email = trim(substring(1,220,rec->qual[d1.seq].PatientEmail))
+    ,City = trim(substring(1,20,rec->qual[d1.seq].PatientCity))
+    ,State = trim(substring(1,20,rec->qual[d1.seq].PatientState))
+    ,Zip = trim(substring(1,20,rec->qual[d1.seq].PatientZipCode))
+    ,Gender = trim(substring(1,20,rec->qual[d1.seq].PatientGender))
+    ,Race = trim(substring(1,40,rec->qual[d1.seq].PatientRace))
+    ,Ethnicity = trim(substring(1,40,rec->qual[d1.seq].PatientEthnicity))
+    ,Language = trim(substring(1,40,rec->qual[d1.seq].PatientLanguage))
+    ,PayorID = trim(substring(1,40,rec->qual[d1.seq].PatientPrimaryIns))
+    ,PayorName = trim(substring(1,220,rec->qual[d1.seq].PatientPrimaryIns))
+    ,PayorType = trim(substring(1,220,rec->qual[d1.seq].PatientPrimaryInsType))
+    ,ApptType = trim(substring(1,40,rec->qual[d1.seq].PatientMedService))
+    ,AttendingNPI = trim(substring(1,40,rec->qual[d1.seq].AttendingPhyscianNPI))
+    ,Level3Description = trim(substring(1,40,rec->qual[d1.seq].AttendingPhysician))
+    ,Level1Code = trim(substring(1,100,rec->qual[d1.seq].Facility))
+    ,Level1Description = trim(substring(1,100,rec->qual[d1.seq].FacilityDesc))
+    ,Level2Code = trim(substring(1,100,rec->qual[d1.seq].PatientFloor))
+    ,Level2Description = trim(substring(1,120,rec->qual[d1.seq].PatientFloorDescription))
+from
+    (dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1 where d1.seq > 0
+
+
+
+with format,separator="",nocounter,time=90
+elseif($OUTPUT_LOCATION = "F")
+;select into $outdev
+select into value(outputfile)
+    patient_name = trim(substring(1,220,rec->qual[d1.seq].PatientName))
+    ,MRN = trim(substring(1,20,rec->qual[d1.seq].MedRecNbr))
+    ,FIN = trim(substring(1,20,rec->qual[d1.seq].FinNbr))
+    ,EnctrDateTime = trim(substring(1,20,rec->qual[d1.seq].AdmitDateTime))
+    ,DOB = trim(substring(1,20,rec->qual[d1.seq].DateOfBirth))
+    ,CellPhone = trim(substring(1,20,rec->qual[d1.seq].MobileNbr))
+    ,HomePhone = trim(substring(1,20,rec->qual[d1.seq].HomeNbr))
+    ,Email = trim(substring(1,220,rec->qual[d1.seq].PatientEmail))
+    ,City = trim(substring(1,20,rec->qual[d1.seq].PatientCity))
+    ,State = trim(substring(1,20,rec->qual[d1.seq].PatientState))
+    ,Zip = trim(substring(1,20,rec->qual[d1.seq].PatientZipCode))
+    ,Gender = trim(substring(1,20,rec->qual[d1.seq].PatientGender))
+    ,Race = trim(substring(1,40,rec->qual[d1.seq].PatientRace))
+    ,Ethnicity = trim(substring(1,40,rec->qual[d1.seq].PatientEthnicity))
+    ,Language = trim(substring(1,40,rec->qual[d1.seq].PatientLanguage))
+    ,PayorID = trim(substring(1,40,rec->qual[d1.seq].PatientPrimaryIns))
+    ,PayorName = trim(substring(1,220,rec->qual[d1.seq].PatientPrimaryIns))
+    ,PayorType = trim(substring(1,220,rec->qual[d1.seq].PatientPrimaryInsType))
+    ,ApptType = trim(substring(1,40,rec->qual[d1.seq].PatientMedService))
+    ,AttendingNPI = trim(substring(1,40,rec->qual[d1.seq].AttendingPhyscianNPI))
+    ,Level3Description = trim(substring(1,40,rec->qual[d1.seq].AttendingPhysician))
+    ,Level1Code = trim(substring(1,20,rec->qual[d1.seq].Facility))
+    ,Level1Description = trim(substring(1,20,rec->qual[d1.seq].Facility))
+    ,Level2Code = trim(substring(1,20,rec->qual[d1.seq].PatientFloor))
+    ,Level2Description = trim(substring(1,120,rec->qual[d1.seq].PatientFloorDescription))
+from
+    (dummyt d1 with seq=value(size(rec->qual,5)))
+plan d1 where d1.seq > 0
+
+head report
+    line0 = build(quote,"Patient Name",quote,",",quote,"MRN",quote,",",quote,"Encounter ID",quote,",",
+                  quote,"Encounter DateTime",quote,",",quote,"Patient DOB",quote,",",quote,"Cell Phone",quote,",",
+                  quote,"Home Phone",quote,",",quote,"Email Address",quote,",",quote,"Patient City",quote,",",
+                  quote,"Patient State",quote,",",quote,"Patient Zip",quote,",",quote,"Birth Gender",quote,",",
+                  quote,"Gender Identity",quote,",",quote,"Race",quote,",",quote,"Ethnicity",quote,",",
+                  quote,"Language",quote,",",quote,"Payor ID",quote,",",quote,"Payor Name",quote,",",
+                  quote,"Payor Type",quote,",",quote,"Appointment Type",quote,",",quote,"Level_1_Code",quote,",",
+                  quote,"Level_1_Description",quote,",",quote,"Level 2 Code",quote,",",quote,"Level 2 Description",quote,",",
+                  quote,"Provider NPI/Level 3 Code",quote,",",quote,"Level 3 Description",quote)
+    col 0 line0
+    row+1
+
+detail
+    line1 = build(quote,Patient_Name,quote,",",quote,MRN,quote,",",quote,FIN,quote,",",quote,ENCTRDATETIME,quote,
+                  ",",quote,DOB,quote,",",quote,CELLPHONE,quote,",",quote,HOMEPHONE,quote,",",
+                  quote,EMAIL,quote,",",quote,CITY,quote,",",quote,STATE,quote,",",quote,ZIP,quote,",",
+                  quote,GENDER,quote,",",quote,"",quote,",",quote,RACE,quote,",",quote,ETHNICITY,quote,",",quote,LANGUAGE,quote,",",
+                  quote,PAYORID,quote,",",quote,PAYORNAME,quote,",",quote,PAYORTYPE,quote,",",quote,ApptType,quote,",",
+                  quote,LEVEL1CODE,quote,",",quote,LEVEL1DESCRIPTION,quote,",",
+                  quote,LEVEL2CODE,quote,",",quote,LEVEL2DESCRIPTION,quote,",",quote,ATTENDINGNPI,quote,",",
+                  quote,LEVEL3DESCRIPTION,quote
+                  )
+    col 0 line1
+    row+1
+    
+with nocounter,maxcol=5000,format=variable,separator=",",noheading,maxrow=1,time=90
+
+endif       
+end
+go

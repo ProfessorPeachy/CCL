@@ -1,0 +1,203 @@
+drop program amj_date_conversions_test go
+create program amj_date_conversions_test
+
+prompt 
+    "Output to File/Printer/MINE" = "MINE",
+    "Starting Prescription Date:" = "CURDATE",
+    "Ending Prescription Date:" = "CURDATE" 
+with OUTDEV, START_DATE, END_DATE
+
+; ---------------------------------------------------------------------------
+; Variable Declarations
+; ---------------------------------------------------------------------------
+
+declare RUN_DATE_START = dq8 with public
+declare RUN_DATE_END = dq8 with public
+declare Temp_Date_vc = vc with public
+
+declare run_first_half = i4
+declare first_half_start = dq8
+declare first_half_end = dq8
+declare second_half_start = dq8
+declare second_half_end = dq8
+
+declare rundate = vc
+declare runmonth = vc
+declare runyear = vc
+
+declare currentday_dd = vc
+declare currentmonth_mmm = vc
+declare currentyear_yyyy = vc
+declare currentdate = vc
+
+declare last_month_date_start = dq8
+declare last_month_date_end = dq8
+declare lastmonthday_dd = vc
+declare lastmonthmonth_mmm = vc
+declare lastmonthyear_yyyy = vc
+declare lastmonthdate = vc
+
+declare STARTRUN = vc
+declare ENDRUN = vc
+
+; ---------------------------------------------------------------------------
+; Evaluate Current Date
+; ---------------------------------------------------------------------------
+
+set currentdate = format(curdate, "DD-MMM-YYYY;;D")
+set currentday_dd = substring(1, 2, currentdate)
+set currentmonth_mmm = substring(4, 3, currentdate)
+set currentyear_yyyy = substring(8, 4, currentdate)
+
+call echo(build2("currentday_dd = ", currentday_dd))
+call echo(build2("currentmonth_mmm = ", currentmonth_mmm))
+call echo(build2("currentyear_yyyy = ", currentyear_yyyy))
+call echo(build2("currentdate = ", currentdate))
+
+; Determine half-month run logic
+if (cnvtint(currentday_dd) >= 16)
+    set run_first_half = 1   ; Run for 1st half of current month
+else
+    set run_first_half = 0   ; Run for 2nd half of last month
+endif
+
+; Force to 2nd half for debug (optional)
+set run_first_half = 0
+
+; ---------------------------------------------------------------------------
+; First Half of Current Month
+; ---------------------------------------------------------------------------
+
+if (run_first_half = 1)
+    set first_half_start = cnvtdatetime(build2("01-", currentmonth_mmm, "-", currentyear_yyyy, " 00:00"))
+    set first_half_end = cnvtdatetime(build2("15-", currentmonth_mmm, "-", currentyear_yyyy, " 23:59"))
+
+    call echo(build2("first_half_start = ", format(first_half_start, "DD-MMM-YYYY HH:MM;;D")))
+    call echo(build2("first_half_end   = ", format(first_half_end, "DD-MMM-YYYY HH:MM;;D")))
+
+    set RUN_DATE_START = first_half_start
+    set RUN_DATE_END = first_half_end
+endif
+
+; ---------------------------------------------------------------------------
+; Second Half of Last Month
+; ---------------------------------------------------------------------------
+
+if (run_first_half = 0)
+    set last_month_date_start = cnvtdatetime(datetimefind(cnvtlookbehind(curdate, "1,M"), "M", "B", "B"))
+    set last_month_date_end = cnvtdatetime(datetimefind(cnvtlookbehind(curdate, "1,M"), "M", "E", "E"))
+
+    call echo(build2("last_month_date_start = ", format(last_month_date_start, "DD-MMM-YYYY;;D")))
+    call echo(build2("last_month_date_end   = ", format(last_month_date_end, "DD-MMM-YYYY;;D")))
+
+    set lastmonthdate = format(last_month_date_end, "DD-MMM-YYYY;;D")
+    set lastmonthday_dd = substring(1, 2, lastmonthdate)
+    set lastmonthmonth_mmm = substring(4, 3, lastmonthdate)
+    set lastmonthyear_yyyy = substring(8, 4, lastmonthdate)
+
+    call echo(build2("lastmonthday_dd = ", lastmonthday_dd))
+    call echo(build2("lastmonthmonth_mmm = ", lastmonthmonth_mmm))
+    call echo(build2("lastmonthyear_yyyy = ", lastmonthyear_yyyy))
+    call echo(build2("lastmonthdate = ", lastmonthdate))
+
+    set second_half_start = cnvtdatetime(build2("16-", lastmonthmonth_mmm, "-", lastmonthyear_yyyy, " 00:00"))
+    set second_half_end = cnvtdatetime(build2(lastmonthday_dd, "-", lastmonthmonth_mmm, "-", lastmonthyear_yyyy, " 23:59"))
+
+    call echo(build2("second_half_start = ", format(second_half_start, "DD-MMM-YYYY HH:MM;;D")))
+    call echo(build2("second_half_end   = ", format(second_half_end, "DD-MMM-YYYY HH:MM;;D")))
+
+    set RUN_DATE_START = second_half_start
+    set RUN_DATE_END = second_half_end
+endif
+
+; ---------------------------------------------------------------------------
+; Final RUN DATES
+; ---------------------------------------------------------------------------
+
+set STARTRUN = format(RUN_DATE_START, "DD-MMM-YYYY HH:MM;;D")
+set ENDRUN = format(RUN_DATE_END, "DD-MMM-YYYY HH:MM;;D")
+
+call echo(build2("RUN_DATE_START = ", STARTRUN))
+call echo(build2("RUN_DATE_END   = ", ENDRUN))
+
+select into $outdev
+from dummyt
+head report
+col 0 "Date Range Start"
+col 30 RUN_DATE_START
+row+1
+col 0 "Date Range End"
+col 30 RUN_DATE_END
+row+1
+col 10 "RUN DATES:"
+col 30 STARTRUN
+col 60 "TO"
+col 70 ENDRUN
+row+1
+with nocounter, maxcol = 200
+
+;call echo(format(curdate, ";;Q")) go		;10-AUG-2022 00:00:00.00
+;call echo(format(curdate, "YYYY ;;Q")) go	;2022
+;call echo(format(curdate, "YYYY MM ;;Q")) go	;2022 08
+;call echo(format(curdate, "YYYY_MM ;;Q")) go	;2022_08
+;call echo(format(curdate, "YYYY_MM;;Q")) go	;2022_08
+;declare filedate = vc with noconstant(format(trim(curdate),"YYYY_MM;;Q")), protect go
+;declare filedate = vc with noconstant(format(cnvtdatetime($BEG_DT),"YYYY_MM;;D")), protect
+;call echo(filedate) go
+;CALL ECHO(cnvtdatetime("10/19/22 00:00")) GO
+;CALL ECHO(cnvtdatetime("02-MAR-2024")) GO
+
+
+CALL ECHO(cnvtdatetime("07-JUL-2024 23:59")) GO
+CALL ECHO(cnvtdatetime("07-JUL-2024 00:00")) GO
+
+
+;CALL ECHO(FORMAT(cnvtdatetime("02-MAR-2024"),"ddmmmyy_hhmm;;q" )) GO
+
+;; DECLARE file_name = vc WITH protect ,constant (trim (cnvtlower (build2 ("giquic_" ,trim (format (
+;;       cnvtdatetime ( $SDT ) ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_to_" ,trim (format (cnvtdatetime ( $EDT )
+;;       ,"ddmmmyy_hhmm;;q" ) ,3 ) ,"_" ,trim ( $FAC_ID ,3 ) ,"_" ,trim ( $NPI ,3 ) ,"_extract.txt" )
+;;        ) ,3 ) )
+;
+;;call echo(trim (format (cnvtdatetime (curdate,0) ,"ddmmmyy_hhmm;;q" ) ,3 ) ) go
+;call echo(format(cnvtdatetime(curdate,curtime3),'mmddyyyyhhmm;;Q')) go
+;call echo(format(curdate,'mmddyyyyhhmm;;d')) go
+;
+;
+DECLARE EVENTDATESTART = DQ8 GO
+SET EVENTDATESTART = CNVTDATETIME(CURDATE-3,0) GO
+CALL ECHO(EVENTDATESTART) GO
+CALL echo(build2("Date Selected: ",format(cnvtdatetime(VALUE(EVENTDATESTART),0),"@SHORTDATE"))) GO
+CALL echo(build2("Date Selected: ",format(cnvtdatetime(VALUE(EVENTDATESTART),0),"DD-MMM-YYYY;;D"))) GO
+
+DECLARE LOOP_DATE = DQ8 
+SET LOOP_DATE = CNVTDATETIME(CURDATE-3,0) 
+CALL ECHO(LOOP_DATE) 
+CALL echo(build2("Date Selected: ",format(cnvtdatetime(VALUE(LOOP_DATE),0),"DD-MMM-YYYY;;D"))) 
+;
+;declare bdate = dq8 with constant(CNVTDATETIME(EVENTDATESTART,0)), PROTECT GO
+;CALL ECHO(bdate) GO
+;
+;;mmddyyyy
+;
+;call echo(cnvtdatetime(cnvtdate(08182023),0)) go
+;
+;;  cnvttime(104) "HH:MM;;M"
+;;  , substring(4,  2, format(cnvttime(104), "HH:MM;;M"))
+;
+;
+;call echo(format(curtime,"hhmmss;;m")) go
+
+;call echo(curtime) go
+;call echo(FORMAT(SYSDATE, "DD-MMM-YYYY;;D")) go
+;call echo(CONCAT("/cerner/d_p698/data/batch_files/ccl_extracts/vandycardiologyprofee/Cardiology_Profee_Extract_",  FORMAT(SYSDATE, "DD-MMM-YYYY;;D"), ".pdf")) go
+;call echo(CONCAT("/cerner/d_p698/data/batch_files/ccl_extracts/vandycardiologyprofee/Cardiology_Profee_Extract_",  FORMAT(SYSDATE, "DD-MMM-YYYY;;D"), ".pdf")) go
+;call echo("cnvtdate curdate,curtime3") go
+;CALL ECHO(cnvtdate(curdate,curtime3)) GO
+;call echo("cnvttime curtime3") go
+;CALL ECHO(cnvttime(curtime3)) GO
+;call echo("cnvttime curdate, curtime3") go
+;CALL ECHO(cnvttime(curdate,curtime3)) GO
+
+end
+go
